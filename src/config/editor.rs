@@ -77,6 +77,13 @@ pub struct EditorToml {
     /// milliseconds. Ignored unless `indent_animation = true`.
     /// Falls back to `150`.
     pub indent_animation_ms: Option<u64>,
+    /// `<space>e` explorer: when `true`, the picker groups matches by
+    /// parent directory with a header line per group and the file
+    /// basename indented underneath. When `false`, the explorer
+    /// degenerates to a flat path list (same shape as the fuzzy-files
+    /// picker), which is what users who'd rather keep one row per
+    /// match want. Falls back to `true`.
+    pub compact_folders: Option<bool>,
 }
 
 /// Fully-resolved editor settings — what the runtime actually reads
@@ -93,6 +100,7 @@ pub struct EditorConfig {
     pub indent_guide_style: IndentGuideStyle,
     pub indent_animation: bool,
     pub indent_animation_ms: u64,
+    pub compact_folders: bool,
 }
 
 impl Default for EditorConfig {
@@ -108,6 +116,7 @@ impl Default for EditorConfig {
             indent_guide_style: IndentGuideStyle::Line,
             indent_animation: false,
             indent_animation_ms: 100,
+            compact_folders: true,
         }
     }
 }
@@ -130,6 +139,7 @@ impl EditorConfig {
             indent_guide_style: user.indent_guide_style.unwrap_or(self.indent_guide_style),
             indent_animation: user.indent_animation.unwrap_or(self.indent_animation),
             indent_animation_ms: user.indent_animation_ms.unwrap_or(self.indent_animation_ms),
+            compact_folders: user.compact_folders.unwrap_or(self.compact_folders),
         }
     }
 }
@@ -158,6 +168,7 @@ mod tests {
             indent_guide_style: IndentGuideStyle::Line,
             indent_animation: false,
             indent_animation_ms: 150,
+            compact_folders: true,
         };
         let eff = base.overlay(&EditorToml {
             tab_width: Some(8),

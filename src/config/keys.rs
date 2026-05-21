@@ -122,6 +122,7 @@ pub fn action_to_token(name: &str) -> Option<Token> {
         }))),
         "fuzzy-lines" => Direct(D::OpenPrompt(PromptKind::Fuzzy(FuzzyKind::Lines))),
         "fuzzy-workspace" => Direct(D::OpenPrompt(PromptKind::Fuzzy(FuzzyKind::WorkspaceSearch))),
+        "explorer" => Direct(D::OpenPrompt(PromptKind::Explorer)),
         "select-whole-buffer" => Direct(D::SelectWholeBuffer),
 
         // ── operators (when bound at top level) ────────────────────────

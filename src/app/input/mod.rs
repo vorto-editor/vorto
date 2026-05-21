@@ -157,6 +157,11 @@ impl App {
             PromptKind::Fuzzy(FuzzyKind::Diagnostics { workspace }) => {
                 self.open_diagnostics_picker(workspace)
             }
+            PromptKind::Explorer => self.prompt.open_explorer(
+                &self.startup_cwd,
+                IgnoreOpts::DEFAULT,
+                self.config.editor.compact_folders,
+            ),
         }
     }
 

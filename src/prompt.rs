@@ -9,7 +9,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use crate::buffer_ref::BufferRef;
 use crate::config::COMMAND_BINDS;
-use crate::finder::{Finder, FuzzyKind, IgnoreOpts};
+use crate::finder::{ExplorerState, Finder, FuzzyKind, IgnoreOpts};
 use crate::lsp::{CodeAction, Location};
 
 /// Single-line text input with a movable insertion point. `cursor` is a
@@ -349,6 +349,11 @@ pub enum Prompt {
         content: String,
         scroll: usize,
     },
+    /// `<space>e` — tree file explorer. Owns the full node list, the
+    /// expand state, and the live fuzzy query. Submit on a file
+    /// produces `OpenRelativeFile`; submit on a dir toggles its
+    /// expand state in-place and stays open.
+    Explorer(ExplorerState),
 }
 
 impl Prompt {
@@ -434,6 +439,14 @@ impl PromptController {
 
     pub fn open_files(&mut self, startup_cwd: &Path, ignore: IgnoreOpts) {
         self.state = Prompt::Fuzzy(Finder::files(startup_cwd, ignore));
+    }
+
+    /// `<space>e` — tree file explorer. All dirs start collapsed; the
+    /// user expands by pressing Enter / Right on a dir row. Typing
+    /// into the query box fuzzy-filters files and auto-expands their
+    /// ancestor dirs so matches stay reachable.
+    pub fn open_explorer(&mut self, startup_cwd: &Path, ignore: IgnoreOpts, compact: bool) {
+        self.state = Prompt::Explorer(ExplorerState::new(startup_cwd, ignore, compact));
     }
 
     pub fn open_lines(&mut self, lines: &[String]) {
@@ -526,6 +539,23 @@ impl PromptController {
             return PromptOutcome::Cancelled;
         }
         if key.code == KeyCode::Enter {
+            // Explorer's Enter has two meanings depending on the row:
+            // submit on a file produces an open intent, submit on a
+            // dir toggles its expansion in-place. Handled here so the
+            // common `submit()` path can stay file-oriented.
+            if let Prompt::Explorer(state) = &mut self.state {
+                let Some(node) = state.selection() else {
+                    return PromptOutcome::Nothing;
+                };
+                if node.is_dir {
+                    state.toggle_selected();
+                    state.refilter();
+                    return PromptOutcome::Nothing;
+                }
+                let rel = node.rel_path.clone();
+                self.close();
+                return PromptOutcome::OpenRelativeFile(rel);
+            }
             return self.submit();
         }
 
@@ -578,6 +608,10 @@ impl PromptController {
                 }
                 PromptOutcome::Nothing
             }
+            Prompt::Explorer(state) => {
+                state.apply_key(key);
+                PromptOutcome::Nothing
+            }
             Prompt::Hover { scroll, .. } | Prompt::LspStatus { scroll, .. } => {
                 // Read-only popup. Esc/Ctrl-C/Enter are intercepted by
                 // the top of `handle_key`, so here we only see scroll
@@ -622,6 +656,11 @@ impl PromptController {
             },
             Prompt::Rename(new_name) => PromptOutcome::SubmitRename(new_name.into_string()),
             Prompt::Fuzzy(finder) => self.submit_fuzzy(finder),
+            // Explorer's submit is short-circuited inside `handle_key`
+            // (Enter on a dir toggles, Enter on a file opens) so this
+            // branch is only reached through a future caller that
+            // bypasses the key path — treat it as a no-op.
+            Prompt::Explorer(_) => PromptOutcome::Nothing,
             Prompt::CodeActionMenu {
                 mut actions,
                 selected,

@@ -21,6 +21,7 @@
 mod buffer;
 mod code_action;
 mod completion;
+mod explorer;
 mod fuzzy;
 mod hints;
 mod hover;
@@ -101,6 +102,9 @@ pub fn draw(f: &mut Frame, app: &App) {
     }
     if matches!(app.prompt.state, Prompt::Fuzzy(_)) {
         fuzzy::draw_fuzzy(f, app, f.area());
+    }
+    if matches!(app.prompt.state, Prompt::Explorer(_)) {
+        explorer::draw_explorer(f, app, f.area());
     }
     // Cursor-anchored popups (code action menu, hover, completion)
     // need the *active pane's* rect, not the whole buffer area — with

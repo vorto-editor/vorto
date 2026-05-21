@@ -366,8 +366,13 @@ pub enum FocusDir {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PromptKind {
     Command,
-    Search { forward: bool },
+    Search {
+        forward: bool,
+    },
     Fuzzy(FuzzyKind),
+    /// `<space>e` — tree file explorer. Has its own prompt state and
+    /// key handling, separate from the fuzzy-finder widget.
+    Explorer,
 }
 
 // ════════════════════════════════════════════════════════════════════════

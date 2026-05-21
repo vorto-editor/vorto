@@ -309,13 +309,7 @@ pub fn builtin_languages() -> HashMap<String, LanguageConfig> {
                 indent_width: Some(4),
                 tab_width: Some(4),
                 use_tabs: Some(true),
-                show_whitespace: None,
-                format_on_save: None,
-                indent_guides: None,
-                indent_guides_skip_levels: None,
-                indent_guide_style: None,
-                indent_animation: None,
-                indent_animation_ms: None,
+                ..Default::default()
             },
             lsp: lsp(&["gopls"]),
             formatter: Some(FormatterToml {

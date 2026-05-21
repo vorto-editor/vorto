@@ -381,6 +381,12 @@ pub const LEADER_DEFAULTS: &[Binding] = {
             label: "buffer picker",
         },
         Binding {
+            key: KeyCode::Char('e'),
+            aliases: &[],
+            token: Dir(D::OpenPrompt(PromptKind::Explorer)),
+            label: "file explorer",
+        },
+        Binding {
             key: KeyCode::Char('r'),
             aliases: &[],
             token: Dir(D::Rename),

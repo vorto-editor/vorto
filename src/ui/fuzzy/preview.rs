@@ -151,7 +151,7 @@ fn preview_from_sleeping(
 /// per-`App` LRU populated by the preview worker; on miss, enqueues a
 /// worker request and renders plain text for this frame. On hit,
 /// renders with the cached tree-sitter highlights.
-fn preview_from_file(
+pub(super) fn preview_from_file(
     f: &mut Frame,
     app: &App,
     area: Rect,

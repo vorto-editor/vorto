@@ -69,6 +69,14 @@ pub(super) fn draw_fuzzy(f: &mut Frame, app: &App, area: Rect) {
     preview::draw_fuzzy_preview(f, app, finder, panes[2]);
 }
 
+/// Reuse the fuzzy picker's file-preview pipeline (per-`App` LRU +
+/// preview worker) for the explorer's preview pane. Lets the tree view
+/// share warmed highlights with `<space>f` instead of reimplementing
+/// the same path.
+pub(super) fn draw_explorer_preview(f: &mut Frame, app: &App, area: Rect, path: &std::path::Path) {
+    preview::preview_from_file(f, app, area, path, 0);
+}
+
 fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
     let v = Layout::default()
         .direction(Direction::Vertical)
