@@ -370,10 +370,11 @@ impl App {
         // through to the empty-list message below when the buffer has
         // no path / unknown extension / no LSP configured. `:lsp all`
         // bypasses the filter.
-        let buffer_lang = self.buffer.path.as_ref().and_then(|p| {
-            let ext = p.extension()?.to_str()?;
-            self.config.languages.by_extension(ext)
-        });
+        let buffer_lang = self
+            .buffer
+            .path
+            .as_deref()
+            .and_then(|p| self.config.languages.by_path(p));
         let mut langs: Vec<&crate::config::Language> = if all {
             self.config
                 .languages

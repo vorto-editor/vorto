@@ -28,14 +28,7 @@ impl App {
     /// still matches.
     pub(super) fn spawn_highlighter_worker(&mut self, path: &Path) {
         self.buffer.highlighter = None;
-        let Some(ext) = path
-            .extension()
-            .and_then(|s| s.to_str())
-            .map(|s| s.to_string())
-        else {
-            return;
-        };
-        let Some(spec) = self.config.languages.by_extension(&ext).cloned() else {
+        let Some(spec) = self.config.languages.by_path(path).cloned() else {
             return;
         };
         let loader = Arc::clone(&self.loader);
@@ -62,14 +55,7 @@ impl App {
     /// new ones fire `initialize` on a worker thread and arrive back
     /// via [`AppEvent::LspReady`].
     pub(super) fn spawn_lsp_worker(&mut self, path: &Path) {
-        let Some(ext) = path
-            .extension()
-            .and_then(|s| s.to_str())
-            .map(|s| s.to_string())
-        else {
-            return;
-        };
-        let Some(spec) = self.config.languages.by_extension(&ext).cloned() else {
+        let Some(spec) = self.config.languages.by_path(path).cloned() else {
             return;
         };
         if spec.lsp.is_empty() {
@@ -78,12 +64,14 @@ impl App {
         let lang_name = spec.name.clone();
         // Per-extension `languageId` override — e.g. `.tsx` advertises
         // `"typescriptreact"` even though our internal language name
-        // is `"tsx"`. When the table has nothing for this extension,
-        // the LSP layer falls back to the language name.
-        let language_id_override = self
-            .config
-            .languages
-            .language_id_for_extension(&ext)
+        // is `"tsx"`. The override is extension-keyed because the LSP
+        // protocol's id space is extension-driven; bare-filename
+        // languages (Dockerfile, Makefile) fall back to the language
+        // name, which is already the right answer for them.
+        let language_id_override = path
+            .extension()
+            .and_then(|s| s.to_str())
+            .and_then(|ext| self.config.languages.language_id_for_extension(ext))
             .map(str::to_string);
 
         for mut lsp_cfg in spec.lsp {

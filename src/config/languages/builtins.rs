@@ -172,6 +172,16 @@ pub fn builtin_lsp() -> HashMap<String, LspConfig> {
         &["Gemfile", ".rubocop.yml"],
     );
     add(&mut m, "zls", "zls", &[], None, &["build.zig"]);
+    // HashiCorp's official Terraform language server; works for HCL
+    // dialects too via the same protocol.
+    add(
+        &mut m,
+        "terraform-ls",
+        "terraform-ls",
+        &["serve"],
+        None,
+        &[".terraform", "main.tf"],
+    );
     m
 }
 
@@ -456,6 +466,60 @@ pub fn builtin_languages() -> HashMap<String, LanguageConfig> {
                 command: Some("zig".into()),
                 args: Some(vec!["fmt".into(), "--stdin".into()]),
             }),
+            ..Default::default()
+        },
+    );
+    // Dockerfile is usually a bare filename; `.dockerfile` (and the
+    // Podman-flavored `Containerfile`) also exist in the wild.
+    m.insert(
+        "dockerfile".into(),
+        LanguageConfig {
+            extensions: Some(vec!["dockerfile".into()]),
+            filenames: Some(vec!["Dockerfile".into(), "Containerfile".into()]),
+            comment_token: Some("#".into()),
+            ..Default::default()
+        },
+    );
+    // GNU Make recognizes `Makefile`, `makefile`, and `GNUmakefile`
+    // out of the box; `.mk` / `.make` are common for included
+    // fragments. Tab-indented recipes are load-bearing, so use_tabs is
+    // forced on.
+    m.insert(
+        "make".into(),
+        LanguageConfig {
+            extensions: Some(vec!["mk".into(), "make".into()]),
+            filenames: Some(vec![
+                "Makefile".into(),
+                "makefile".into(),
+                "GNUmakefile".into(),
+            ]),
+            comment_token: Some("#".into()),
+            editor: EditorToml {
+                use_tabs: Some(true),
+                tab_width: Some(8),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+    );
+    // HCL covers Terraform (`.tf`, `.tfvars`) and plain HCL configs
+    // (`.hcl`). All three share the same grammar.
+    m.insert(
+        "hcl".into(),
+        LanguageConfig {
+            extensions: Some(vec!["hcl".into(), "tf".into(), "tfvars".into()]),
+            comment_token: Some("#".into()),
+            lsp: lsp(&["terraform-ls"]),
+            ..Default::default()
+        },
+    );
+    // Diff/patch files have no comment syntax — leaving the toggle
+    // unset disables `<space>c` for them, which is correct.
+    m.insert(
+        "diff".into(),
+        LanguageConfig {
+            extensions: Some(vec!["diff".into(), "patch".into()]),
+            comment_token: None,
             ..Default::default()
         },
     );

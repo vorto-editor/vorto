@@ -149,6 +149,12 @@ pub struct FormatterConfig {
 #[derive(Debug, Default, Deserialize, Clone)]
 pub struct LanguageConfig {
     pub extensions: Option<Vec<String>>,
+    /// Exact filenames (case-sensitive) that map to this language even
+    /// when they have no extension — `Dockerfile`, `Makefile`,
+    /// `Containerfile`, etc. Checked *before* the extension table so a
+    /// file literally named `Dockerfile` resolves regardless of any
+    /// `.dockerfile` extension also being registered.
+    pub filenames: Option<Vec<String>>,
     /// Grammar filename stem (without the `.so` / `.dylib` / `.dll`
     /// extension). Defaults to the language name itself.
     pub grammar: Option<String>,
@@ -185,6 +191,9 @@ impl LanguageConfig {
     pub fn overlay(&mut self, user: LanguageConfig) {
         if user.extensions.is_some() {
             self.extensions = user.extensions;
+        }
+        if user.filenames.is_some() {
+            self.filenames = user.filenames;
         }
         if user.grammar.is_some() {
             self.grammar = user.grammar;
@@ -227,6 +236,9 @@ impl LanguageConfig {
 pub struct Language {
     pub name: String,
     pub extensions: Vec<String>,
+    /// Exact filenames that map to this language. See
+    /// [`LanguageConfig::filenames`].
+    pub filenames: Vec<String>,
     pub grammar: String,
     pub grammar_dir: Option<PathBuf>,
     pub query_dir: Option<PathBuf>,
@@ -254,6 +266,9 @@ pub struct Language {
 pub struct LanguageRegistry {
     by_name: HashMap<String, Language>,
     extension_to_name: HashMap<String, String>,
+    /// Lookup for bare-filename matches (e.g. `Dockerfile`, `Makefile`).
+    /// Consulted *before* the extension index in `by_path`.
+    filename_to_name: HashMap<String, String>,
     /// LSP `languageId` per file extension. Distinct from the language
     /// name because the LSP protocol's id space is fixed by spec —
     /// `.tsx` must announce `"typescriptreact"` even though we route
@@ -274,9 +289,11 @@ impl LanguageRegistry {
         let lsp_table = resolve::resolve_lsp_table(user_lsp)?;
         let by_name = resolve::resolve(user_languages, &lsp_table)?;
         let extension_to_name = resolve::build_extension_index(&by_name);
+        let filename_to_name = resolve::build_filename_index(&by_name);
         Ok(Self {
             by_name,
             extension_to_name,
+            filename_to_name,
             extension_to_language_id: builtins::builtin_extension_language_ids(),
         })
     }
@@ -286,6 +303,26 @@ impl LanguageRegistry {
     pub fn by_extension(&self, ext: &str) -> Option<&Language> {
         let name = self.extension_to_name.get(ext)?;
         self.by_name.get(name)
+    }
+
+    /// Resolve a bare filename (the last path component, e.g.
+    /// `"Dockerfile"`) to its language entry. Case-sensitive.
+    pub fn by_filename(&self, filename: &str) -> Option<&Language> {
+        let name = self.filename_to_name.get(filename)?;
+        self.by_name.get(name)
+    }
+
+    /// One-stop language lookup for a filesystem path. Tries the bare
+    /// filename first (so `Dockerfile` resolves), then falls back to
+    /// the file extension. Returns `None` when neither matches.
+    pub fn by_path(&self, path: &std::path::Path) -> Option<&Language> {
+        if let Some(name) = path.file_name().and_then(|s| s.to_str())
+            && let Some(lang) = self.by_filename(name)
+        {
+            return Some(lang);
+        }
+        let ext = path.extension().and_then(|s| s.to_str())?;
+        self.by_extension(ext)
     }
 
     /// LSP `languageId` for this file extension. `None` means "no
@@ -385,6 +422,33 @@ mod tests {
         let idx = build_extension_index(&langs);
         assert_eq!(idx.get("rs"), Some(&"rust".to_string()));
         assert_eq!(idx.get("py"), Some(&"python".to_string()));
+    }
+
+    #[test]
+    fn by_path_resolves_dockerfile_via_filename() {
+        let registry = LanguageRegistry::build(HashMap::new(), HashMap::new()).unwrap();
+        let lang = registry
+            .by_path(std::path::Path::new("/srv/app/Dockerfile"))
+            .expect("Dockerfile should resolve via filename match");
+        assert_eq!(lang.name, "dockerfile");
+    }
+
+    #[test]
+    fn by_path_resolves_makefile_via_filename() {
+        let registry = LanguageRegistry::build(HashMap::new(), HashMap::new()).unwrap();
+        let lang = registry
+            .by_path(std::path::Path::new("./Makefile"))
+            .expect("Makefile should resolve via filename match");
+        assert_eq!(lang.name, "make");
+    }
+
+    #[test]
+    fn by_path_falls_back_to_extension() {
+        let registry = LanguageRegistry::build(HashMap::new(), HashMap::new()).unwrap();
+        let lang = registry
+            .by_path(std::path::Path::new("/x/main.rs"))
+            .expect("main.rs should resolve via extension");
+        assert_eq!(lang.name, "rust");
     }
 
     #[test]

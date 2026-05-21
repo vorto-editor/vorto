@@ -638,18 +638,10 @@ impl App {
     /// configured language — Copilot still produces sensible
     /// completions there.
     fn copilot_active_language_id(&self) -> String {
-        let ext = self
-            .buffer
+        self.buffer
             .path
-            .as_ref()
-            .and_then(|p| p.extension())
-            .and_then(|e| e.to_str());
-        let Some(ext) = ext else {
-            return "plaintext".to_string();
-        };
-        self.config
-            .languages
-            .by_extension(ext)
+            .as_deref()
+            .and_then(|p| self.config.languages.by_path(p))
             .map(|spec| spec.name.clone())
             .unwrap_or_else(|| "plaintext".to_string())
     }

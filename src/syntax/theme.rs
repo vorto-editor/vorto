@@ -88,6 +88,12 @@ fn lookup(name: &str) -> Option<Style> {
             .fg(Color::Cyan)
             .add_modifier(Modifier::UNDERLINED),
         "markup.link.label" => Style::default().fg(Color::LightBlue),
+        // Diff capture names follow Helix's `diff.*` convention: plus
+        // (additions) is green, minus (deletions) is red. Falls through
+        // to fg-only — line bg painting is out of scope for the
+        // per-character renderer.
+        "diff.plus" => Style::default().fg(Color::Green),
+        "diff.minus" => Style::default().fg(Color::Red),
         _ => return None,
     };
     Some(s)

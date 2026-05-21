@@ -108,10 +108,7 @@ pub fn spawn_preview_worker(
             while let Ok(latest) = rx.try_recv() {
                 path = latest;
             }
-            let Some(ext) = path.extension().and_then(|s| s.to_str()) else {
-                continue;
-            };
-            let Some(spec) = languages.by_extension(ext).cloned() else {
+            let Some(spec) = languages.by_path(&path).cloned() else {
                 continue;
             };
             let mut highlighter = match loader.lock().unwrap().highlighter_for(&spec) {

@@ -167,6 +167,33 @@ pub fn builtin_recipes() -> Vec<GrammarRecipe> {
             subpath: None,
             rev: None,
         },
+        GrammarRecipe {
+            name: "dockerfile",
+            repo: "https://github.com/camdencheek/tree-sitter-dockerfile",
+            subpath: None,
+            rev: None,
+        },
+        GrammarRecipe {
+            name: "make",
+            repo: "https://github.com/alemuller/tree-sitter-make",
+            subpath: None,
+            rev: None,
+        },
+        // `tree-sitter-hcl` covers both Terraform (`.tf`) and plain
+        // HCL (`.hcl`, `.tfvars`); we route all three through the
+        // single `hcl` language entry.
+        GrammarRecipe {
+            name: "hcl",
+            repo: "https://github.com/MichaHoffmann/tree-sitter-hcl",
+            subpath: None,
+            rev: None,
+        },
+        GrammarRecipe {
+            name: "diff",
+            repo: "https://github.com/the-mikedavis/tree-sitter-diff",
+            subpath: None,
+            rev: None,
+        },
     ]
 }
 

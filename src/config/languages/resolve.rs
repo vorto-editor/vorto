@@ -81,6 +81,7 @@ fn build_language(
     Ok(Language {
         name: name.to_string(),
         extensions: c.extensions.unwrap_or_default(),
+        filenames: c.filenames.unwrap_or_default(),
         grammar: c.grammar.unwrap_or_else(|| name.to_string()),
         grammar_dir: c.grammar_dir,
         query_dir: c.query_dir,
@@ -98,6 +99,19 @@ pub(super) fn build_extension_index(langs: &HashMap<String, Language>) -> HashMa
     for (name, lang) in langs {
         for ext in &lang.extensions {
             idx.insert(ext.clone(), name.clone());
+        }
+    }
+    idx
+}
+
+/// Build a `filename → language name` lookup index for extension-less
+/// files like `Dockerfile` and `Makefile`. Same many-to-one, last-wins
+/// shape as the extension index.
+pub(super) fn build_filename_index(langs: &HashMap<String, Language>) -> HashMap<String, String> {
+    let mut idx = HashMap::new();
+    for (name, lang) in langs {
+        for fname in &lang.filenames {
+            idx.insert(fname.clone(), name.clone());
         }
     }
     idx

@@ -407,11 +407,10 @@ fn run_substitute(app: &mut App, raw: &str, cmds: &mut Vec<Cmd>) {
 }
 
 /// Look up the active buffer's language comment token. Returns `None`
-/// when the buffer has no file path, the extension is unknown, or the
-/// language has no `comment_token` configured.
+/// when the buffer has no file path, the filename/extension is unknown,
+/// or the language has no `comment_token` configured.
 fn buffer_comment_token(app: &App) -> Option<String> {
-    let path = app.buffer.path.as_ref()?;
-    let ext = path.extension()?.to_str()?;
-    let lang = app.config.languages.by_extension(ext)?;
+    let path = app.buffer.path.as_deref()?;
+    let lang = app.config.languages.by_path(path)?;
     lang.comment_token.clone()
 }

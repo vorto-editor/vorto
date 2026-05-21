@@ -359,10 +359,8 @@ impl App {
         let language = self
             .buffer
             .path
-            .as_ref()
-            .and_then(|p| p.extension())
-            .and_then(|e| e.to_str())
-            .and_then(|ext| self.config.languages.by_extension(ext));
+            .as_deref()
+            .and_then(|p| self.config.languages.by_path(p));
 
         // External formatter wins when configured: it's the user's
         // explicit choice, and the LSP would typically just shell out
