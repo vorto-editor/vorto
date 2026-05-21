@@ -1,12 +1,12 @@
 [package]
 name = "vorto"
-version = "0.9.7"
+version = "0.10.0"
 edition = "2024"
 description = "A terminal text editor with tree-sitter syntax highlighting and LSP support"
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/shka-k/vorto"
-homepage = "https://github.com/shka-k/vorto"
+homepage = "https://docs.vorto-editor.dev/"
 keywords = ["editor", "terminal", "tui", "tree-sitter", "lsp"]
 categories = ["text-editors", "command-line-utilities"]
 
