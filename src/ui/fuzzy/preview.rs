@@ -305,7 +305,7 @@ fn render_preview_row(
         }
         let style = syntax::style_for(&cap.name);
         for slot in base.iter_mut().take(hi).skip(lo) {
-            *slot = style;
+            *slot = slot.patch(style);
         }
     }
 

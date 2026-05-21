@@ -1,9 +1,10 @@
-;From nvim-treesitter/nvim-treesitter
-(atx_heading
-  (inline) @text.title)
-
-(setext_heading
-  (paragraph) @text.title)
+; Originally derived from nvim-treesitter/nvim-treesitter, migrated to
+; the Helix-style `markup.*` capture namespace. The whole-line
+; `markup.heading` capture paints the heading band (bg + fg + bold);
+; the marker capture layers a magenta fg on top via the renderer's
+; style-patching behavior.
+(atx_heading) @markup.heading
+(setext_heading) @markup.heading
 
 [
   (atx_h1_marker)
@@ -14,21 +15,21 @@
   (atx_h6_marker)
   (setext_h1_underline)
   (setext_h2_underline)
-] @punctuation.special
+] @markup.heading.marker
 
 [
   (link_title)
   (indented_code_block)
   (fenced_code_block)
-] @text.literal
+] @markup.raw
 
 (fenced_code_block_delimiter) @punctuation.delimiter
 
 (code_fence_content) @none
 
-(link_destination) @text.uri
+(link_destination) @markup.link.url
 
-(link_label) @text.reference
+(link_label) @markup.link.label
 
 [
   (list_marker_plus)
@@ -37,7 +38,7 @@
   (list_marker_dot)
   (list_marker_parenthesis)
   (thematic_break)
-] @punctuation.special
+] @markup.list
 
 [
   (block_continuation)

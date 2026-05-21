@@ -876,8 +876,11 @@ fn render_line(
             continue;
         }
         let style = syntax::style_for(&cap.name);
+        // Patch (not overwrite) so later, more-specific captures layer
+        // on top of earlier ones — e.g. a heading's per-token fg sits on
+        // top of the parent `(atx_heading)` bg instead of erasing it.
         for slot in base.iter_mut().take(hi).skip(lo) {
-            *slot = style;
+            *slot = slot.patch(style);
         }
     }
 

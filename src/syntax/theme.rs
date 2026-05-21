@@ -69,8 +69,25 @@ fn lookup(name: &str) -> Option<Style> {
         "label" => Style::default().fg(Color::Yellow),
         "operator" => Style::default().fg(Color::White),
         "punctuation.bracket" => Style::default().fg(Color::Gray),
+        "punctuation.delimiter" => Style::default().fg(Color::Gray),
+        "punctuation.special" => Style::default().fg(Color::Yellow),
         "attribute" => Style::default().fg(Color::LightMagenta),
         "tag" => Style::default().fg(Color::LightBlue),
+        // Markdown / Helix-style `markup.*` family. The whole heading
+        // gets fg + bold + a subtle bg band; the marker capture then
+        // patches a magenta fg on top to keep `#` keyword-colored
+        // without losing the band. Code/links reuse string-green and
+        // link-cyan/blue so `[label](url)` stays distinguishable.
+        "markup.heading" => Style::default()
+            .fg(Color::LightBlue)
+            .add_modifier(Modifier::BOLD),
+        "markup.heading.marker" => Style::default().fg(Color::Magenta),
+        "markup.list" => Style::default().fg(Color::DarkGray),
+        "markup.raw" => Style::default().fg(Color::Green),
+        "markup.link.url" => Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::UNDERLINED),
+        "markup.link.label" => Style::default().fg(Color::LightBlue),
         _ => return None,
     };
     Some(s)
