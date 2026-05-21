@@ -25,7 +25,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 
 use crate::config::LanguageRegistry;
-use crate::syntax::{Highlighter, Loader};
+use crate::syntax::{Engine, Loader};
 
 /// One fully-built fuzzy-finder preview: pre-split lines plus a tree-
 /// sitter highlighter with a parsed tree already attached. Built off
@@ -34,7 +34,7 @@ use crate::syntax::{Highlighter, Loader};
 pub struct PreviewEntry {
     pub path: PathBuf,
     pub lines: Vec<String>,
-    pub highlighter: Highlighter,
+    pub highlighter: Engine,
 }
 
 /// Small bounded LRU of completed previews keyed by path. Keeps a
@@ -111,7 +111,7 @@ pub fn spawn_preview_worker(
             let Some(spec) = languages.by_path(&path).cloned() else {
                 continue;
             };
-            let mut highlighter = match loader.lock().unwrap().highlighter_for(&spec) {
+            let mut highlighter = match loader.lock().unwrap().engine_for(&spec) {
                 Ok(h) => h,
                 Err(_) => continue,
             };

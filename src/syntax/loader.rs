@@ -12,11 +12,12 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow};
 use libloading::{Library, Symbol};
-use tree_sitter::Language;
+use tree_sitter::{Language, Query};
 
 use crate::config::Language as LangSpec;
 
-use super::highlight::Highlighter;
+use super::engine::Engine;
+use super::injection::SubHighlighter;
 
 /// Owns `tree-sitter` grammar libraries and resolves them to
 /// `tree_sitter::Language` handles on demand. Holds the [`Library`]
@@ -43,17 +44,95 @@ impl Loader {
     /// grammar (cached), compiles its highlights query, and — if a
     /// `textobjects.scm` / `indents.scm` is also present — their
     /// queries too. Both are optional; missing files are not an error.
-    pub fn highlighter_for(&mut self, spec: &LangSpec) -> Result<Highlighter> {
+    pub fn engine_for(&mut self, spec: &LangSpec) -> Result<Engine> {
         let lang = self.load_language(spec)?;
         let highlights_src = self.read_query(spec, "highlights")?;
         let textobjects_src = self.read_query(spec, "textobjects").ok();
         let indents_src = self.read_query(spec, "indents").ok();
-        Highlighter::new(
+        let injections_src = self.read_query(spec, "injections").ok();
+        let injection = match injections_src.as_deref() {
+            Some(src) => super::injection::InjectionEngine::build(&lang, src, self)?,
+            None => None,
+        };
+        Engine::new(
             lang,
             &highlights_src,
             textobjects_src.as_deref(),
             indents_src.as_deref(),
+            injection,
         )
+    }
+
+    /// Build a sub-highlighter (grammar handle + compiled `highlights`
+    /// query + capture names) for `lang_name`. Used by the injection
+    /// engine to set up child parsers for languages embedded inside
+    /// host files (e.g. `<script lang="ts">` inside Vue). Returns an
+    /// error when the grammar or query isn't installed — the injection
+    /// engine treats that as "skip this language" rather than fatal.
+    pub fn sub_highlighter_for(&mut self, lang_name: &str) -> Result<SubHighlighter> {
+        let language = self.load_language_by_name(lang_name)?;
+        let highlights_src = self.read_query_by_name(lang_name, "highlights")?;
+        let query = Query::new(&language, &highlights_src)
+            .with_context(|| format!("compiling sub-language `{}` highlights query", lang_name))?;
+        let capture_names = query
+            .capture_names()
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+
+        // indents.scm is optional — a sub-language without one still
+        // highlights fine, it just won't contribute deep indent scopes
+        // to the host's guide computation.
+        let (indents, indent_capture_names) =
+            match self.read_query_by_name(lang_name, "indents").ok() {
+                Some(src) => match Query::new(&language, &src) {
+                    Ok(q) => {
+                        let names = q.capture_names().iter().map(|s| s.to_string()).collect();
+                        (Some(q), names)
+                    }
+                    Err(_) => (None, Vec::new()),
+                },
+                None => (None, Vec::new()),
+            };
+        Ok(SubHighlighter::new(
+            language,
+            query,
+            capture_names,
+            indents,
+            indent_capture_names,
+        ))
+    }
+
+    /// Variant of [`Self::load_language`] keyed by a bare language name
+    /// rather than a [`LangSpec`]. The grammar name is used both as the
+    /// `.so` / `.dylib` stem and the `tree_sitter_<name>` symbol root,
+    /// matching the convention `grammar install <name>` uses.
+    fn load_language_by_name(&mut self, name: &str) -> Result<Language> {
+        if let Some(lang) = self.languages.get(name) {
+            return Ok(lang.clone());
+        }
+        let path = library_path(&self.grammar_dir, name)
+            .with_context(|| format!("locating grammar `{}`", name))?;
+        let lib = unsafe { Library::new(&path) }
+            .with_context(|| format!("loading grammar library {}", path.display()))?;
+        let symbol_name = format!("tree_sitter_{}", name.replace('-', "_"));
+        let language = unsafe {
+            let sym: Symbol<unsafe extern "C" fn() -> Language> =
+                lib.get(symbol_name.as_bytes()).with_context(|| {
+                    format!("symbol `{}` missing in {}", symbol_name, path.display())
+                })?;
+            sym()
+        };
+        self.libs.insert(name.to_string(), lib);
+        self.languages.insert(name.to_string(), language.clone());
+        Ok(language)
+    }
+
+    /// Variant of [`Self::read_query`] keyed by a bare language name.
+    /// Same `; inherits: …` honoring as the spec-driven path.
+    fn read_query_by_name(&self, name: &str, kind: &str) -> Result<String> {
+        let mut visited = HashSet::new();
+        read_query_recursive(&self.query_dir, name, kind, &mut visited)
     }
 
     /// Resolve `spec.grammar` to a `tree_sitter::Language`, loading the

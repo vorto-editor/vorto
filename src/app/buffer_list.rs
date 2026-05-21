@@ -95,7 +95,7 @@ impl App {
                     self.open_gen = self.open_gen.wrapping_add(1);
                     self.lsp.set_last_synced_version(self.buffer.version);
                     self.record_opened(BufferRef::File(path.clone()));
-                    self.spawn_highlighter_worker(&path);
+                    self.spawn_engine_worker(&path);
                     self.spawn_lsp_worker(&path);
                     self.push_toast(Toast::info(format!("deleted, restored {}", path.display())));
                 } else {
@@ -123,7 +123,7 @@ impl App {
                     self.record_opened(BufferRef::File(path.clone()));
                     self.open_gen = self.open_gen.wrapping_add(1);
                     self.lsp.set_last_synced_version(self.buffer.version);
-                    self.spawn_highlighter_worker(&path);
+                    self.spawn_engine_worker(&path);
                     self.spawn_lsp_worker(&path);
                     self.push_toast(Toast::info(format!("deleted, opened {}", path.display())));
                 }

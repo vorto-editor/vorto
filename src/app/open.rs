@@ -142,7 +142,7 @@ impl App {
             self.open_gen = self.open_gen.wrapping_add(1);
             self.lsp.set_last_synced_version(self.buffer.version);
             self.push_toast(Toast::info(format!("restored {}", path.display())));
-            self.spawn_highlighter_worker(&path);
+            self.spawn_engine_worker(&path);
             self.spawn_lsp_worker(&path);
             return Ok(());
         }
@@ -219,7 +219,7 @@ impl App {
             h.refresh(&source, self.buffer.version);
             self.buffer.highlighter = Some(h);
         } else {
-            self.spawn_highlighter_worker(path);
+            self.spawn_engine_worker(path);
         }
         self.spawn_lsp_worker(path);
         Ok(())

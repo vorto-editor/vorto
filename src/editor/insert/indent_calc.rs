@@ -3,7 +3,7 @@
 //! results to buffer rows; this module never touches `Buffer` state.
 
 use crate::editor::IndentSettings;
-use crate::syntax::Highlighter;
+use crate::syntax::Engine;
 
 /// Remove one indent level from the end of `indent` (which must be
 /// pure leading whitespace). Tab-terminated runs drop one `\t`;
@@ -54,7 +54,7 @@ pub(super) fn copy_leading_indent(line: &str, _settings: IndentSettings) -> Stri
 pub(super) fn compute_new_line_indent(
     reference_line: &str,
     ref_row: usize,
-    highlighter: &Option<Highlighter>,
+    highlighter: &Option<Engine>,
     settings: IndentSettings,
 ) -> String {
     let base = copy_leading_indent(reference_line, settings);

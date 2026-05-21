@@ -182,6 +182,24 @@ pub fn builtin_lsp() -> HashMap<String, LspConfig> {
         None,
         &[".terraform", "main.tf"],
     );
+    // Vue / Svelte language servers — both are bundled with their
+    // respective official tooling and stream-aware via `--stdio`.
+    add(
+        &mut m,
+        "vue-language-server",
+        "vue-language-server",
+        &["--stdio"],
+        None,
+        &["package.json", "vite.config.ts", "vite.config.js"],
+    );
+    add(
+        &mut m,
+        "svelteserver",
+        "svelteserver",
+        &["--stdio"],
+        None,
+        &["package.json", "svelte.config.js", "svelte.config.ts"],
+    );
     m
 }
 
@@ -520,6 +538,28 @@ pub fn builtin_languages() -> HashMap<String, LanguageConfig> {
         LanguageConfig {
             extensions: Some(vec!["diff".into(), "patch".into()]),
             comment_token: None,
+            ..Default::default()
+        },
+    );
+    // Vue / Svelte single-file components. Comment token is the HTML
+    // form since the outermost layer is template; users editing inside
+    // a `<script>` block will get the wrong comment briefly until
+    // injection is wired up.
+    m.insert(
+        "vue".into(),
+        LanguageConfig {
+            extensions: Some(vec!["vue".into()]),
+            comment_token: Some("<!--".into()),
+            lsp: lsp(&["vue-language-server"]),
+            ..Default::default()
+        },
+    );
+    m.insert(
+        "svelte".into(),
+        LanguageConfig {
+            extensions: Some(vec!["svelte".into()]),
+            comment_token: Some("<!--".into()),
+            lsp: lsp(&["svelteserver"]),
             ..Default::default()
         },
     );

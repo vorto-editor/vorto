@@ -14,19 +14,19 @@ use anyhow::Result;
 use crate::event::AppEvent;
 use crate::finder::PreviewEntry;
 use crate::lsp::{self, LspClient};
-use crate::syntax::Highlighter;
+use crate::syntax::Engine;
 use crate::vlog;
 
 use super::lsp_coordinator::client_key;
 use super::{App, Toast, is_command_not_found, root_cause};
 
 impl App {
-    /// Build a tree-sitter `Highlighter` for `path` off the main thread
+    /// Build a tree-sitter `Engine` for `path` off the main thread
     /// (grammar dlopen + query compile + initial full parse). The result
-    /// arrives via [`AppEvent::HighlighterReady`] and is installed on the
-    /// buffer in [`Self::handle_highlighter_ready`] when the generation
+    /// arrives via [`AppEvent::EngineReady`] and is installed on the
+    /// buffer in [`Self::handle_engine_ready`] when the generation
     /// still matches.
-    pub(super) fn spawn_highlighter_worker(&mut self, path: &Path) {
+    pub(super) fn spawn_engine_worker(&mut self, path: &Path) {
         self.buffer.highlighter = None;
         let Some(spec) = self.config.languages.by_path(path).cloned() else {
             return;
@@ -40,12 +40,12 @@ impl App {
         let source = self.buffer.lines.join("\n");
         let buffer_version = self.buffer.version;
         thread::spawn(move || {
-            let result = (|| -> Result<Highlighter> {
-                let mut h = loader.lock().unwrap().highlighter_for(&spec)?;
+            let result = (|| -> Result<Engine> {
+                let mut h = loader.lock().unwrap().engine_for(&spec)?;
                 h.refresh(&source, buffer_version);
                 Ok(h)
             })();
-            let _ = tx.send(AppEvent::HighlighterReady { generation, result });
+            let _ = tx.send(AppEvent::EngineReady { generation, result });
         });
     }
 
@@ -130,7 +130,7 @@ impl App {
     /// Install a freshly-built highlighter on the active buffer. Dropped
     /// when `generation` doesn't match — the user opened another file
     /// while the worker was running.
-    pub fn handle_highlighter_ready(&mut self, generation: u64, result: Result<Highlighter>) {
+    pub fn handle_engine_ready(&mut self, generation: u64, result: Result<Engine>) {
         if generation != self.open_gen {
             return;
         }

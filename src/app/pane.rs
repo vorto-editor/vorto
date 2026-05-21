@@ -381,7 +381,7 @@ impl App {
         // the common case.
         if let Some(path) = self.buffer.path.clone() {
             if self.buffer.highlighter.is_none() {
-                self.spawn_highlighter_worker(&path);
+                self.spawn_engine_worker(&path);
             }
             self.spawn_lsp_worker(&path);
         }
@@ -477,11 +477,11 @@ impl App {
         // either the open-time worker hadn't completed by the swap, or
         // the buffer's grammar wasn't available at open). Respawning
         // unconditionally would null the highlighter for a few frames
-        // (see `spawn_highlighter_worker`) and flicker through plain
+        // (see `spawn_engine_worker`) and flicker through plain
         // text.
         if let Some(path) = self.buffer.path.clone() {
             if self.buffer.highlighter.is_none() {
-                self.spawn_highlighter_worker(&path);
+                self.spawn_engine_worker(&path);
             }
             self.spawn_lsp_worker(&path);
         }

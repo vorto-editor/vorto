@@ -11,7 +11,7 @@ use crossterm::event::Event;
 use crate::copilot::{CopilotClient, CopilotEvent};
 use crate::finder::PreviewEntry;
 use crate::lsp::{LspClient, LspEvent};
-use crate::syntax::Highlighter;
+use crate::syntax::Engine;
 
 pub enum AppEvent {
     Term(Event),
@@ -33,9 +33,9 @@ pub enum AppEvent {
     /// parse). `gen` is the generation the worker was spawned for — the
     /// main loop drops the event when `app.open_gen != gen` so a stale
     /// result from a previous file doesn't clobber the current buffer.
-    HighlighterReady {
+    EngineReady {
         generation: u64,
-        result: anyhow::Result<Highlighter>,
+        result: anyhow::Result<Engine>,
     },
     /// A worker thread finished spawning an LSP client and running its
     /// `initialize` handshake. The main loop adopts the client and

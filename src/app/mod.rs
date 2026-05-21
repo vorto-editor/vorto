@@ -127,7 +127,7 @@ pub struct App {
     /// completion is suppressed until `SignedIn`.
     pub copilot_auth: CopilotAuthState,
     /// Shared event channel — kept on `App` so `open_path` can spawn
-    /// worker threads that report `HighlighterReady` / `LspReady` back
+    /// worker threads that report `EngineReady` / `LspReady` back
     /// to the main loop without going through the LSP coordinator.
     pub event_tx: Sender<AppEvent>,
     /// Monotonic counter bumped on every `open_path`. Worker threads

@@ -51,7 +51,7 @@ use std::time::SystemTime;
 
 use anyhow::Result;
 
-use crate::syntax::Highlighter;
+use crate::syntax::Engine;
 use crate::vcs::{self, LineStatus};
 
 #[derive(Default)]
@@ -72,7 +72,7 @@ pub struct Buffer {
     /// Per-buffer tree-sitter state, attached at file-open time when a
     /// matching grammar + query are available. `None` means "no syntax
     /// highlighting for this buffer", which is the safe fallback.
-    pub highlighter: Option<Highlighter>,
+    pub highlighter: Option<Engine>,
     /// Topmost line currently visible in the viewport. Sticky — only
     /// moved when the cursor would otherwise leave the viewport (the
     /// UI layer updates it during `draw_buffer`, so it's wrapped in

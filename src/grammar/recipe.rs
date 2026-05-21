@@ -194,6 +194,22 @@ pub fn builtin_recipes() -> Vec<GrammarRecipe> {
             subpath: None,
             rev: None,
         },
+        // Vue and Svelte single-file components. The template layer
+        // (tags, directives, attributes) highlights via these grammars
+        // directly; embedded `<script>` / `<style>` blocks render as
+        // plain text until language injection is wired up.
+        GrammarRecipe {
+            name: "vue",
+            repo: "https://github.com/tree-sitter-grammars/tree-sitter-vue",
+            subpath: None,
+            rev: None,
+        },
+        GrammarRecipe {
+            name: "svelte",
+            repo: "https://github.com/Himujjal/tree-sitter-svelte",
+            subpath: None,
+            rev: None,
+        },
     ]
 }
 
