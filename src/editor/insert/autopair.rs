@@ -277,9 +277,8 @@ mod tests {
     fn quoted_lt_inside_attr_ignored() {
         // The `<` inside the attribute string is not a tag opener.
         let line = "<input value=\"a<b\"";
-        match detect_open_tag(line, line.chars().count(), Some("html")) {
-            Some(_) => panic!("`input` is a void element — should not auto-close"),
-            None => {}
+        if detect_open_tag(line, line.chars().count(), Some("html")).is_some() {
+            panic!("`input` is a void element — should not auto-close");
         }
     }
 

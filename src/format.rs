@@ -39,7 +39,7 @@ fn rust_edition_from_cargo(cwd: &Path) -> Option<String> {
     while let Some(d) = dir {
         let cargo = d.join("Cargo.toml");
         if let Ok(text) = std::fs::read_to_string(&cargo)
-            && let Ok(value) = text.parse::<toml::Value>()
+            && let Ok(value) = toml::from_str::<toml::Value>(&text)
         {
             if let Some(ed) = value
                 .get("package")
