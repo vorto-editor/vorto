@@ -9,6 +9,22 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{List, ListItem, Paragraph};
 
 use crate::finder::{Finder, FuzzyKind};
+use crate::text_width::str_cell_width;
+
+/// Right-pad a line with spaces (styled `base`) so its selection
+/// highlight covers the entire row, not just the rendered text.
+fn pad_line<'a>(mut line: Line<'a>, width: usize, base: Style) -> Line<'a> {
+    let used: usize = line
+        .spans
+        .iter()
+        .map(|s| str_cell_width(s.content.as_ref()))
+        .sum();
+    if used < width {
+        line.spans
+            .push(Span::styled(" ".repeat(width - used), base));
+    }
+    line
+}
 
 /// Color of the directory prefix in path-like picker rows.
 const DIR_FG: Color = Color::Blue;
@@ -62,6 +78,9 @@ pub(super) fn draw_fuzzy_list(f: &mut Frame, finder: &Finder, area: Rect) {
 
     let list_h = chunks[2].height as usize;
     let list_w = chunks[2].width as usize;
+    // 2 cells reserved at the start of each row for the `> ` / `  `
+    // selection marker.
+    let inner_w = list_w.saturating_sub(2);
     let scroll = finder.selected.saturating_sub(list_h.saturating_sub(1));
     let items: Vec<ListItem> = finder
         .matches
@@ -71,13 +90,34 @@ pub(super) fn draw_fuzzy_list(f: &mut Frame, finder: &Finder, area: Rect) {
         .take(list_h)
         .map(|(i, m)| {
             let raw = &finder.items[m.idx];
-            let line = if matches!(finder.kind, FuzzyKind::WorkspaceSearch) {
-                let row = m.line_hits.first().copied().unwrap_or(0);
-                render_workspace_match(raw, row, i == finder.selected, list_w)
+            let is_sel = i == finder.selected;
+            let base = if is_sel {
+                Style::default()
+                    .bg(Color::DarkGray)
+                    .add_modifier(Modifier::BOLD)
             } else {
-                render_match(raw, &m.positions, i == finder.selected, finder.kind, list_w)
+                Style::default()
             };
-            ListItem::new(line)
+            let inner = if matches!(finder.kind, FuzzyKind::WorkspaceSearch) {
+                let row = m.line_hits.first().copied().unwrap_or(0);
+                render_workspace_match(raw, row, is_sel, inner_w)
+            } else {
+                render_match(raw, &m.positions, is_sel, finder.kind, inner_w)
+            };
+            let inner = pad_line(inner, inner_w, base);
+            let marker_style = if is_sel {
+                Style::default()
+                    .bg(Color::DarkGray)
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default()
+            };
+            let marker = if is_sel { "> " } else { "  " };
+            let mut spans = Vec::with_capacity(inner.spans.len() + 1);
+            spans.push(Span::styled(marker, marker_style));
+            spans.extend(inner.spans);
+            ListItem::new(Line::from(spans))
         })
         .collect();
     f.render_widget(List::new(items), chunks[2]);

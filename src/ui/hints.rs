@@ -111,6 +111,10 @@ pub(super) fn draw_command_hints(f: &mut Frame, cp: &CommandPrompt, cmd_area: Re
         .max()
         .unwrap_or(5)
         .min(20);
+    // 2 cells for the `> ` / `  ` selection marker, 1 for the space
+    // between name and description.
+    let col_w = columns[0].width as usize;
+    let desc_w = col_w.saturating_sub(2 + name_w + 1);
     let render_column = |start: usize| -> Vec<Line<'static>> {
         items
             .iter()
@@ -118,23 +122,59 @@ pub(super) fn draw_command_hints(f: &mut Frame, cp: &CommandPrompt, cmd_area: Re
             .skip(start)
             .take(rows)
             .map(|(i, (name, description))| {
-                let row_bg = if selected_idx == Some(i) {
+                let is_sel = selected_idx == Some(i);
+                let row_bg = if is_sel {
                     Style::default().bg(Color::DarkGray)
                 } else {
                     bg
                 };
+                let marker = if is_sel { "> " } else { "  " };
+                let desc = truncate_or_pad(description, desc_w);
                 Line::from(vec![
+                    Span::styled(marker, row_bg.fg(Color::Yellow)),
                     Span::styled(
                         format!("{:<width$}", name, width = name_w),
                         row_bg.fg(Color::Yellow).add_modifier(Modifier::BOLD),
                     ),
-                    Span::styled(format!(" {}", description), row_bg.fg(Color::Gray)),
+                    Span::styled(format!(" {}", desc), row_bg.fg(Color::Gray)),
                 ])
             })
             .collect()
     };
     f.render_widget(Paragraph::new(render_column(0)).style(bg), columns[0]);
     f.render_widget(Paragraph::new(render_column(rows)).style(bg), columns[1]);
+}
+
+/// Fit `s` into exactly `width` terminal cells: truncate with `…` if it
+/// overflows, right-pad with spaces if it falls short. CJK-safe via
+/// `str_cell_width`. Used so the description column's row highlight
+/// covers the full column width even on short descriptions.
+fn truncate_or_pad(s: &str, width: usize) -> String {
+    use crate::text_width::{prefix_byte_len_for_width, str_cell_width};
+    if width == 0 {
+        return String::new();
+    }
+    let w = str_cell_width(s);
+    if w == width {
+        return s.to_string();
+    }
+    if w < width {
+        let mut out = String::with_capacity(s.len() + (width - w));
+        out.push_str(s);
+        for _ in 0..(width - w) {
+            out.push(' ');
+        }
+        return out;
+    }
+    let cut = prefix_byte_len_for_width(s, width.saturating_sub(1));
+    let mut out = String::with_capacity(cut + 3);
+    out.push_str(&s[..cut]);
+    out.push('…');
+    let after = str_cell_width(&out);
+    for _ in after..width {
+        out.push(' ');
+    }
+    out
 }
 
 /// Live-filtered command-name candidates for a given prefix, formatted
