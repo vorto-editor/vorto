@@ -829,12 +829,15 @@ fn render_line(
             if viewport_width > 0 && vc >= viewport_right {
                 break;
             }
-            let (ch, style) = if let Some(g) = guide_at(vc) {
-                (g.glyph, guide_style(g))
-            } else if vc == 0 {
-                (' ', cursor_cell_style)
+            let base_style = if vc == 0 {
+                cursor_cell_style
             } else {
-                (' ', Style::default())
+                Style::default()
+            };
+            let (ch, style) = if let Some(g) = guide_at(vc) {
+                (g.glyph, base_style.patch(guide_style(g)))
+            } else {
+                (' ', base_style)
             };
             if !started {
                 buf_style = style;
@@ -1011,7 +1014,12 @@ fn render_line(
                 None
             };
             let (out_ch, out_style) = if let Some(g) = guide {
-                (g.glyph, guide_style(g))
+                // Patch (don't replace) so the cell's selection /
+                // extra-cursor / search-hit background carries through
+                // under the guide's fg/modifier — otherwise every
+                // tab-aligned guide column erases the highlight on
+                // tab-indented lines.
+                (g.glyph, style.patch(guide_style(g)))
             } else if original == '\t' {
                 if k == 0 && ch != '\t' {
                     (ch, style)
