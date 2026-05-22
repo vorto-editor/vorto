@@ -457,6 +457,46 @@ impl App {
                 content.push_str(&format!("      root: {}\n", info.root_uri));
             }
         }
+
+        // Copilot lives outside the per-language LSP table (it's a
+        // global completion provider), so surface it as its own
+        // section. Always shown — it's useful regardless of the
+        // active buffer's language.
+        content.push_str("\ncopilot\n");
+        match &self.copilot {
+            Some(client) => {
+                let auth = match &self.copilot_auth {
+                    crate::app::CopilotAuthState::Unknown => "checking…".to_string(),
+                    crate::app::CopilotAuthState::SignedIn { user } => format!(
+                        "signed in as {}",
+                        user.as_deref().unwrap_or("(unknown user)")
+                    ),
+                    crate::app::CopilotAuthState::NotSignedIn => {
+                        "not signed in (:copilot signin)".to_string()
+                    }
+                    crate::app::CopilotAuthState::NotAuthorized { reason } => format!(
+                        "not authorized ({})",
+                        reason.as_deref().unwrap_or("no entitlement")
+                    ),
+                };
+                let open_count = client.open_count();
+                content.push_str(&format!(
+                    "  ● {:<28} running  pid {}  {} file{}  ({})\n",
+                    "copilot-language-server",
+                    client.pid(),
+                    open_count,
+                    if open_count == 1 { "" } else { "s" },
+                    auth,
+                ));
+            }
+            None => {
+                content.push_str(&format!(
+                    "  ○ {:<28} stopped  (copilot-language-server)\n",
+                    "copilot-language-server",
+                ));
+            }
+        }
+
         self.prompt.open_lsp_status(content);
     }
 

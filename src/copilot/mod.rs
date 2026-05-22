@@ -173,6 +173,19 @@ impl CopilotClient {
         }))
     }
 
+    /// OS pid of the spawned `copilot-language-server` process — used
+    /// by `:lsp` status to display alongside the regular LSP entries.
+    pub fn pid(&self) -> u32 {
+        self.child.id()
+    }
+
+    /// Number of documents currently tracked as open on the server.
+    /// Mirrors the per-server "N files" line `:lsp` shows for regular
+    /// LSP clients.
+    pub fn open_count(&self) -> usize {
+        self.docs.len()
+    }
+
     /// True when the server's view of `uri` is out of date with
     /// `current_buffer_version` (or the URI has never been opened).
     /// Lets the App's dirty-flush path stay a single check that
