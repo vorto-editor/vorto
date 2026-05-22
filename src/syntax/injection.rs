@@ -38,6 +38,7 @@ use tree_sitter::{Language, Parser, Query, QueryCursor, StreamingIterator, Tree}
 
 use super::highlight::Capture;
 use super::loader::Loader;
+use crate::vlog;
 
 /// Pre-loaded child highlighter for one injected language. Owns the
 /// grammar handle and the compiled `highlights.scm` query; the parser
@@ -146,9 +147,10 @@ impl InjectionEngine {
                 Err(e) => {
                     // A missing grammar is a soft failure — the host
                     // language still highlights, just without that
-                    // injection. Surfacing this via the existing
-                    // warnings channel keeps the worker thread silent.
-                    eprintln!("injection: sub-language `{}` unavailable: {:#}", name, e);
+                    // injection. Route through the debug log so the
+                    // TUI (and the fuzzy-finder preview, in particular)
+                    // never gets stderr scribbled over it.
+                    vlog!("injection: sub-language `{}` unavailable: {:#}", name, e);
                 }
             }
         }
