@@ -116,8 +116,9 @@ pub(super) fn draw_completion(f: &mut Frame, app: &App, buf_area: Rect) {
     f.render_widget(Clear, area);
     let block = Block::default()
         .borders(Borders::ALL)
+        .border_style(Style::default().fg(super::PANEL_BORDER_FG))
         .padding(Padding::horizontal(1))
-        .style(Style::default().bg(Color::Rgb(30, 30, 40)));
+        .style(Style::default().bg(super::PANEL_BG));
     let inner = block.inner(area);
     f.render_widget(block, area);
 
@@ -160,7 +161,7 @@ pub(super) fn draw_completion(f: &mut Frame, app: &App, buf_area: Rect) {
             let detail_text = truncate(detail, detail_room);
             let row_style = if is_sel {
                 Style::default()
-                    .bg(Color::Rgb(58, 78, 122))
+                    .bg(Color::DarkGray)
                     .add_modifier(Modifier::BOLD)
             } else {
                 Style::default()
@@ -168,7 +169,7 @@ pub(super) fn draw_completion(f: &mut Frame, app: &App, buf_area: Rect) {
             let detail_style = if is_sel {
                 row_style
             } else {
-                Style::default().fg(Color::Rgb(150, 150, 150))
+                Style::default().fg(Color::DarkGray)
             };
             // Pad between label and detail so detail right-aligns.
             let gap = inner_w
@@ -277,8 +278,9 @@ fn draw_detail_popup(
     f.render_widget(Clear, area);
     let block = Block::default()
         .borders(Borders::ALL)
+        .border_style(Style::default().fg(super::PANEL_BORDER_FG))
         .padding(Padding::horizontal(1))
-        .style(Style::default().bg(Color::Rgb(30, 30, 40)));
+        .style(Style::default().bg(super::PANEL_BG));
     let inner = block.inner(area);
     f.render_widget(block, area);
 
@@ -289,7 +291,7 @@ fn draw_detail_popup(
         .map(|s| {
             Line::from(Span::styled(
                 s,
-                Style::default().fg(Color::Rgb(200, 200, 200)),
+                Style::default().fg(Color::Gray),
             ))
         })
         .collect();

@@ -100,8 +100,9 @@ pub(super) fn draw_signature(f: &mut Frame, app: &App, buf_area: Rect) {
     f.render_widget(Clear, area);
     let block = Block::default()
         .borders(Borders::ALL)
+        .border_style(Style::default().fg(super::PANEL_BORDER_FG))
         .padding(Padding::horizontal(1))
-        .style(Style::default().bg(Color::Rgb(30, 30, 40)));
+        .style(Style::default().bg(super::PANEL_BG));
     let inner = block.inner(area);
     f.render_widget(block, area);
 
@@ -118,9 +119,9 @@ fn build_signature_line(
     active: Option<usize>,
 ) -> Line<'static> {
     let label = &sig.label;
-    let base = Style::default().fg(Color::Rgb(220, 220, 220));
+    let base = Style::default().fg(Color::Gray);
     let highlight = Style::default()
-        .fg(Color::Rgb(255, 200, 120))
+        .fg(Color::Yellow)
         .add_modifier(Modifier::BOLD);
 
     let range = active

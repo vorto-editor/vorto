@@ -8,7 +8,7 @@
 
 use ratatui::Frame;
 use ratatui::layout::Rect;
-use ratatui::style::{Color, Style};
+use ratatui::style::Style;
 use ratatui::text::Line;
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 
@@ -100,8 +100,9 @@ pub(super) fn draw_hover(f: &mut Frame, app: &App, buf_area: Rect) {
     f.render_widget(Clear, area);
     let block = Block::default()
         .borders(Borders::ALL)
+        .border_style(Style::default().fg(super::PANEL_BORDER_FG))
         .title(" hover ")
-        .style(Style::default().bg(Color::Rgb(30, 30, 40)));
+        .style(Style::default().bg(super::PANEL_BG));
     let inner = block.inner(area);
     f.render_widget(block, area);
 

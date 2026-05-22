@@ -14,7 +14,9 @@ use crate::finder::{Finder, FuzzyKind};
 use crate::syntax::{self, Capture};
 
 /// Color of the highlight band drawn behind the target preview line.
-const PREVIEW_HIT_BG: Color = Color::Rgb(45, 45, 60);
+/// ANSI bright-black so it follows the terminal theme — matches
+/// `SEARCH_HIT_BG` / `SEL_BG` for visual consistency.
+const PREVIEW_HIT_BG: Color = Color::DarkGray;
 
 pub(super) fn draw_fuzzy_preview(f: &mut Frame, app: &App, finder: &Finder, area: Rect) {
     let Some(sel) = finder.selection() else {

@@ -158,7 +158,7 @@ fn draw_one(f: &mut Frame, area: Rect, level: Level, lines: &[String], hint: Opt
     };
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_style(bg.fg(Color::DarkGray))
+        .border_style(bg.fg(super::PANEL_BORDER_FG))
         .style(bg);
     let inner = block.inner(area);
     f.render_widget(Clear, area);

@@ -84,7 +84,7 @@ pub(super) fn draw_command_hints(f: &mut Frame, cp: &CommandPrompt, cmd_area: Re
     let bg = Style::default().bg(super::PANEL_BG);
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_style(bg.fg(Color::DarkGray))
+        .border_style(bg.fg(super::PANEL_BORDER_FG))
         .title(Span::styled(
             title.to_string(),
             bg.fg(Color::Yellow).add_modifier(Modifier::BOLD),
@@ -183,7 +183,7 @@ pub(super) fn draw_pending_hints(f: &mut Frame, app: &App, status_area: Rect) {
     let title = format!(" {} ", name);
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_style(bg.fg(Color::DarkGray))
+        .border_style(bg.fg(super::PANEL_BORDER_FG))
         .title(Span::styled(
             title,
             bg.fg(Color::Yellow).add_modifier(Modifier::BOLD),

@@ -32,6 +32,7 @@ pub(super) fn draw_explorer(f: &mut Frame, app: &App, area: Rect) {
     let footer = format!(" {}/{} ", position, total.max(1));
     let block = Block::default()
         .borders(Borders::ALL)
+        .border_style(Style::default().fg(super::PANEL_BORDER_FG))
         .title(" explorer ")
         .title_bottom(Line::from(footer).right_aligned())
         .padding(Padding::horizontal(1));

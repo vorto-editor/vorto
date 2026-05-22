@@ -38,10 +38,18 @@ use ratatui::widgets::Paragraph;
 
 use crate::app::{App, PaneId, PaneLayout, PaneRect, Prompt, SplitDir};
 
-/// Shared overlay panel background — slightly darker than ANSI 8
-/// (bright black), so floating widgets (command hints, pending-op
-/// hints, toasts) read as a dim panel rather than pure black.
-pub(crate) const PANEL_BG: Color = Color::Rgb(30, 30, 30);
+/// Shared overlay panel background — `Color::Reset` so floating widgets
+/// (command hints, pending-op hints, toasts, completion, hover,
+/// signature, code actions) inherit the terminal's default background.
+/// `Clear` already wipes the area, so the popup blends with the terminal
+/// and only the border + selected row carry their own shade.
+pub(crate) const PANEL_BG: Color = Color::Reset;
+
+/// Foreground used for popup borders — ANSI gray (color 7) so the frame
+/// reads clearly against the (terminal-default) panel bg without being
+/// loud. Brighter than bright-black so the popup edges actually stand
+/// out from the surrounding buffer text.
+pub(crate) const PANEL_BORDER_FG: Color = Color::Gray;
 
 pub fn draw(f: &mut Frame, app: &App) {
     let chunks = Layout::default()

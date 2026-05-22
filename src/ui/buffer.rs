@@ -18,9 +18,9 @@ use crate::vcs::LineStatus;
 
 use std::collections::HashMap;
 
-/// Color used to paint visually-selected text. Picked to read clearly on
-/// both dark and light terminals.
-const SEL_BG: Color = Color::Rgb(58, 78, 122);
+/// Color used to paint visually-selected text. ANSI bright-black so the
+/// shade follows the user's terminal theme (color 8 in the palette).
+const SEL_BG: Color = Color::DarkGray;
 
 /// Background used to highlight every visible match of the active
 /// search pattern (vim's `hlsearch`). ANSI bright-black (the terminal's
@@ -50,9 +50,10 @@ const JUMP_LABEL_BG: Color = Color::Rgb(40, 0, 40);
 /// into the background but still legible.
 const WHITESPACE_FG: Color = Color::DarkGray;
 
-/// Foreground used for inactive indent-guide bars. Dim so the guides
-/// stay readable as structural hints without competing with code.
-const INDENT_GUIDE_FG: Color = Color::Rgb(60, 60, 70);
+/// Foreground used for inactive indent-guide bars. ANSI bright-black so
+/// the guides pick up the user's terminal theme and stay readable as
+/// structural hints without competing with code.
+const INDENT_GUIDE_FG: Color = Color::DarkGray;
 
 /// Default glyph for indent-guide cells. Light vertical box-drawing
 /// line. Used as the per-cell glyph unless a specific guide
@@ -761,7 +762,12 @@ fn render_line(
             // Active uses the terminal's default foreground + bold so
             // the bar is the same hue as code (no extra palette
             // assumption) but visibly stands out from inactive guides.
-            Style::default().add_modifier(ratatui::style::Modifier::BOLD)
+            // `Color::Reset` is explicit so `style.patch(guide_style)`
+            // overrides any underlying cell fg (e.g. `WHITESPACE_FG`
+            // when `show_whitespace` is on) instead of inheriting it.
+            Style::default()
+                .fg(Color::Reset)
+                .add_modifier(ratatui::style::Modifier::BOLD)
         } else {
             Style::default().fg(INDENT_GUIDE_FG)
         }

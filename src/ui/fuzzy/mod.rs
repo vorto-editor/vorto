@@ -35,6 +35,7 @@ pub(super) fn draw_fuzzy(f: &mut Frame, app: &App, area: Rect) {
     let footer = format!(" {}/{} ", finder.selected + 1, total.max(1));
     let block = Block::default()
         .borders(Borders::ALL)
+        .border_style(Style::default().fg(super::PANEL_BORDER_FG))
         .title(title)
         .title_bottom(Line::from(footer).right_aligned())
         .padding(Padding::horizontal(1));
