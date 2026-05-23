@@ -31,6 +31,9 @@ pub(super) fn handle_op(app: &mut App, op: Operator, target: Target, outer_count
                 }
                 app.buffer.cursor.row = start_row;
                 cursor_to_first_non_blank(&mut app.buffer);
+            } else if matches!(op, Operator::Comment | Operator::BlockComment) {
+                let rows = comment_target_rows(app, outer_count);
+                apply_comment_op(app, op, &rows, None, &mut cmds);
             } else {
                 for _ in 0..outer_count {
                     match op {
@@ -43,7 +46,10 @@ pub(super) fn handle_op(app: &mut App, op: Operator, target: Target, outer_count
                         Operator::Change => {
                             cmds.push(Cmd::ToastError("change not implemented yet".into()));
                         }
-                        Operator::Indent | Operator::Dedent => unreachable!(),
+                        Operator::Indent
+                        | Operator::Dedent
+                        | Operator::Comment
+                        | Operator::BlockComment => unreachable!(),
                     }
                 }
             }
@@ -138,5 +144,66 @@ fn apply_op_range(app: &mut App, op: Operator, start: Cursor, end: Cursor, cmds:
             app.buffer.cursor.row = lo;
             cursor_to_first_non_blank(&mut app.buffer);
         }
+        Operator::Comment => {
+            let (lo, hi) = order_range(start, end);
+            let rows: Vec<usize> = (lo.row..=hi.row).collect();
+            apply_comment_op(app, op, &rows, None, cmds);
+        }
+        Operator::BlockComment => {
+            let (lo, hi) = order_range(start, end);
+            let rows: Vec<usize> = (lo.row..=hi.row).collect();
+            apply_comment_op(app, op, &rows, Some((lo, hi)), cmds);
+        }
+    }
+}
+
+fn order_range(a: Cursor, b: Cursor) -> (Cursor, Cursor) {
+    if (a.row, a.col) <= (b.row, b.col) {
+        (a, b)
+    } else {
+        (b, a)
+    }
+}
+
+/// Shared dispatch for `Operator::Comment` and `Operator::BlockComment`.
+/// Delegates the mutation + token-fallback policy to `App` methods so
+/// Visual mode picks up the same behavior; this function only owns the
+/// Normal-mode-specific error surface (push `Cmd::ToastError`).
+fn apply_comment_op(
+    app: &mut App,
+    op: Operator,
+    rows: &[usize],
+    range: Option<(Cursor, Cursor)>,
+    cmds: &mut Vec<Cmd>,
+) {
+    let ok = match op {
+        Operator::Comment => app.apply_line_comment(rows),
+        Operator::BlockComment => app.apply_block_comment(rows, range),
+        _ => unreachable!(),
+    };
+    if !ok {
+        let msg = match op {
+            Operator::Comment => "no comment token for this buffer",
+            Operator::BlockComment => "no block- or line-comment tokens for this buffer",
+            _ => unreachable!(),
+        };
+        cmds.push(Cmd::ToastError(msg.into()));
+    }
+}
+
+/// Same row-collection logic as `direct.rs::comment_target_rows`: extra
+/// cursors fan out; otherwise `count` rows starting at the primary.
+fn comment_target_rows(app: &App, count: u32) -> Vec<usize> {
+    if app.buffer.extra_cursors.is_empty() {
+        let start = app.buffer.cursor.row;
+        let max = app.buffer.lines.len();
+        (0..count as usize)
+            .map(|i| start + i)
+            .take_while(|&r| r < max)
+            .collect()
+    } else {
+        std::iter::once(app.buffer.cursor.row)
+            .chain(app.buffer.extra_cursors.iter().map(|c| c.row))
+            .collect()
     }
 }

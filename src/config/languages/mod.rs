@@ -164,10 +164,15 @@ pub struct LanguageConfig {
     /// Override directory for `<lang>/highlights.scm` — overrides the
     /// global query dir for just this language.
     pub query_dir: Option<PathBuf>,
-    /// Single-line comment prefix used by the `<space>c` toggle (e.g.
-    /// `"//"` for Rust, `"#"` for Python). Unset disables commenting
-    /// for the language.
+    /// Single-line comment prefix used by the `gc` operator (e.g.
+    /// `"//"` for Rust, `"#"` for Python). Unset disables line
+    /// commenting for the language.
     pub comment_token: Option<String>,
+    /// Block-comment delimiter pair used by the `gb` operator
+    /// (e.g. `("/*", "*/")` for C-family, `("<!--", "-->")` for HTML).
+    /// Unset means the language has no native block comment — `gb`
+    /// falls back to per-row line comments using `comment_token`.
+    pub block_comment_token: Option<(String, String)>,
     /// Editor-setting overrides for this language. Fields are
     /// flattened into `[languages.<name>]` (e.g. `tab_width = 8` sits
     /// directly on the language table, not under `[…].editor`).
@@ -207,6 +212,9 @@ impl LanguageConfig {
         if user.comment_token.is_some() {
             self.comment_token = user.comment_token;
         }
+        if user.block_comment_token.is_some() {
+            self.block_comment_token = user.block_comment_token;
+        }
         // Editor settings are field-level overlay so users can flip
         // just one knob (typically `tab_width`) without re-stating the
         // others.
@@ -243,6 +251,7 @@ pub struct Language {
     pub grammar_dir: Option<PathBuf>,
     pub query_dir: Option<PathBuf>,
     pub comment_token: Option<String>,
+    pub block_comment_token: Option<(String, String)>,
     /// Per-language editor-setting overrides.
     pub editor: EditorToml,
     /// LSP servers attached to this language, expanded from the name

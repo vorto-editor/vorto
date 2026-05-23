@@ -439,12 +439,193 @@ impl Buffer {
             }
         }
 
-        shift_cursor_for_block_comment(&mut self.cursor, &deltas, anchor);
+        self.for_each_cursor(|c| shift_cursor_for_block_comment(c, &deltas, anchor));
+        self.clamp_col(false);
+        self.touch();
+    }
+
+    /// Apply `f` to the primary cursor first, then every extra cursor
+    /// in insertion order. Convenience for the post-edit fan-out pattern
+    /// used by multi-cursor-aware mutations — saves writing the
+    /// `&mut self.cursor` call + `for c in extra_cursors.iter_mut()`
+    /// loop everywhere a structural edit shifts cursor positions.
+    pub fn for_each_cursor(&mut self, mut f: impl FnMut(&mut Cursor)) {
+        f(&mut self.cursor);
         for c in self.extra_cursors.iter_mut() {
-            shift_cursor_for_block_comment(c, &deltas, anchor);
+            f(c);
+        }
+    }
+
+    /// Wrap (or unwrap) the half-open range `[from, to)` with the
+    /// `open` / `close` token pair — i.e. block-comment toggle for
+    /// languages with a `(prefix, suffix)` comment syntax like
+    /// `/* … */` or `<!-- … -->`.
+    ///
+    /// Two layout forms, picked automatically from the range shape:
+    ///
+    /// - **Inline** (default): `open` is inserted at `lo`, `close` at
+    ///   `hi`, both on the same rows the range already spans. Used for
+    ///   `gbiw`, `gbi(`, and any non-line-aligned target.
+    /// - **Own-line**: when the range is multi-row AND `lo` sits at
+    ///   column 0 AND `hi` is at a line boundary (column 0 of the row
+    ///   *after* the content, or end-of-line of the last row), `open`
+    ///   and `close` each go on their own new rows above / below the
+    ///   content. So `gbap`, `gbi{` over multi-line braces, etc. lay
+    ///   out as a clean block:
+    ///
+    ///   ```text
+    ///   /*
+    ///   foo
+    ///   bar
+    ///   */
+    ///   ```
+    ///
+    /// Toggle direction:
+    ///
+    /// - Inline strip when the range starts with `open` at `lo` and
+    ///   ends with `close` at `hi` (same-row tokens).
+    /// - Own-line strip when the entire row at `lo.row` equals `open`
+    ///   and the row just before `hi` equals `close` — the natural
+    ///   shape after a previous own-line wrap, including the case
+    ///   where the text-object re-selects the wrapped block.
+    /// - Otherwise: wrap (own-line when the shape allows, inline
+    ///   otherwise).
+    ///
+    /// Cursor bookkeeping: every cursor (primary + extras) gets its
+    /// row and column adjusted per edit. Same-row column shifts go
+    /// through `shift_cursor_for_edit`; whole-row insertions and
+    /// removals go through `shift_cursor_for_row_delta`.
+    pub fn toggle_block_wrap(&mut self, open: &str, close: &str, from: Cursor, to: Cursor) {
+        let (lo, hi) = order(from, to);
+        if lo == hi {
+            return;
+        }
+        let open_chars = open.chars().count();
+        let close_chars = close.chars().count();
+
+        // Where does the close token actually live on disk for an
+        // own-line layout? If `hi.col == 0` the range exclusive end
+        // sits on the row *after* the content (paragraph text-object
+        // convention from `range_for_full_lines`), so the close row is
+        // hi.row − 1. Otherwise hi is on the content's last row.
+        let own_close_row = if hi.col == 0 && hi.row > 0 {
+            hi.row - 1
+        } else {
+            hi.row
+        };
+
+        // Own-line strip: open alone on lo.row, close alone on
+        // own_close_row, with at least one content row in between. The
+        // exact equality on `lines[r]` is intentional — anything else
+        // means a user edited the wrap or it isn't ours to strip.
+        let own_line_wrapped = lo.col == 0
+            && own_close_row > lo.row
+            && self.lines[lo.row] == open
+            && self.lines[own_close_row] == close;
+
+        let starts_open = !own_line_wrapped && {
+            let line = &self.lines[lo.row];
+            let byte = char_to_byte(line, lo.col);
+            line[byte..].starts_with(open)
+        };
+        let ends_close = !own_line_wrapped && hi.col >= close_chars && {
+            let line = &self.lines[hi.row];
+            let a = char_to_byte(line, hi.col - close_chars);
+            let b = char_to_byte(line, hi.col);
+            &line[a..b] == close
+        };
+
+        if own_line_wrapped {
+            // Remove the close row first (higher index, doesn't
+            // invalidate lo.row), then the open row.
+            self.lines.remove(own_close_row);
+            self.for_each_cursor(|c| shift_cursor_for_row_delta(c, own_close_row, -1));
+            self.lines.remove(lo.row);
+            self.for_each_cursor(|c| shift_cursor_for_row_delta(c, lo.row, -1));
+        } else if starts_open && ends_close {
+            // Inline strip — close first so the open's coords stay
+            // valid for the second edit.
+            let close_start = hi.col - close_chars;
+            let a = char_to_byte(&self.lines[hi.row], close_start);
+            let b = char_to_byte(&self.lines[hi.row], hi.col);
+            self.lines[hi.row].replace_range(a..b, "");
+            self.for_each_cursor(|c| shift_cursor_for_edit(c, hi.row, close_start, close_chars, 0));
+
+            let a = char_to_byte(&self.lines[lo.row], lo.col);
+            let b = char_to_byte(&self.lines[lo.row], lo.col + open_chars);
+            self.lines[lo.row].replace_range(a..b, "");
+            self.for_each_cursor(|c| shift_cursor_for_edit(c, lo.row, lo.col, open_chars, 0));
+        } else if should_use_own_line(&self.lines, lo, hi) {
+            // Insert close row first (higher index keeps lo coords
+            // valid). `own_close_row` here points at the row *after*
+            // the last content row, where we want the close to land.
+            let close_insert_row = own_close_row + 1;
+            self.lines.insert(close_insert_row, close.to_string());
+            self.for_each_cursor(|c| shift_cursor_for_row_delta(c, close_insert_row, 1));
+            self.lines.insert(lo.row, open.to_string());
+            self.for_each_cursor(|c| shift_cursor_for_row_delta(c, lo.row, 1));
+        } else {
+            // Inline wrap — close first so open's coords aren't shifted
+            // (same-row case: lo.col < hi.col, close insert at hi.col
+            // leaves lo.col untouched).
+            let hi_byte = char_to_byte(&self.lines[hi.row], hi.col);
+            self.lines[hi.row].insert_str(hi_byte, close);
+            self.for_each_cursor(|c| shift_cursor_for_edit(c, hi.row, hi.col, 0, close_chars));
+
+            let lo_byte = char_to_byte(&self.lines[lo.row], lo.col);
+            self.lines[lo.row].insert_str(lo_byte, open);
+            self.for_each_cursor(|c| shift_cursor_for_edit(c, lo.row, lo.col, 0, open_chars));
         }
         self.clamp_col(false);
         self.touch();
+    }
+}
+
+/// True when a fresh wrap of `[lo, hi)` should lay out open/close on
+/// their own rows. Requires multi-row span, `lo` at column 0, and `hi`
+/// at a line boundary (either column 0 of the next row or end-of-line
+/// of the last content row).
+fn should_use_own_line(lines: &[String], lo: Cursor, hi: Cursor) -> bool {
+    if lo.col != 0 || lo.row == hi.row {
+        return false;
+    }
+    hi.col == 0 || hi.col == lines[hi.row].chars().count()
+}
+
+/// Shift a cursor's row after a whole-row insertion or removal at
+/// `pivot`. Positive `delta` = rows inserted at `pivot` (existing rows
+/// at >= pivot move down); negative = a single row at `pivot` was
+/// removed (rows after move up). Cursors strictly above `pivot` are
+/// untouched; a cursor on the removed row clamps to `pivot` (the next
+/// surviving row, or the new content if rows were inserted).
+fn shift_cursor_for_row_delta(c: &mut Cursor, pivot: usize, delta: i32) {
+    if delta > 0 {
+        if c.row >= pivot {
+            c.row += delta as usize;
+        }
+    } else if delta < 0 {
+        let d = (-delta) as usize;
+        if c.row > pivot {
+            c.row = c.row.saturating_sub(d);
+        }
+        // c.row == pivot: the row was removed. Leave c.row at pivot so
+        // it points at whatever now occupies that index.
+    }
+}
+
+/// Adjust `c` for an edit on `row` that, starting at char column
+/// `col_start`, removed `delete` chars and inserted `insert` in their
+/// place. Pure column arithmetic — no row changes, no clamping.
+fn shift_cursor_for_edit(c: &mut Cursor, row: usize, col_start: usize, delete: usize, insert: usize) {
+    if c.row != row {
+        return;
+    }
+    if c.col >= col_start + delete {
+        c.col = c.col + insert - delete;
+    } else if c.col > col_start {
+        // Cursor was inside the deleted span — pull it back to the
+        // edit's start (where the inserted text now begins, if any).
+        c.col = col_start + insert;
     }
 }
 

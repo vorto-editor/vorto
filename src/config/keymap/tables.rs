@@ -244,14 +244,14 @@ pub const GOTO_BINDINGS: &[Binding] = {
         Binding {
             key: KeyCode::Char('c'),
             aliases: &[],
-            token: M(ViewportMiddle),
-            label: "viewport mid (= M)",
+            token: Token::Op(Operator::Comment),
+            label: "comment (line)",
         },
         Binding {
             key: KeyCode::Char('b'),
             aliases: &[],
-            token: M(ViewportBottom),
-            label: "viewport bot (= L)",
+            token: Token::Op(Operator::BlockComment),
+            label: "comment (block)",
         },
         Binding {
             key: KeyCode::Char('d'),
@@ -420,11 +420,14 @@ pub const LEADER_DEFAULTS: &[Binding] = {
             token: Dir(D::Hover),
             label: "hover (lsp)",
         },
+        // `<space>c` — single-key alias for `gcc`. Emits a SelfDouble
+        // token directly; classify rewrites `[LeaderPrefix, SelfDouble]`
+        // into the same `Expr::Op { LineWise }` as the operator path.
         Binding {
             key: KeyCode::Char('c'),
             aliases: &[],
-            token: Dir(D::ToggleComment),
-            label: "toggle line comment",
+            token: Token::SelfDouble(Operator::Comment),
+            label: "toggle line comment (= gcc)",
         },
         Binding {
             key: KeyCode::Char('*'),

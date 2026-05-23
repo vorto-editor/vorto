@@ -334,6 +334,8 @@ fn pending_hints(tokens: &[Token]) -> Option<(&'static str, Vec<(String, &'stati
                 Operator::Change => ("change", "c", "change line (cc)"),
                 Operator::Indent => ("indent", ">", "indent line (>>)"),
                 Operator::Dedent => ("dedent", "<", "dedent line (<<)"),
+                Operator::Comment => ("comment", "c", "comment line (gcc)"),
+                Operator::BlockComment => ("block-comment", "c", "block-comment line (gbc)"),
             };
             let mut entries = vec![(self_key.to_string(), self_label)];
             entries.extend(

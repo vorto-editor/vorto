@@ -247,6 +247,7 @@ pub fn builtin_languages() -> HashMap<String, LanguageConfig> {
         LanguageConfig {
             extensions: Some(vec!["rs".into()]),
             comment_token: Some("//".into()),
+            block_comment_token: Some(("/*".into(), "*/".into())),
             editor: EditorToml {
                 indent_width: Some(4),
                 tab_width: Some(4),
@@ -292,6 +293,7 @@ pub fn builtin_languages() -> HashMap<String, LanguageConfig> {
         LanguageConfig {
             extensions: Some(vec!["ts".into()]),
             comment_token: Some("//".into()),
+            block_comment_token: Some(("/*".into(), "*/".into())),
             editor: EditorToml {
                 indent_width: Some(2),
                 tab_width: Some(2),
@@ -309,6 +311,7 @@ pub fn builtin_languages() -> HashMap<String, LanguageConfig> {
         LanguageConfig {
             extensions: Some(vec!["tsx".into()]),
             comment_token: Some("//".into()),
+            block_comment_token: Some(("/*".into(), "*/".into())),
             editor: EditorToml {
                 indent_width: Some(2),
                 tab_width: Some(2),
@@ -323,6 +326,7 @@ pub fn builtin_languages() -> HashMap<String, LanguageConfig> {
         LanguageConfig {
             extensions: Some(vec!["js".into(), "jsx".into(), "mjs".into(), "cjs".into()]),
             comment_token: Some("//".into()),
+            block_comment_token: Some(("/*".into(), "*/".into())),
             lsp: lsp(&["typescript-language-server"]),
             ..Default::default()
         },
@@ -333,6 +337,7 @@ pub fn builtin_languages() -> HashMap<String, LanguageConfig> {
         LanguageConfig {
             extensions: Some(vec!["go".into()]),
             comment_token: Some("//".into()),
+            block_comment_token: Some(("/*".into(), "*/".into())),
             editor: EditorToml {
                 indent_width: Some(4),
                 tab_width: Some(4),
@@ -352,6 +357,7 @@ pub fn builtin_languages() -> HashMap<String, LanguageConfig> {
         LanguageConfig {
             extensions: Some(vec!["kt".into(), "kts".into()]),
             comment_token: Some("//".into()),
+            block_comment_token: Some(("/*".into(), "*/".into())),
             lsp: lsp(&["kotlin-lsp"]),
             ..Default::default()
         },
@@ -363,6 +369,7 @@ pub fn builtin_languages() -> HashMap<String, LanguageConfig> {
         LanguageConfig {
             extensions: Some(vec!["c".into(), "h".into()]),
             comment_token: Some("//".into()),
+            block_comment_token: Some(("/*".into(), "*/".into())),
             lsp: lsp(&["clangd"]),
             ..Default::default()
         },
@@ -379,6 +386,7 @@ pub fn builtin_languages() -> HashMap<String, LanguageConfig> {
                 "hxx".into(),
             ]),
             comment_token: Some("//".into()),
+            block_comment_token: Some(("/*".into(), "*/".into())),
             lsp: lsp(&["clangd"]),
             ..Default::default()
         },
@@ -388,6 +396,7 @@ pub fn builtin_languages() -> HashMap<String, LanguageConfig> {
         LanguageConfig {
             extensions: Some(vec!["java".into()]),
             comment_token: Some("//".into()),
+            block_comment_token: Some(("/*".into(), "*/".into())),
             lsp: lsp(&["jdtls"]),
             ..Default::default()
         },
@@ -435,6 +444,7 @@ pub fn builtin_languages() -> HashMap<String, LanguageConfig> {
         LanguageConfig {
             extensions: Some(vec!["html".into(), "htm".into()]),
             comment_token: None,
+            block_comment_token: Some(("<!--".into(), "-->".into())),
             lsp: lsp(&["vscode-html-language-server"]),
             ..Default::default()
         },
@@ -444,6 +454,7 @@ pub fn builtin_languages() -> HashMap<String, LanguageConfig> {
         LanguageConfig {
             extensions: Some(vec!["css".into()]),
             comment_token: None,
+            block_comment_token: Some(("/*".into(), "*/".into())),
             lsp: lsp(&["vscode-css-language-server"]),
             ..Default::default()
         },
@@ -550,6 +561,7 @@ pub fn builtin_languages() -> HashMap<String, LanguageConfig> {
         LanguageConfig {
             extensions: Some(vec!["vue".into()]),
             comment_token: Some("<!--".into()),
+            block_comment_token: Some(("<!--".into(), "-->".into())),
             lsp: lsp(&["vue-language-server"]),
             ..Default::default()
         },
@@ -559,6 +571,7 @@ pub fn builtin_languages() -> HashMap<String, LanguageConfig> {
         LanguageConfig {
             extensions: Some(vec!["svelte".into()]),
             comment_token: Some("<!--".into()),
+            block_comment_token: Some(("<!--".into(), "-->".into())),
             lsp: lsp(&["svelteserver"]),
             ..Default::default()
         },

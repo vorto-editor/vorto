@@ -403,6 +403,10 @@ impl App {
                     Operator::Indent | Operator::Dedent => {
                         unreachable!("indent/dedent dispatched via indent_selection")
                     }
+                    Operator::Comment => self.apply_visual_comment(from.row, end.row),
+                    Operator::BlockComment => {
+                        self.apply_visual_block_comment(from, end, from.row, end.row)
+                    }
                 }
             }
             Selection::Line { from_row, to_row } => match op {
@@ -420,6 +424,25 @@ impl App {
                 }
                 Operator::Indent | Operator::Dedent => {
                     unreachable!("indent/dedent dispatched via indent_selection")
+                }
+                Operator::Comment => self.apply_visual_comment(from_row, to_row),
+                Operator::BlockComment => {
+                    // Line-visual wrap spans whole lines: col 0 of the
+                    // first to end-of-last.
+                    let (lo_row, hi_row) = (from_row.min(to_row), from_row.max(to_row));
+                    let hi_col = self.buffer.lines[hi_row].chars().count();
+                    self.apply_visual_block_comment(
+                        Cursor {
+                            row: lo_row,
+                            col: 0,
+                        },
+                        Cursor {
+                            row: hi_row,
+                            col: hi_col,
+                        },
+                        lo_row,
+                        hi_row,
+                    );
                 }
             },
             Selection::Block { r0, c0, r1, c1 } => match op {
@@ -449,7 +472,37 @@ impl App {
                 Operator::Indent | Operator::Dedent => {
                     unreachable!("indent/dedent dispatched via indent_selection")
                 }
+                // Visual-block + comment ops collapse to line-comment
+                // over the touched rows. Wrapping a rectangle with
+                // `/* … */` doesn't have a natural meaning, so we
+                // intentionally don't honor BlockComment differently
+                // here — both fall through to per-row line comment.
+                Operator::Comment | Operator::BlockComment => {
+                    self.apply_visual_comment(r0, r1)
+                }
             },
+        }
+    }
+
+    fn apply_visual_comment(&mut self, row_a: usize, row_b: usize) {
+        let (lo, hi) = (row_a.min(row_b), row_a.max(row_b));
+        let rows: Vec<usize> = (lo..=hi).collect();
+        if !self.apply_line_comment(&rows) {
+            self.push_toast(Toast::error("no comment token for this buffer"));
+        }
+    }
+
+    fn apply_visual_block_comment(
+        &mut self,
+        from: Cursor,
+        to: Cursor,
+        row_a: usize,
+        row_b: usize,
+    ) {
+        let (lo, hi) = (row_a.min(row_b), row_a.max(row_b));
+        let rows: Vec<usize> = (lo..=hi).collect();
+        if !self.apply_block_comment(&rows, Some((from, to))) {
+            self.push_toast(Toast::error("no block- or line-comment tokens for this buffer"));
         }
     }
 }

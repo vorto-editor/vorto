@@ -69,6 +69,18 @@ pub enum Operator {
     Indent,
     /// `<` — shift target lines left by one indent level.
     Dedent,
+    /// `gc` — toggle line comments over the target range (or rows
+    /// touched by the target, for non-line-wise targets). `gcc` is
+    /// the self-double shortcut for the current line; `<count>gcc`
+    /// covers `count` lines. With multiple cursors active and a
+    /// line-wise target, fans out to every cursor's row.
+    Comment,
+    /// `gb` — toggle a block comment around the target range using
+    /// the language's `block_comment_token` pair (e.g. `/* … */`).
+    /// Falls back to `Comment` (per-row line comment) when the active
+    /// language has no block tokens configured. `gbc` is the
+    /// self-double shortcut for the current line.
+    BlockComment,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -274,9 +286,6 @@ pub enum DirectKind {
     /// `:lsp` — open a read-only modal listing every language with
     /// an LSP configured plus its current running state.
     LspStatus,
-    /// `<space>c` — toggle a single-line comment on the current line
-    /// using the active language's `comment_token`.
-    ToggleComment,
     /// `.` — replay the last buffer-modifying change. Intercepted in
     /// `App::evaluate` before reaching the normal dispatch path, so this
     /// variant never appears in `handle_direct`'s match arms.

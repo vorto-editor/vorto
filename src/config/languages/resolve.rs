@@ -86,6 +86,7 @@ fn build_language(
         grammar_dir: c.grammar_dir,
         query_dir: c.query_dir,
         comment_token: c.comment_token,
+        block_comment_token: c.block_comment_token,
         editor: c.editor,
         lsp,
         formatter,

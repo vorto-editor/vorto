@@ -7,6 +7,7 @@
 //! `impl App { ... }` blocks in the submodules below.
 
 mod buffer_list;
+mod comment;
 mod completion;
 mod copilot;
 mod eval;

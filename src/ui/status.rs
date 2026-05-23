@@ -172,11 +172,19 @@ fn format_pending(tokens: &[Token]) -> String {
             Token::Op(Operator::Change) => s.push('c'),
             Token::Op(Operator::Indent) => s.push('>'),
             Token::Op(Operator::Dedent) => s.push('<'),
+            // Comment / BlockComment are only reachable through the `g`
+            // prefix, which has already been pushed as 'g' by an
+            // earlier GotoPrefix token — so we only push the trailing
+            // letter here. SelfDouble for both is `c` (gcc / gbc).
+            Token::Op(Operator::Comment) => s.push('c'),
+            Token::Op(Operator::BlockComment) => s.push('b'),
             Token::SelfDouble(Operator::Delete) => s.push('d'),
             Token::SelfDouble(Operator::Yank) => s.push('y'),
             Token::SelfDouble(Operator::Change) => s.push('c'),
             Token::SelfDouble(Operator::Indent) => s.push('>'),
             Token::SelfDouble(Operator::Dedent) => s.push('<'),
+            Token::SelfDouble(Operator::Comment) => s.push('c'),
+            Token::SelfDouble(Operator::BlockComment) => s.push('c'),
             Token::Scope(crate::action::Scope::Inner) => s.push('i'),
             Token::Scope(crate::action::Scope::Around) => s.push('a'),
             Token::LeaderPrefix => s.push_str("<space>"),

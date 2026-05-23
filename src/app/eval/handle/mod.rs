@@ -158,7 +158,6 @@ pub(super) fn expr_modifies_buffer(expr: &Expr) -> bool {
                 | D::SubstituteChar
                 | D::SubstituteLine
                 | D::ReplaceChar { .. }
-                | D::ToggleComment
                 | D::Substitute
         ),
         Expr::Motion(_) => false,

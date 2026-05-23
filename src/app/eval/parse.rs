@@ -248,6 +248,12 @@ fn op_pending_token(code: KeyCode, prev: &[Token]) -> Option<Token> {
             | (Operator::Change, KeyCode::Char('c'))
             | (Operator::Indent, KeyCode::Char('>'))
             | (Operator::Dedent, KeyCode::Char('<'))
+            // `gcc` / `gbc` follow vim-commentary / Comment.nvim: the
+            // second `c` (not the operator's own letter `b`) is the
+            // self-double key for block comments too, mirroring how
+            // `gcc` reads as "comment the current line".
+            | (Operator::Comment, KeyCode::Char('c'))
+            | (Operator::BlockComment, KeyCode::Char('c'))
     );
     if same_key {
         return Some(Token::SelfDouble(pending_op));
@@ -340,6 +346,16 @@ fn build_expr(tokens: &[Token]) -> Option<Expr> {
             count: outer_count,
         }),
 
+        // `<space>c` — a leader binding may emit a SelfDouble token to
+        // act as a single-key alias for an operator's line-wise form
+        // (e.g. `<space>c` ≡ `gcc`). Same shape as the post-operator
+        // `[SelfDouble(_)]` arm below.
+        [LeaderPrefix, SelfDouble(op)] => Some(Expr::Op {
+            op: *op,
+            target: Target::LineWise,
+            outer_count,
+        }),
+
         // Window sub-leader: <space>w v, <space>w h, <space>w <arrow>, ...
         [LeaderPrefix, WindowPrefix, Direct(d)] => Some(Expr::Direct {
             kind: *d,
@@ -372,12 +388,18 @@ fn build_expr(tokens: &[Token]) -> Option<Expr> {
             count: outer_count,
         }),
 
-        // g_ / ge / gE / gs / gl / gc / gb — goto-prefix followed by
-        // a motion. Drops the prefix at the AST level.
+        // g_ / ge / gE / gs / gl — goto-prefix followed by a motion.
+        // Drops the prefix at the AST level.
         [GotoPrefix, Motion(m)] => Some(Expr::Motion(MotionExpr {
             motion: *m,
             count: outer_count,
         })),
+
+        // `gc` / `gb` — goto-prefix introducing a comment operator.
+        // Strip the prefix and reuse the regular operator builder so
+        // motion / text-object / self-double targets all work the same
+        // as for `d`, `y`, `c` (`gcc`, `gcap`, `gci{`, `gcw`, …).
+        [GotoPrefix, Op(op), inner @ ..] => build_op_expr(*op, inner, outer_count),
 
         // zz / zt / zb — z-prefix followed by a viewport direct.
         [ZPrefix, Direct(d)] => Some(Expr::Direct {
@@ -497,6 +519,12 @@ fn is_valid_prefix(tokens: &[Token]) -> bool {
             let after_op = &rest[1..];
             let (_, after_inner_count) = take_count(after_op);
             matches!(after_inner_count, [] | [Scope(_)] | [FindCharPrefix { .. }])
+        }
+        // `gc` / `gci` / `gc<count>...` — recurse into the post-prefix
+        // tail so a `g`-introduced operator keeps the same valid-prefix
+        // rules as a bare operator.
+        [GotoPrefix, after @ ..] if matches!(after.first(), Some(Op(_))) => {
+            is_valid_prefix(after)
         }
         _ => false,
     }
