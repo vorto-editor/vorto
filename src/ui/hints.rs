@@ -8,7 +8,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Padding, Paragraph};
 
 use crate::action::{Operator, Token};
-use crate::app::App;
+use crate::app::{App, COPILOT_SUBCOMMANDS};
 use crate::config::COMMAND_BINDS;
 use crate::config::{
     BRACKET_NEXT_BINDINGS, BRACKET_PREV_BINDINGS, CTRL_W_BINDINGS, GOTO_BINDINGS, LEADER_DEFAULTS,
@@ -21,6 +21,33 @@ const HINT_ROWS_MAX: usize = 24;
 const HINT_MAX: usize = HINT_COLS * HINT_ROWS_MAX;
 const HINT_PAD_X: u16 = 1;
 const HINT_PAD_Y: u16 = 1;
+
+/// Virtual `:` commands not represented in [`COMMAND_BINDS`] — used by
+/// the inline `cmd == "copilot"` interception in
+/// [`crate::app::eval`]. Listed here so the hint panel still surfaces
+/// them as completion targets. The subcommand variants are *not*
+/// included here on purpose: once the user has typed `copilot `, the
+/// separate [`draw_command_subhints`] panel takes over with a focused
+/// menu so the main commands list stays uncluttered.
+const VIRTUAL_COMMANDS: &[(&str, &str)] = &[("copilot", "Copilot status / signin / signout")];
+
+/// Resolve `<head>` to a (title, entries) pair when there's a known
+/// subcommand menu attached to it. Adding new subcommand-bearing
+/// commands means extending this match — the `entries` themselves are
+/// owned by their respective dispatcher modules (e.g.
+/// [`COPILOT_SUBCOMMANDS`]) so this layer never duplicates them.
+fn subcommand_menu(head: &str) -> Option<(&'static str, Vec<(&'static str, &'static str)>)> {
+    match head {
+        "copilot" => Some((
+            " copilot ",
+            COPILOT_SUBCOMMANDS
+                .iter()
+                .map(|s| (s.name, s.description))
+                .collect(),
+        )),
+        _ => None,
+    }
+}
 
 const PENDING_HINT_WIDTH: u16 = 32;
 const PENDING_HINT_ROWS_MAX: u16 = 12;
@@ -53,14 +80,23 @@ pub(super) fn draw_command_hints(f: &mut Frame, cp: &CommandPrompt, cmd_area: Re
                 (" commands ", items, sel)
             }
             None => {
-                // No cycle in progress — show live command-name
-                // candidates filtered by current input. Suppress once
-                // the user has moved past the command name itself.
+                // No cycle in progress — live filtering against what
+                // the user has typed. Three shapes share this panel:
+                //   - bare command name (no space)         → commands
+                //   - `<head> <partial>` for a known menu  → subcommands
+                //   - anything else (path arg, etc.)       → no panel
                 let input = cp.input.as_str();
-                if input.contains(' ') {
-                    return;
+                match input.find([' ', '\t']) {
+                    None => (" commands ", command_items(input), None),
+                    Some(sp) => {
+                        let head = &input[..sp];
+                        let Some((title, entries)) = subcommand_menu(head) else {
+                            return;
+                        };
+                        let partial = input[sp + 1..].trim_start_matches(['\t', ' ']);
+                        (title, filter_subcommand_items(&entries, partial), None)
+                    }
                 }
-                (" commands ", command_items(input), None)
             }
         };
     if items.is_empty() {
@@ -184,9 +220,21 @@ fn command_items(prefix: &str) -> Vec<(String, String)> {
     COMMAND_BINDS
         .iter()
         .flat_map(|b| b.all_names().map(move |n| (n, b.description)))
+        .chain(VIRTUAL_COMMANDS.iter().copied())
         .filter(|(name, _)| name.starts_with(prefix))
         .take(HINT_MAX)
         .map(|(n, d)| (n.to_string(), d.to_string()))
+        .collect()
+}
+
+fn filter_subcommand_items(
+    entries: &[(&'static str, &'static str)],
+    partial: &str,
+) -> Vec<(String, String)> {
+    entries
+        .iter()
+        .filter(|(name, _)| name.starts_with(partial))
+        .map(|(n, d)| ((*n).to_string(), (*d).to_string()))
         .collect()
 }
 

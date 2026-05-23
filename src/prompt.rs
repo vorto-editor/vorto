@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
+use crate::app::COPILOT_SUBCOMMANDS;
 use crate::buffer_ref::BufferRef;
 use crate::config::COMMAND_BINDS;
 use crate::finder::{ExplorerState, Finder, FuzzyKind, IgnoreOpts};
@@ -202,6 +203,7 @@ fn build_completion(input: &str, root: &Path) -> Option<CompletionState> {
             let matches: Vec<String> = COMMAND_BINDS
                 .iter()
                 .flat_map(|b| b.all_names())
+                .chain(std::iter::once("copilot"))
                 .filter(|n| n.starts_with(&prefix))
                 .map(|n| n.to_string())
                 .collect();
@@ -221,6 +223,33 @@ fn build_completion(input: &str, root: &Path) -> Option<CompletionState> {
             // Preserve everything up to and including the first space,
             // and complete the partial path after it.
             let cmd = &input[..sp_byte];
+            // `copilot` lives outside the COMMAND_BINDS table (the
+            // `cmd == "copilot"` intercept in `eval` routes it to a
+            // dedicated handler) but its subcommands should still cycle
+            // via Tab — synthesize a CommandName completion against
+            // the known subcommand set.
+            if cmd == "copilot" {
+                let partial = &input[sp_byte + 1..];
+                if partial.contains(' ') {
+                    return None;
+                }
+                let matches: Vec<String> = COPILOT_SUBCOMMANDS
+                    .iter()
+                    .flat_map(|s| std::iter::once(s.name).chain(s.aliases.iter().copied()))
+                    .filter(|n| n.starts_with(partial))
+                    .map(|n| n.to_string())
+                    .collect();
+                if matches.is_empty() {
+                    return None;
+                }
+                return Some(CompletionState {
+                    kind: CompletionKind::CommandName,
+                    prefix: partial.to_string(),
+                    head_chars: sp_byte + 1,
+                    matches,
+                    selected: 0,
+                });
+            }
             let bind = COMMAND_BINDS
                 .iter()
                 .find(|b| b.name == cmd || b.aliases.contains(&cmd))?;
@@ -348,6 +377,16 @@ pub enum Prompt {
     LspStatus {
         content: String,
         scroll: usize,
+    },
+    /// Copilot device-flow signin: screen-centered modal showing the
+    /// user code and verification URL. The clipboard already holds
+    /// `code` (the open path sets that up); the modal exists so the
+    /// info doesn't scroll away in the toast queue while the user is
+    /// in the browser. Any key dismisses; signin_confirm continues to
+    /// run in the background.
+    CopilotSignin {
+        code: String,
+        url: String,
     },
     /// `<space>e` — tree file explorer. Owns the full node list, the
     /// expand state, and the live fuzzy query. Submit on a file
@@ -531,6 +570,11 @@ impl PromptController {
         self.state = Prompt::LspStatus { content, scroll: 0 };
     }
 
+    /// Open the Copilot signin modal. Any prior modal is replaced.
+    pub fn open_copilot_signin(&mut self, code: String, url: String) {
+        self.state = Prompt::CopilotSignin { code, url };
+    }
+
     pub fn handle_key(&mut self, key: KeyEvent, root: &Path) -> PromptOutcome {
         let ctrl_c =
             key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c');
@@ -636,6 +680,12 @@ impl PromptController {
                 }
                 PromptOutcome::Nothing
             }
+            Prompt::CopilotSignin { .. } => {
+                // No scrollable body — any non-Esc/Ctrl-C/Enter key
+                // dismisses too. Esc/Ctrl-C handled at the top.
+                self.close();
+                PromptOutcome::Cancelled
+            }
         }
     }
 
@@ -672,7 +722,9 @@ impl PromptController {
                 }
             }
             // Read-only popups — Enter just dismisses them.
-            Prompt::Hover { .. } | Prompt::LspStatus { .. } => PromptOutcome::Cancelled,
+            Prompt::Hover { .. } | Prompt::LspStatus { .. } | Prompt::CopilotSignin { .. } => {
+                PromptOutcome::Cancelled
+            }
         }
     }
 

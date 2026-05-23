@@ -245,13 +245,17 @@ fn run(
         // loop wakes when the TTL expires and the next redraw can drop
         // the toast — otherwise it would linger until the user happens
         // to press a key.
-        // Merge wake sources: toast TTL and indent-guide animation.
-        // Smallest non-`None` wins; `None`-vs-`None` falls back to a
-        // blocking `recv`.
-        let wake = match (app.toast_remaining(), app.indent_anim_remaining()) {
-            (Some(a), Some(b)) => Some(a.min(b)),
-            (a, b) => a.or(b),
-        };
+        // Merge wake sources: toast TTL, indent-guide animation, and
+        // the debounced inline-completion fire. Smallest non-`None`
+        // wins; `None`-vs-`None` falls back to a blocking `recv`.
+        let wake = [
+            app.toast_remaining(),
+            app.indent_anim_remaining(),
+            app.inline_request_remaining(),
+        ]
+        .into_iter()
+        .flatten()
+        .min();
         let first = match wake {
             Some(rem) => match event_rx.recv_timeout(rem) {
                 Ok(ev) => Some(ev),
@@ -272,6 +276,10 @@ fn run(
             dispatch(app, ev)?;
         }
         app.sync_buffer_if_dirty();
+        // Fire the inline-completion request if the debounce deadline
+        // has elapsed. Sits after the dispatch loop so a burst of
+        // typing events all extend the deadline before we evaluate it.
+        app.tick_inline_suggestion();
     }
     Ok(())
 }

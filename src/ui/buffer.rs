@@ -198,28 +198,47 @@ pub(super) fn draw_buffer(f: &mut Frame, app: &App, area: Rect) {
             inner_text_width,
             show_whitespace,
         ));
-        // Inline suggestion (ghost text) — Phase 0 only paints
-        // single-line suggestions at end of the cursor row. The stub
-        // provider only fires when the cursor is at EOL, so appending
-        // after the rendered line lands the ghost spans flush against
-        // the cursor cell. Multi-line continuation and mid-line
-        // overlay come later.
-        if i == cursor_row
-            && app.completion.is_none()
+        // Inline suggestion (ghost text). Anchored at EOL of the
+        // cursor row, so the first line is appended after the rendered
+        // text, flush against the cursor cell. Multi-line suggestions
+        // produce continuation rows pushed in below — same visual
+        // shift mechanism the diagnostic interleave uses.
+        let ghost_continuation: Vec<String> = if i == cursor_row
             && let Some(s) = app.inline_suggestion.showing()
             && s.is_anchored_at(app.buffer.cursor)
         {
             let style = Style::default()
                 .fg(Color::DarkGray)
                 .add_modifier(ratatui::style::Modifier::ITALIC);
-            if let Some(first) = s.text.lines().next() {
+            let mut parts = s.text.split('\n');
+            if let Some(first) = parts.next()
+                && !first.is_empty()
+            {
                 spans.push(Span::styled(first.to_string(), style));
             }
-        }
+            parts.map(str::to_string).collect()
+        } else {
+            Vec::new()
+        };
         visible.push(Line::from(spans));
         visual_y += 1;
         if visual_y as usize >= height {
             break;
+        }
+        if !ghost_continuation.is_empty() {
+            let style = Style::default()
+                .fg(Color::DarkGray)
+                .add_modifier(ratatui::style::Modifier::ITALIC);
+            for cont in ghost_continuation {
+                visible.push(Line::from(Span::styled(cont, style)));
+                visual_y += 1;
+                if visual_y as usize >= height {
+                    break;
+                }
+            }
+            if visual_y as usize >= height {
+                break;
+            }
         }
         if let Some(summary) = row_diag.get(&i) {
             visible.push(diagnostic_line(summary, inner_text_width));

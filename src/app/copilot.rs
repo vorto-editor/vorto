@@ -19,6 +19,33 @@ use crate::event::AppEvent;
 use crate::lsp::path_to_uri;
 use crate::vlog;
 
+/// Best-effort launch of the system's default browser at `url`.
+/// Returns `true` when the platform-specific opener spawned without
+/// error; `false` when we couldn't even start it (PATH miss, sandbox,
+/// platform we don't have a branch for). The caller falls back to
+/// "please open this URL yourself" messaging in that case.
+fn open_url_in_browser(url: &str) -> bool {
+    use std::process::{Command, Stdio};
+    #[cfg(target_os = "macos")]
+    let cmd = Command::new("open").arg(url).stdout(Stdio::null()).stderr(Stdio::null()).spawn();
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let cmd = Command::new("xdg-open")
+        .arg(url)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn();
+    #[cfg(target_os = "windows")]
+    let cmd = Command::new("cmd")
+        .args(["/C", "start", "", url])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn();
+    #[cfg(not(any(target_os = "macos", unix, target_os = "windows")))]
+    let cmd: std::io::Result<std::process::Child> =
+        Err(std::io::Error::new(std::io::ErrorKind::Other, "unsupported platform"));
+    cmd.is_ok()
+}
+
 /// Trim the prefix of `raw.text` that the user has already typed at
 /// the request anchor. Copilot includes those characters in the
 /// `insertText` field (with `range` covering them) so the suggestion
@@ -73,6 +100,50 @@ pub enum CopilotRequestKind {
     SignInConfirm,
     SignOut,
 }
+
+/// One `:copilot <sub>` subcommand. The source of truth — the hint
+/// panel ([`crate::ui::hints`]) and the prompt's tab completion
+/// ([`crate::prompt`]) both read this list so a new subcommand only
+/// needs to be added in one place to surface everywhere.
+pub struct CopilotSubcommand {
+    pub name: &'static str,
+    /// Alternative spellings (`login` for `signin`, etc.). Matched by
+    /// the dispatcher and the hint panel; the canonical `name` is
+    /// what gets shown in the menu.
+    pub aliases: &'static [&'static str],
+    pub description: &'static str,
+    /// Handler invoked when the user submits this subcommand. Takes
+    /// `&mut App` so it can update auth state, push toasts, open the
+    /// signin modal, etc.
+    pub handler: fn(&mut App),
+}
+
+pub const COPILOT_SUBCOMMANDS: &[CopilotSubcommand] = &[
+    CopilotSubcommand {
+        name: "status",
+        aliases: &[],
+        description: "show Copilot auth state",
+        handler: App::copilot_status_toast,
+    },
+    CopilotSubcommand {
+        name: "signin",
+        aliases: &["login"],
+        description: "start device-flow sign-in",
+        handler: App::copilot_signin,
+    },
+    CopilotSubcommand {
+        name: "signout",
+        aliases: &["logout"],
+        description: "sign out of Copilot",
+        handler: App::copilot_signout,
+    },
+    CopilotSubcommand {
+        name: "code",
+        aliases: &[],
+        description: "re-show signin modal + re-copy code",
+        handler: App::copilot_recopy_code,
+    },
+];
 
 /// Known auth state for the Copilot client. `Unknown` is the initial
 /// value between spawn and the first `checkStatus` reply; until we
@@ -200,41 +271,11 @@ impl App {
         }
     }
 
-    /// Fire `textDocument/inlineCompletion` for the cursor, install
-    /// `Pending` state, and return `true` when a request actually
-    /// went out. Caller should call `cancel_inline_suggestion` ahead
-    /// of time if it wants the dismissal-on-no-request path.
-    pub(super) fn request_copilot_inline_completion(&mut self) -> bool {
-        if !self.copilot_auth.signed_in() {
-            return false;
-        }
-        let Some(uri) = self.copilot_active_uri() else {
-            return false;
-        };
-        let anchor = self.buffer.cursor;
-        let Some(copilot) = self.copilot.as_mut() else {
-            return false;
-        };
-        let id = match copilot.inline_completion(&uri, anchor.row as u32, anchor.col as u32) {
-            Ok(id) => id,
-            Err(e) => {
-                vlog!("copilot inlineCompletion send failed: {e:#}");
-                return false;
-            }
-        };
-        self.copilot_pending
-            .insert(id, CopilotRequestKind::InlineCompletion);
-        self.inline_suggestion = SuggestionState::Pending {
-            id: RequestId(id),
-            anchor,
-        };
-        true
-    }
-
-    /// Schedule an inline-completion request when conditions look
-    /// favourable (cursor at end of line, no LSP popup, Copilot
-    /// available). Replaces the Phase-0 stub provider that synthesised
-    /// suggestions locally.
+    /// Drop any showing/pending suggestion, ensure the active buffer
+    /// is synced to Copilot, then fire `textDocument/inlineCompletion`
+    /// at the cursor. The single entry point for "ask Copilot what
+    /// to ghost-text here now" — all the gating (auth, cursor at EOL,
+    /// Copilot live) lives in one place.
     ///
     /// Forces a `didOpen`/`didChange` *before* the request fires —
     /// without this the request would race the main loop's
@@ -243,11 +284,7 @@ impl App {
     /// keystroke after open). Lossy context shows up to the user as
     /// completions that pretend the file has only the current line.
     pub(super) fn update_inline_suggestion(&mut self) {
-        if self.completion.is_some() {
-            self.inline_suggestion.dismiss();
-            return;
-        }
-        if self.copilot.is_none() {
+        if self.copilot.is_none() || !self.copilot_auth.signed_in() {
             self.inline_suggestion.dismiss();
             return;
         }
@@ -262,6 +299,10 @@ impl App {
             self.inline_suggestion.dismiss();
             return;
         }
+        let Some(uri) = self.copilot_active_uri() else {
+            self.inline_suggestion.dismiss();
+            return;
+        };
         // Drop any prior Showing/Pending first — superseded by the
         // request we're about to fire.
         self.inline_suggestion.dismiss();
@@ -269,7 +310,29 @@ impl App {
             let text = self.buffer.lines.join("\n");
             self.sync_buffer_to_copilot(&text);
         }
-        let _ = self.request_copilot_inline_completion();
+        let indent = self.indent_settings();
+        let Some(copilot) = self.copilot.as_mut() else {
+            return;
+        };
+        let id = match copilot.inline_completion(
+            &uri,
+            cursor.row as u32,
+            cursor.col as u32,
+            indent.width as u32,
+            !indent.use_tabs,
+        ) {
+            Ok(id) => id,
+            Err(e) => {
+                vlog!("copilot inlineCompletion send failed: {e:#}");
+                return;
+            }
+        };
+        self.copilot_pending
+            .insert(id, CopilotRequestKind::InlineCompletion);
+        self.inline_suggestion = SuggestionState::Pending {
+            id: RequestId(id),
+            anchor: cursor,
+        };
     }
 
     /// Handle a reader-thread event from the Copilot client.
@@ -314,18 +377,44 @@ impl App {
     /// the appropriate toast — callers don't need to distinguish
     /// "succeeded" from "told the user something" because both end up
     /// as a status message anyway.
+    ///
+    /// Subcommand lookup goes through [`COPILOT_SUBCOMMANDS`] so the
+    /// hint panel and tab-completion read the same source of truth —
+    /// adding a new subcommand here automatically surfaces it in the
+    /// UI without touching `hints.rs` / `prompt.rs`.
     pub(super) fn run_copilot_command(&mut self, sub: &str) {
         let sub = sub.trim();
-        // Default (`:copilot`) shows status — matches the convention of
-        // `:git`, `:fugitive`, etc.
-        match sub {
-            "" | "status" => self.copilot_status_toast(),
-            "signin" | "login" => self.copilot_signin(),
-            "signout" | "logout" => self.copilot_signout(),
-            other => {
-                self.push_toast(Toast::error(format!("unknown copilot subcommand: {other}")));
+        // Bare `:copilot` defaults to `status`, matching `:git`/etc.
+        let name = if sub.is_empty() { "status" } else { sub };
+        match COPILOT_SUBCOMMANDS
+            .iter()
+            .find(|s| s.name == name || s.aliases.contains(&name))
+        {
+            Some(cmd) => (cmd.handler)(self),
+            None => {
+                self.push_toast(Toast::error(format!("unknown copilot subcommand: {name}")));
             }
         }
+    }
+
+    /// `:copilot code` — re-show the device-flow signin modal for an
+    /// in-flight signin and re-copy the user code to clipboard. No-op
+    /// (with a toast explaining why) when no signin is queued.
+    ///
+    /// The verification URL isn't held server-side after the initiate
+    /// reply, so a re-show after dismiss reuses the documented
+    /// `https://github.com/login/device` endpoint. That's the value
+    /// the server hands back in practice and it's a static URL — fine
+    /// to bake in as the fallback.
+    fn copilot_recopy_code(&mut self) {
+        let Some((code, url)) = self.copilot_pending_code.clone() else {
+            self.push_toast(Toast::info(
+                "Copilot: no signin in flight — run :copilot signin first".to_string(),
+            ));
+            return;
+        };
+        self.sync_text_to_clipboard(&code);
+        self.prompt.open_copilot_signin(code, url);
     }
 
     fn copilot_status_toast(&mut self) {
@@ -411,12 +500,19 @@ impl App {
                 verification_uri,
             }) => {
                 // Copy the code to the OS clipboard so a paste in the
-                // browser is one keystroke away.
+                // browser is one keystroke away, and launch the
+                // verification URL so the user doesn't have to track it
+                // down by hand.
                 self.sync_text_to_clipboard(&user_code);
-                self.push_toast(Toast::fatal(format!(
-                    "Copilot: visit {verification_uri} and enter code {user_code} \
-                     (copied) — press Esc to dismiss"
-                )));
+                let _ = open_url_in_browser(&verification_uri);
+                // Stash the code + URL so `:copilot code` can re-copy
+                // + re-surface the modal if the user dismissed it or
+                // the clipboard got overwritten before confirming in
+                // the browser.
+                self.copilot_pending_code =
+                    Some((user_code.clone(), verification_uri.clone()));
+                self.prompt
+                    .open_copilot_signin(user_code.clone(), verification_uri);
                 // Auto-fire signInConfirm. The server holds the response
                 // until the user authorizes or it times out — our reader
                 // thread surfaces the reply asynchronously, the editor
@@ -445,6 +541,10 @@ impl App {
         result: Option<serde_json::Value>,
         error: Option<String>,
     ) {
+        // Confirm reply means the signin attempt has settled (one way
+        // or another). Drop the stashed code so `:copilot code`
+        // doesn't keep re-opening a modal for a dead session.
+        self.copilot_pending_code = None;
         if let Some(msg) = error {
             vlog!("copilot signInConfirm error: {msg}");
             self.push_toast(Toast::error(format!("Copilot signin: {msg}")));
@@ -456,6 +556,15 @@ impl App {
         match status {
             Some(CheckStatus::SignedIn { user }) => {
                 self.copilot_auth = CopilotAuthState::SignedIn { user: user.clone() };
+                // Auto-dismiss the signin modal — the user has
+                // confirmed in the browser, no need to keep the code
+                // on screen.
+                if matches!(
+                    self.prompt.state,
+                    crate::prompt::Prompt::CopilotSignin { .. }
+                ) {
+                    self.prompt.state = crate::prompt::Prompt::None;
+                }
                 self.push_toast(Toast::info(format!(
                     "Copilot: signed in as {}",
                     user.as_deref().unwrap_or("(unknown user)")
@@ -578,6 +687,15 @@ impl App {
                 return;
             }
         };
+        // Diagnostic: lets `:log` reveal whether the server is returning
+        // multi-line completions at all, so a "no multi-line" complaint
+        // can be triaged into "server returned single line" vs. "we
+        // dropped them somewhere downstream".
+        vlog!(
+            "copilot inlineCompletion id={id} chars={} lines={}",
+            raw.text.chars().count(),
+            raw.text.matches('\n').count() + 1
+        );
         // Guard: state must still be Pending for this exact request id,
         // and the cursor must not have moved since the request fired —
         // otherwise the suggestion is stale.
@@ -598,21 +716,14 @@ impl App {
             self.inline_suggestion.dismiss();
             return;
         };
-        // Multi-line ghost-text rendering isn't wired yet; trim to the
-        // first line so we never paint or accept content that the
-        // renderer can't represent. Continuation rows come later.
-        let first_line = match suffix.split_once('\n') {
-            Some((head, _)) => head.to_string(),
-            None => suffix,
-        };
-        if first_line.is_empty() {
+        if suffix.is_empty() {
             self.inline_suggestion.dismiss();
             return;
         }
         self.inline_suggestion = SuggestionState::Showing {
             id: RequestId(id),
             suggestion: Suggestion {
-                text: first_line,
+                text: suffix,
                 anchor,
             },
         };

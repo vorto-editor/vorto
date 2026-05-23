@@ -137,7 +137,16 @@ impl App {
         if mode == Mode::Normal {
             self.buffer.clamp_col(false);
         }
+        // Insert-mode entry should immediately queue a debounced
+        // inline-completion request so the ghost can surface without
+        // requiring the user to type a key first. Insert→Insert
+        // re-entry (no-op transitions) is harmless — the schedule call
+        // just bumps the deadline back by the debounce window.
+        let entering_insert = mode == Mode::Insert && self.mode != Mode::Insert;
         self.mode = mode;
+        if entering_insert {
+            self.schedule_inline_suggestion();
+        }
     }
 
     pub fn open_prompt(&mut self, kind: PromptKind) {

@@ -147,6 +147,7 @@ fn status_label(app: &App) -> (String, Color) {
         Prompt::CodeActionMenu { .. } => ("CODE ACTION".into(), Color::LightMagenta),
         Prompt::Hover { .. } => ("HOVER".into(), Color::LightBlue),
         Prompt::LspStatus { .. } => ("LSP".into(), Color::LightBlue),
+        Prompt::CopilotSignin { .. } => ("COPILOT".into(), Color::LightBlue),
     }
 }
 

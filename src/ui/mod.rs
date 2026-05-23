@@ -25,6 +25,7 @@ mod explorer;
 mod fuzzy;
 mod hints;
 mod hover;
+mod copilot_signin;
 mod lsp_status;
 mod signature;
 mod status;
@@ -129,6 +130,9 @@ pub fn draw(f: &mut Frame, app: &App) {
     // hand it the full frame so the math stays simple under splits.
     if matches!(app.prompt.state, Prompt::LspStatus { .. }) {
         lsp_status::draw_lsp_status(f, app, f.area());
+    }
+    if matches!(app.prompt.state, Prompt::CopilotSignin { .. }) {
+        copilot_signin::draw_copilot_signin(f, app, f.area());
     }
     if app.completion.is_some() {
         completion::draw_completion(f, app, active_rect);

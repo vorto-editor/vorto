@@ -318,17 +318,38 @@ impl CopilotClient {
     /// position. Returns the request id so the caller can match the
     /// response against its pending-kind map.
     ///
-    /// `line` and `character` are 0-based, per LSP. Triggered by
-    /// `Invoked` (kind=1) for now — `Automatic` (kind=2) would be the
-    /// signal when typed text triggered the request, but Copilot
-    /// treats them identically in practice.
-    pub fn inline_completion(&mut self, uri: &str, line: u32, character: u32) -> Result<u64> {
+    /// `line` and `character` are 0-based, per LSP. Sent with
+    /// `Automatic` (kind=2) — vorto's debounced fire path is the
+    /// typed-text trigger Copilot's README example uses, and the
+    /// server appears to shape responses slightly more aggressively
+    /// (longer / multi-line) for `Automatic` than for `Invoked`.
+    ///
+    /// Copilot's README marks `textDocument.version` and
+    /// `formattingOptions` as required extensions on top of the LSP
+    /// 3.18 shape — without them the server's prompt construction
+    /// falls back to defaults that tend to truncate completions to a
+    /// single line and mis-indent continuation rows. Both are sourced
+    /// from the per-doc tracking we already keep + the caller's
+    /// indent settings.
+    pub fn inline_completion(
+        &mut self,
+        uri: &str,
+        line: u32,
+        character: u32,
+        tab_size: u32,
+        insert_spaces: bool,
+    ) -> Result<u64> {
         let id = self.next_id;
         self.next_id += 1;
+        let version = self.docs.get(uri).map(|d| d.lsp_version).unwrap_or(0);
         let params = json!({
-            "textDocument": { "uri": uri },
+            "textDocument": { "uri": uri, "version": version },
             "position": { "line": line, "character": character },
-            "context": { "triggerKind": 1 }
+            "context": { "triggerKind": 2 },
+            "formattingOptions": {
+                "tabSize": tab_size,
+                "insertSpaces": insert_spaces,
+            },
         });
         write_framed(
             &self.stdin,

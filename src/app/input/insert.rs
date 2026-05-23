@@ -34,11 +34,18 @@ impl App {
             self.lsp_completion();
             return Ok(());
         }
-        // `<C-y>` accepts the inline (ghost-text) suggestion when one is
-        // showing. With nothing to accept it falls through to the no-op
-        // `_ => {}` arm below — no literal `y` is inserted because the
+        // `<C-l>` / `<C-y>` accept the inline (ghost-text) suggestion
+        // when one is showing. Both bind to the same action — `<C-l>`
+        // is the primary (chosen to coexist with the LSP completion
+        // popup, which Ghost text now paints under), `<C-y>` is kept
+        // for muscle-memory parity with the prior single-binding world.
+        // With nothing to accept they fall through to the no-op `_ =>
+        // {}` arm below — no literal `l`/`y` is inserted because the
         // bare-char fast path gates on `no_ctrl`.
-        if ctrl && key.code == KeyCode::Char('y') && self.accept_inline_suggestion() {
+        if ctrl
+            && matches!(key.code, KeyCode::Char('l') | KeyCode::Char('y'))
+            && self.accept_inline_suggestion()
+        {
             return Ok(());
         }
 
@@ -74,7 +81,7 @@ impl App {
                 }
             }
             self.update_signature_help_on_char(c);
-            self.update_inline_suggestion();
+            self.schedule_inline_suggestion();
             return Ok(());
         }
         match key.code {
@@ -98,14 +105,14 @@ impl App {
                 // in any language the popup targets) — close rather
                 // than retrigger.
                 self.cancel_signature_help();
-                self.cancel_inline_suggestion();
+                self.schedule_inline_suggestion();
             }
             KeyCode::Backspace => {
                 self.fan_out_backspace();
                 self.record_insert_key(InsertKey::Backspace);
                 self.update_completion_filter();
                 self.update_signature_help_on_edit();
-                self.cancel_inline_suggestion();
+                self.schedule_inline_suggestion();
             }
             KeyCode::Tab if key.modifiers.contains(KeyModifiers::SHIFT) => {
                 // Some terminals (e.g. macOS Terminal.app) report
@@ -163,28 +170,28 @@ impl App {
                 self.fan_out_move(|b| b.move_left());
                 self.cancel_completion();
                 self.update_signature_help_on_edit();
-                self.cancel_inline_suggestion();
+                self.schedule_inline_suggestion();
             }
             KeyCode::Right => {
                 self.recording = None;
                 self.fan_out_move(|b| b.move_right(true));
                 self.cancel_completion();
                 self.update_signature_help_on_edit();
-                self.cancel_inline_suggestion();
+                self.schedule_inline_suggestion();
             }
             KeyCode::Up => {
                 self.recording = None;
                 self.fan_out_move(|b| b.move_up());
                 self.cancel_completion();
                 self.cancel_signature_help();
-                self.cancel_inline_suggestion();
+                self.schedule_inline_suggestion();
             }
             KeyCode::Down => {
                 self.recording = None;
                 self.fan_out_move(|b| b.move_down());
                 self.cancel_completion();
                 self.cancel_signature_help();
-                self.cancel_inline_suggestion();
+                self.schedule_inline_suggestion();
             }
             _ => {}
         }
@@ -402,7 +409,7 @@ impl App {
         }
         self.cancel_completion();
         self.cancel_signature_help();
-        self.cancel_inline_suggestion();
+        self.schedule_inline_suggestion();
         self.buffer.insert_text_raw(&s);
         self.record_insert_key(InsertKey::Paste(s));
     }

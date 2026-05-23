@@ -26,7 +26,7 @@ mod types;
 mod workers;
 
 pub use completion::CompletionState;
-pub use copilot::{CopilotAuthState, CopilotPending};
+pub use copilot::{COPILOT_SUBCOMMANDS, CopilotAuthState, CopilotPending};
 
 pub use jump::JumpState;
 pub use lsp_coordinator::{LspCoordinator, LspEventOutcome};
@@ -46,6 +46,15 @@ use std::sync::Mutex;
 use std::sync::mpsc::Sender;
 
 use crate::action::{InsertKey, LastChange, LastFind, Token};
+
+/// Quiet period after the last input event before a debounced
+/// inline-completion request actually fires. Tuned to feel snappy
+/// while still folding a bursty typing run into a single request.
+/// Copilot's server-side latency dominates total perceived delay
+/// (~hundreds of ms), so keeping the client-side wait short is what
+/// makes the ghost feel responsive.
+const INLINE_REQUEST_DEBOUNCE: std::time::Duration =
+    std::time::Duration::from_millis(75);
 
 /// Active insert-session recording. Lives on `App` so `handle_insert_key`
 /// can append the keystrokes the user types, and finalize on Esc.
@@ -127,6 +136,13 @@ pub struct App {
     /// replies. `Unknown` until the first reply lands; inline
     /// completion is suppressed until `SignedIn`.
     pub copilot_auth: CopilotAuthState,
+    /// Device-flow user code + verification URL from an outstanding
+    /// `signInInitiate`. Held so `:copilot code` can re-display the
+    /// modal and re-copy to clipboard if the user dismissed it or
+    /// the clipboard was overwritten by something else mid-signin.
+    /// `None` when no signin is in flight (either never started, or
+    /// the confirm reply has already settled the auth state).
+    pub copilot_pending_code: Option<(String, String)>,
     /// Shared event channel — kept on `App` so `open_path` can spawn
     /// worker threads that report `EngineReady` / `LspReady` back
     /// to the main loop without going through the LSP coordinator.
@@ -194,6 +210,12 @@ pub struct App {
     /// inside the `Pending` variant is the Copilot JSON-RPC id, so
     /// supersession races are decided by the same id space.
     pub inline_suggestion: SuggestionState,
+    /// Earliest moment a debounced inline-suggestion request may fire.
+    /// Set by [`Self::schedule_inline_suggestion`] on every input event
+    /// and cleared by [`Self::tick_inline_suggestion`] once the
+    /// deadline elapses and the request actually goes out. `None`
+    /// means no fire is queued — the main loop won't add a wake-up.
+    pub(super) inline_request_deadline: Option<std::time::Instant>,
     /// System clipboard handle, initialized lazily on first yank.
     /// `None` means we haven't tried yet *or* the platform refused to
     /// give us one (Wayland without a compositor, headless CI, …); the
@@ -274,6 +296,7 @@ impl App {
             copilot_spawning: false,
             copilot_pending: CopilotPending::default(),
             copilot_auth: CopilotAuthState::default(),
+            copilot_pending_code: None,
             event_tx,
             open_gen: 0,
             // Pre-seed with Scratch so the picker always offers a way
@@ -291,6 +314,7 @@ impl App {
             completion: None,
             signature: None,
             inline_suggestion: SuggestionState::default(),
+            inline_request_deadline: None,
             clipboard: None,
             layout: PaneLayout::Leaf(pane::INITIAL_PANE_ID),
             active_pane: pane::INITIAL_PANE_ID,
@@ -445,6 +469,46 @@ impl App {
     /// never paints against a shifted cursor.
     pub(super) fn cancel_inline_suggestion(&mut self) {
         self.inline_suggestion.dismiss();
+        // A scheduled fire would surface a fresh ghost the user just
+        // cancelled — drop the deadline alongside the local state.
+        self.inline_request_deadline = None;
+    }
+
+    /// Schedule a debounced inline-completion request. Dismisses the
+    /// current ghost immediately (so the stale text doesn't linger
+    /// while the user keeps typing), then sets the deadline so the
+    /// main loop fires `update_inline_suggestion` after a short
+    /// quiet period. Cheap to call on every keystroke / motion;
+    /// repeated calls just push the deadline back, which is exactly
+    /// the debounce we want.
+    pub(super) fn schedule_inline_suggestion(&mut self) {
+        self.inline_suggestion.dismiss();
+        self.inline_request_deadline =
+            Some(std::time::Instant::now() + INLINE_REQUEST_DEBOUNCE);
+    }
+
+    /// Time until the next debounced inline-completion fire, or `None`
+    /// when nothing is queued. Merged into the main loop's wake
+    /// sources so the event-channel `recv_timeout` returns exactly
+    /// when [`Self::tick_inline_suggestion`] needs to run.
+    pub fn inline_request_remaining(&self) -> Option<std::time::Duration> {
+        let deadline = self.inline_request_deadline?;
+        Some(deadline.saturating_duration_since(std::time::Instant::now()))
+    }
+
+    /// If the debounce deadline has elapsed, clear it and fire the
+    /// actual `textDocument/inlineCompletion`. Called once per main
+    /// loop iteration; a no-op when no fire is queued or the deadline
+    /// is still in the future.
+    pub fn tick_inline_suggestion(&mut self) {
+        let Some(deadline) = self.inline_request_deadline else {
+            return;
+        };
+        if std::time::Instant::now() < deadline {
+            return;
+        }
+        self.inline_request_deadline = None;
+        self.update_inline_suggestion();
     }
 
     /// Accept the currently-showing inline suggestion at the cursor.
@@ -468,9 +532,22 @@ impl App {
             }
         };
         self.inline_suggestion.dismiss();
-        let indent = self.indent_settings();
-        for c in text.chars() {
-            self.buffer.insert_char_smart(c, indent);
+        // The LSP completion popup may have been open alongside the
+        // ghost (since the popup-vs-ghost lock-out was lifted). The
+        // inserted text invalidates the popup's filter, so close it
+        // rather than leaving a stale list on screen.
+        self.cancel_completion();
+        if text.contains('\n') {
+            // Multi-line: bypass insert_char_smart's per-char auto-indent
+            // — Copilot already supplies its own indentation for each
+            // continuation row, and `insert_newline`'s reindent would
+            // stack on top of it.
+            self.buffer.insert_text_raw(&text);
+        } else {
+            let indent = self.indent_settings();
+            for c in text.chars() {
+                self.buffer.insert_char_smart(c, indent);
+            }
         }
         true
     }
