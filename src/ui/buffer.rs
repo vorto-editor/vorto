@@ -1002,6 +1002,12 @@ fn render_line(
             continue;
         }
         let is_ws = original == ' ' || original == '\t';
+        // When `show_whitespace=true` puts a `→` on the tab's leading
+        // cell and an indent guide overrides that same cell, remember
+        // the arrow so the next non-guide cell within this tab can
+        // emit it — otherwise the marker would silently vanish on
+        // every tab-indented line.
+        let mut displaced_arrow: Option<Style> = None;
         // Per-cell emission so a tab spanning multiple cells can have
         // any subset overridden by an indent-guide glyph at that
         // exact visual column.
@@ -1017,9 +1023,9 @@ fn render_line(
             // by an indent-guide glyph. Jump labels still take
             // precedence over guides (they're emitted via `ch`
             // below when no guide is present). The tab
-            // whitespace marker (`→`) yields to a guide so
-            // `show_whitespace = true` doesn't hide the bar on
-            // the leading tab cell.
+            // whitespace marker (`→`) yields to a guide on the
+            // leading cell but reappears in the next free cell
+            // via `displaced_arrow`.
             let jump_lead =
                 original == '\t' && k == 0 && ch != '\t' && jump_label_at(col).is_some();
             let guide = if is_ws && !jump_lead {
@@ -1028,6 +1034,9 @@ fn render_line(
                 None
             };
             let (out_ch, out_style) = if let Some(g) = guide {
+                if original == '\t' && k == 0 && ch != '\t' {
+                    displaced_arrow = Some(style);
+                }
                 // Patch (don't replace) so the cell's selection /
                 // extra-cursor / search-hit background carries through
                 // under the guide's fg/modifier — otherwise every
@@ -1037,6 +1046,8 @@ fn render_line(
             } else if original == '\t' {
                 if k == 0 && ch != '\t' {
                     (ch, style)
+                } else if let Some(arrow_style) = displaced_arrow.take() {
+                    ('→', arrow_style)
                 } else {
                     (' ', style)
                 }
