@@ -28,19 +28,18 @@ const SEL_BG: Color = Color::DarkGray;
 /// visual selection.
 const SEARCH_HIT_BG: Color = Color::DarkGray;
 
-/// Background used to render each extra-cursor cell. ANSI bright-black
-/// so the cell picks up the user's terminal palette as a subdued gray —
-/// calm enough to live in code without competing with syntax. Note that
-/// this matches `SEL_BG` and `SEARCH_HIT_BG`, so an extra cursor sitting
-/// inside a selection or a search match merges into the underlying
-/// layer; the contrasting `EXTRA_CURSOR_FG` keeps the cell legible in
-/// the common case where the cursor sits on plain code.
-const EXTRA_CURSOR_BG: Color = Color::DarkGray;
+/// Background used to render each extra-cursor cell. ANSI regular
+/// yellow (palette slot 3) so the cell picks up the user's terminal
+/// theme — typically a muted mustard/ochre on dark themes, clearly
+/// darker than bright yellow (LightYellow, slot 11). Distinct in hue
+/// from `SEL_BG` and `SEARCH_HIT_BG` (DarkGray), so a stacked cursor
+/// remains visible inside a selection or a search match.
+const EXTRA_CURSOR_BG: Color = Color::Yellow;
 
-/// Foreground paired with `EXTRA_CURSOR_BG`. ANSI white so the cell
-/// inherits the terminal theme's light tone and stays legible against
-/// the dim gray cursor cell, regardless of the base style's fg.
-const EXTRA_CURSOR_FG: Color = Color::White;
+/// Foreground paired with `EXTRA_CURSOR_BG`. ANSI black so the glyph
+/// stays legible against the yellow cell across themes, regardless of
+/// the base style's fg.
+const EXTRA_CURSOR_FG: Color = Color::Black;
 
 /// Foreground used to mark the bracket pair when the cursor sits on
 /// one half of `()`, `[]`, or `{}`. Combined with `BOLD` rather than a
