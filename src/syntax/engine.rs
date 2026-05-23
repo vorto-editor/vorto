@@ -66,18 +66,24 @@ impl Engine {
         let highlight = highlight::HighlightQuery::compile(&language, highlights_src)
             .context("compiling highlights query")?;
 
+        // textobjects.scm / indents.scm failures are non-fatal: a bad
+        // node name there just disables the corresponding feature
+        // (text-object resolution / auto-indent) — we still want
+        // highlighting to work.
+        let mut warnings = Vec::new();
         let textobject = match textobjects_src {
-            Some(src) => Some(
-                textobject::TextObjectQuery::compile(&language, src)
-                    .context("compiling textobjects query")?,
-            ),
+            Some(src) => match textobject::TextObjectQuery::compile(&language, src) {
+                Ok(q) => Some(q),
+                Err(e) => {
+                    warnings.push(format!(
+                        "textobjects.scm compile failed, syntactic text objects disabled: {e}"
+                    ));
+                    None
+                }
+            },
             None => None,
         };
 
-        // Indents query failures are non-fatal: a bad node name in
-        // indents.scm just disables auto-indent for the language —
-        // we still want highlighting/textobjects to work.
-        let mut warnings = Vec::new();
         let indent = match indents_src {
             Some(src) => match indent::IndentQuery::compile(&language, src) {
                 Ok(q) => Some(q),
