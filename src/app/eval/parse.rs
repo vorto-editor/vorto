@@ -69,12 +69,28 @@ enum ParseCtx {
     /// consulted depends on the prefix's direction, read back off
     /// the token stack in [`bracket_pending_token`].
     BracketPending,
+    /// Waiting for the literal char arg of a surround command. Three
+    /// shapes converge here:
+    /// - `ds` / `cs` / `ds<c>cs` — char immediately after the prefix
+    ///   (no target needed).
+    /// - `cs<from>` — waiting for the *second* char.
+    /// - `ys{target}` — waiting for the surround char after a complete
+    ///   motion / text-object / `s` self-double target.
+    SurroundCharPending,
 }
 
 /// Decide which tokenization context the next key falls into by looking
 /// at the trailing tokens. Pure function of the token slice.
 fn context_of(prev: &[Token]) -> ParseCtx {
     use Token::*;
+
+    // Surround dispatch wins over the per-last-token rules — the
+    // surround grammar weaves through the same Op/Scope/Object tokens
+    // and needs a dedicated context for capturing its trailing char.
+    if is_surround_char_pending(prev) {
+        return ParseCtx::SurroundCharPending;
+    }
+
     // Skip trailing Counts when deciding context — counts don't change
     // what kind of token is expected next, only the magnitude.
     let mut last: Option<&Token> = None;
@@ -87,7 +103,9 @@ fn context_of(prev: &[Token]) -> ParseCtx {
     match last {
         None => ParseCtx::Initial,
         Some(LeaderPrefix) => ParseCtx::LeaderPending,
-        Some(Op(_)) => ParseCtx::OpPending,
+        // `ys` extends operator-pending: the parser is still waiting for
+        // a motion / scope / object before the final surround char.
+        Some(Op(_) | SurroundAddPrefix) => ParseCtx::OpPending,
         Some(Scope(_)) => ParseCtx::ObjectExpected,
         Some(GotoPrefix) => ParseCtx::GotoPending,
         Some(FindCharPrefix { .. } | ReplaceCharPrefix) => ParseCtx::CharArgPending,
@@ -99,6 +117,48 @@ fn context_of(prev: &[Token]) -> ParseCtx {
         // Complete; we shouldn't be tokenizing in those contexts.
         _ => ParseCtx::Initial,
     }
+}
+
+/// True when the next key should be captured as a literal
+/// [`Token::SurroundChar`]. Three shapes:
+/// - `ds` / `cs` — char immediately follows the prefix.
+/// - `cs<c>` — second char follows the first.
+/// - `ys{target}` — char follows a complete target (motion / object /
+///   self-double).
+fn is_surround_char_pending(prev: &[Token]) -> bool {
+    use Token::*;
+    if matches!(
+        prev,
+        [.., SurroundDeletePrefix]
+            | [.., SurroundChangePrefix]
+            | [.., SurroundChangePrefix, SurroundChar(_)]
+    ) {
+        return true;
+    }
+    // ys: locate SurroundAddPrefix, see if everything after is a
+    // completed operator target.
+    for (i, t) in prev.iter().enumerate().rev() {
+        if matches!(t, SurroundAddPrefix) {
+            return surround_add_target_complete(&prev[i + 1..]);
+        }
+    }
+    false
+}
+
+/// True when `tail` (the tokens after `SurroundAddPrefix`) forms a
+/// complete operator target. Mirrors the shapes accepted by
+/// [`build_op_expr`] minus search-match (which `ys` doesn't support).
+fn surround_add_target_complete(tail: &[Token]) -> bool {
+    use Token::*;
+    let (_, after) = take_count(tail);
+    matches!(
+        after,
+        [Motion(_)]
+            | [FindCharPrefix { .. }, Motion(_)]
+            | [GotoPrefix, Motion(_)]
+            | [Scope(_), Object(_)]
+            | [SelfDouble(_)]
+    )
 }
 
 /// Resolve a key to its token in the current parse context.
@@ -161,6 +221,17 @@ pub(in crate::app) fn tokenize(
         ParseCtx::WindowPending => window_pending_token(code),
         ParseCtx::CtrlWPending => ctrl_w_pending_token(code),
         ParseCtx::BracketPending => bracket_pending_token(code, prev),
+        ParseCtx::SurroundCharPending => surround_char_token(code),
+    }
+}
+
+/// In `SurroundCharPending`, capture any printable character as the
+/// literal surround arg. Non-char keys (Esc, arrow, etc.) return `None`
+/// so the caller aborts the parse.
+fn surround_char_token(code: KeyCode) -> Option<Token> {
+    match code {
+        KeyCode::Char(c) => Some(Token::SurroundChar(c)),
+        _ => None,
     }
 }
 
@@ -237,6 +308,33 @@ fn op_pending_token(code: KeyCode, prev: &[Token]) -> Option<Token> {
         Token::Op(o) => Some(*o),
         _ => None,
     })?;
+
+    // `ys` / `cs` / `ds` — `s` immediately after a fresh y/c/d operator
+    // opens the surround grammar. After the prefix is already on the
+    // stack the same `s` falls through to the self-double branch below
+    // (for `yss`).
+    if matches!(code, KeyCode::Char('s'))
+        && matches!(prev.last(), Some(Token::Op(_)))
+        && matches!(
+            pending_op,
+            Operator::Yank | Operator::Change | Operator::Delete
+        )
+    {
+        return Some(match pending_op {
+            Operator::Yank => Token::SurroundAddPrefix,
+            Operator::Change => Token::SurroundChangePrefix,
+            Operator::Delete => Token::SurroundDeletePrefix,
+            _ => unreachable!(),
+        });
+    }
+
+    // `yss` — second `s` after `[Op(Yank), SurroundAddPrefix]` means
+    // "surround the current line", same line-wise role as `dd` / `yy`.
+    if matches!(code, KeyCode::Char('s'))
+        && matches!(prev.last(), Some(Token::SurroundAddPrefix))
+    {
+        return Some(Token::SelfDouble(pending_op));
+    }
 
     // Operator key pressed again: SelfDouble (dd, yy, cc). Stays inline
     // because the matching key is determined by the active operator
@@ -414,11 +512,62 @@ fn build_expr(tokens: &[Token]) -> Option<Expr> {
             count: outer_count,
         }),
 
+        // `ys{target}{ch}` — surround add. The leading `Op(Yank)` is
+        // the parser anchor and disappears at the AST level; the
+        // surround prefix likewise. Outer counts are ignored — vim's
+        // surround doesn't multiply.
+        [Op(Operator::Yank), SurroundAddPrefix, inner @ ..] => build_surround_add(inner),
+
+        // `cs{from}{to}` — surround change. Same anchor pattern.
+        [
+            Op(Operator::Change),
+            SurroundChangePrefix,
+            SurroundChar(from),
+            SurroundChar(to),
+        ] => Some(Expr::SurroundChange {
+            from: *from,
+            to: *to,
+        }),
+
+        // `ds{ch}` — surround delete.
+        [Op(Operator::Delete), SurroundDeletePrefix, SurroundChar(ch)] => {
+            Some(Expr::SurroundDelete { ch: *ch })
+        }
+
         // Operator + something
         [Op(op), inner @ ..] => build_op_expr(*op, inner, outer_count),
 
         _ => None,
     }
+}
+
+/// Assemble [`Expr::SurroundAdd`] from the tokens after
+/// `[Op(Yank), SurroundAddPrefix]`. `inner` already had the surround
+/// anchor stripped; what's left is `[…target…, SurroundChar(c)]`.
+fn build_surround_add(inner: &[Token]) -> Option<Expr> {
+    use Token::*;
+    let last = inner.last()?;
+    let SurroundChar(ch) = last else {
+        return None;
+    };
+    let target_tokens = &inner[..inner.len() - 1];
+    let (motion_count, body) = take_count(target_tokens);
+
+    let target = match body {
+        [SelfDouble(_)] => Target::LineWise,
+        [Motion(m)] | [FindCharPrefix { .. }, Motion(m)] | [GotoPrefix, Motion(m)] => {
+            Target::Motion(MotionExpr {
+                motion: *m,
+                count: motion_count,
+            })
+        }
+        [Scope(s), Object(o)] if motion_count == 1 => Target::TextObject {
+            scope: *s,
+            object: *o,
+        },
+        _ => return None,
+    };
+    Some(Expr::SurroundAdd { target, ch: *ch })
 }
 
 fn build_op_expr(op: Operator, after_op: &[Token], outer_count: u32) -> Option<Expr> {
@@ -526,6 +675,212 @@ fn is_valid_prefix(tokens: &[Token]) -> bool {
         [GotoPrefix, after @ ..] if matches!(after.first(), Some(Op(_))) => {
             is_valid_prefix(after)
         }
+        // `ds` waiting for its single char.
+        [Op(Operator::Delete), SurroundDeletePrefix] => true,
+        // `cs` waiting for its first char.
+        [Op(Operator::Change), SurroundChangePrefix] => true,
+        // `cs<from>` waiting for its second char.
+        [Op(Operator::Change), SurroundChangePrefix, SurroundChar(_)] => true,
+        // `ys` and friends — anything from "just the prefix" to "prefix
+        // + complete target" is a valid prefix, since the final
+        // surround char is still pending.
+        [Op(Operator::Yank), SurroundAddPrefix, after @ ..] => is_valid_ys_tail(after),
         _ => false,
+    }
+}
+
+/// Valid `[..., SurroundAddPrefix, <tail>]` shapes — anything between
+/// "just the prefix" (empty tail) and "complete target without char"
+/// counts as a valid prefix. The actual char closes the parse via
+/// [`build_surround_add`].
+fn is_valid_ys_tail(tail: &[Token]) -> bool {
+    use Token::*;
+    let (_, after) = take_count(tail);
+    matches!(
+        after,
+        []
+            | [Scope(_)]
+            | [FindCharPrefix { .. }]
+            | [GotoPrefix]
+            | [Motion(_)]
+            | [FindCharPrefix { .. }, Motion(_)]
+            | [GotoPrefix, Motion(_)]
+            | [Scope(_), Object(_)]
+            | [SelfDouble(_)]
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::action::{Object, Operator, Scope as ScopeKind};
+
+    /// Sugar: build a token slice from raw `Token::…` values.
+    fn complete(toks: &[Token]) -> Option<Expr> {
+        match classify(toks) {
+            Parse::Complete(e) => Some(e),
+            _ => None,
+        }
+    }
+
+    fn incomplete(toks: &[Token]) -> bool {
+        matches!(classify(toks), Parse::Incomplete)
+    }
+
+    fn invalid(toks: &[Token]) -> bool {
+        matches!(classify(toks), Parse::Invalid)
+    }
+
+    #[test]
+    fn ds_complete_with_one_char() {
+        let toks = [
+            Token::Op(Operator::Delete),
+            Token::SurroundDeletePrefix,
+            Token::SurroundChar('"'),
+        ];
+        assert_eq!(complete(&toks), Some(Expr::SurroundDelete { ch: '"' }));
+    }
+
+    #[test]
+    fn ds_prefix_alone_is_incomplete() {
+        assert!(incomplete(&[
+            Token::Op(Operator::Delete),
+            Token::SurroundDeletePrefix
+        ]));
+    }
+
+    #[test]
+    fn cs_needs_two_chars() {
+        let prefix = [Token::Op(Operator::Change), Token::SurroundChangePrefix];
+        assert!(incomplete(&prefix));
+
+        let one_char = [
+            Token::Op(Operator::Change),
+            Token::SurroundChangePrefix,
+            Token::SurroundChar('"'),
+        ];
+        assert!(incomplete(&one_char));
+
+        let full = [
+            Token::Op(Operator::Change),
+            Token::SurroundChangePrefix,
+            Token::SurroundChar('"'),
+            Token::SurroundChar('\''),
+        ];
+        assert_eq!(
+            complete(&full),
+            Some(Expr::SurroundChange {
+                from: '"',
+                to: '\''
+            })
+        );
+    }
+
+    #[test]
+    fn ys_with_text_object() {
+        let toks = [
+            Token::Op(Operator::Yank),
+            Token::SurroundAddPrefix,
+            Token::Scope(ScopeKind::Inner),
+            Token::Object(Object::Word),
+            Token::SurroundChar('"'),
+        ];
+        let expected = Expr::SurroundAdd {
+            target: Target::TextObject {
+                scope: ScopeKind::Inner,
+                object: Object::Word,
+            },
+            ch: '"',
+        };
+        assert_eq!(complete(&toks), Some(expected));
+    }
+
+    #[test]
+    fn ys_with_motion() {
+        let toks = [
+            Token::Op(Operator::Yank),
+            Token::SurroundAddPrefix,
+            Token::Motion(MotionKind::WordForward),
+            Token::SurroundChar(')'),
+        ];
+        let expected = Expr::SurroundAdd {
+            target: Target::Motion(MotionExpr {
+                motion: MotionKind::WordForward,
+                count: 1,
+            }),
+            ch: ')',
+        };
+        assert_eq!(complete(&toks), Some(expected));
+    }
+
+    #[test]
+    fn yss_is_line_wise() {
+        let toks = [
+            Token::Op(Operator::Yank),
+            Token::SurroundAddPrefix,
+            Token::SelfDouble(Operator::Yank),
+            Token::SurroundChar('"'),
+        ];
+        let expected = Expr::SurroundAdd {
+            target: Target::LineWise,
+            ch: '"',
+        };
+        assert_eq!(complete(&toks), Some(expected));
+    }
+
+    #[test]
+    fn ys_intermediate_states_are_incomplete() {
+        let cases: Vec<Vec<Token>> = vec![
+            vec![Token::Op(Operator::Yank), Token::SurroundAddPrefix],
+            vec![
+                Token::Op(Operator::Yank),
+                Token::SurroundAddPrefix,
+                Token::Scope(ScopeKind::Inner),
+            ],
+            vec![
+                Token::Op(Operator::Yank),
+                Token::SurroundAddPrefix,
+                Token::Scope(ScopeKind::Inner),
+                Token::Object(Object::Word),
+            ],
+            vec![
+                Token::Op(Operator::Yank),
+                Token::SurroundAddPrefix,
+                Token::Motion(MotionKind::WordForward),
+            ],
+        ];
+        for c in cases {
+            assert!(incomplete(&c), "expected incomplete: {:?}", c);
+        }
+    }
+
+    #[test]
+    fn plain_yank_still_parses() {
+        // Make sure the surround grammar didn't break ordinary yank.
+        let toks = [
+            Token::Op(Operator::Yank),
+            Token::Motion(MotionKind::WordForward),
+        ];
+        let expected = Expr::Op {
+            op: Operator::Yank,
+            target: Target::Motion(MotionExpr {
+                motion: MotionKind::WordForward,
+                count: 1,
+            }),
+            outer_count: 1,
+        };
+        assert_eq!(complete(&toks), Some(expected));
+    }
+
+    #[test]
+    fn s_after_indent_op_is_invalid() {
+        // `>` then `s` isn't a known prefix and isn't a motion — should
+        // not silently produce a surround command.
+        let toks = [
+            Token::Op(Operator::Indent),
+            Token::SurroundAddPrefix,
+            Token::SurroundChar('"'),
+        ];
+        assert!(invalid(&toks));
     }
 }

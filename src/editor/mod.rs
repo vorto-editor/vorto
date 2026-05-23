@@ -25,6 +25,7 @@ mod motion;
 mod ops;
 mod search;
 mod substitute;
+mod surround;
 mod text_object;
 mod vcs_link;
 

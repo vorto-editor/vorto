@@ -616,7 +616,7 @@ fn shift_cursor_for_row_delta(c: &mut Cursor, pivot: usize, delta: i32) {
 /// Adjust `c` for an edit on `row` that, starting at char column
 /// `col_start`, removed `delete` chars and inserted `insert` in their
 /// place. Pure column arithmetic — no row changes, no clamping.
-fn shift_cursor_for_edit(c: &mut Cursor, row: usize, col_start: usize, delete: usize, insert: usize) {
+pub(super) fn shift_cursor_for_edit(c: &mut Cursor, row: usize, col_start: usize, delete: usize, insert: usize) {
     if c.row != row {
         return;
     }

@@ -189,6 +189,9 @@ fn override_count(expr: Expr, count: u32) -> Expr {
             target,
             outer_count: count,
         },
+        // Surround commands don't carry a meaningful count — `.` with
+        // a prefix replays them as-is.
+        e @ (Expr::SurroundAdd { .. } | Expr::SurroundChange { .. } | Expr::SurroundDelete { .. }) => e,
     }
 }
 
@@ -283,6 +286,13 @@ fn should_fan_out(expr: &Expr) -> bool {
                 | D::JoinLines
                 | D::YankLine
         ),
+        // Surround applies to the primary cursor only; fanning would
+        // mean re-resolving the surrounding pair at every extra cursor
+        // which is rarely what the user wants and has no clear semantics
+        // for `ys{motion}`.
+        Expr::SurroundAdd { .. } | Expr::SurroundChange { .. } | Expr::SurroundDelete { .. } => {
+            false
+        }
     }
 }
 

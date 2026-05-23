@@ -24,10 +24,12 @@
 //! - [`motion`] — `MotionKind` evaluation (cursor moves).
 //! - [`operator`] — `d`/`y`/`c`/`>`/`<` over motion / search match /
 //!   text object / line-wise.
+//! - [`surround`] — vim-surround `ys` / `cs` / `ds`.
 
 mod direct;
 mod motion;
 mod operator;
+mod surround;
 
 use crate::action::{Ctx, Expr, LastFind, MotionKind, Operator};
 use crate::app::App;
@@ -61,6 +63,9 @@ impl App {
                 target,
                 outer_count,
             } => operator::handle_op(self, op, target, outer_count),
+            Expr::SurroundAdd { target, ch } => surround::handle_add(self, target, ch),
+            Expr::SurroundChange { from, to } => surround::handle_change(self, from, to),
+            Expr::SurroundDelete { ch } => surround::handle_delete(self, ch),
         }
     }
 
@@ -162,5 +167,8 @@ pub(super) fn expr_modifies_buffer(expr: &Expr) -> bool {
         ),
         Expr::Motion(_) => false,
         Expr::Op { op, .. } => !matches!(op, Operator::Yank),
+        Expr::SurroundAdd { .. } | Expr::SurroundChange { .. } | Expr::SurroundDelete { .. } => {
+            true
+        }
     }
 }

@@ -202,6 +202,13 @@ fn format_pending(tokens: &[Token]) -> String {
             Token::WindowPrefix => s.push('w'),
             Token::CtrlWPrefix => s.push_str("<C-w>"),
             Token::BracketPrefix { forward } => s.push(if *forward { ']' } else { '[' }),
+            // Surround prefixes always sit after a y/c/d operator
+            // (already pushed) — emit just the trailing `s`. The
+            // `SurroundChar` payload renders as its raw char.
+            Token::SurroundAddPrefix
+            | Token::SurroundChangePrefix
+            | Token::SurroundDeletePrefix => s.push('s'),
+            Token::SurroundChar(c) => s.push(*c),
             // These shouldn't be in pending state (they would've fired
             // immediately or completed the parse).
             Token::Motion(_) | Token::Direct(_) | Token::Object(_) => s.push('?'),

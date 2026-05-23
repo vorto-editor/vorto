@@ -58,6 +58,20 @@ pub enum Token {
     /// Direction is baked into the prefix so the body bindings can
     /// stay direction-free.
     BracketPrefix { forward: bool },
+    /// `ys` — vim-surround "add". Emitted in OpPending after a Yank
+    /// when `s` is pressed; the trailing `Op(Yank)` on the stack is
+    /// kept as the parse anchor (see `build_expr`).
+    SurroundAddPrefix,
+    /// `cs` — vim-surround "change". Same anchor pattern as
+    /// [`Token::SurroundAddPrefix`] but emitted after a Change op.
+    SurroundChangePrefix,
+    /// `ds` — vim-surround "delete". Same anchor pattern but after a
+    /// Delete op.
+    SurroundDeletePrefix,
+    /// A literal surround char (`"`, `(`, `t` …) captured in
+    /// `SurroundCharPending` context. Carries the raw key so the
+    /// evaluator can map it to a pair / text-object kind.
+    SurroundChar(char),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -412,6 +426,14 @@ pub enum Expr {
         /// Outer count: `3d2w` → 3. Multiplied with any inner motion count.
         outer_count: u32,
     },
+    /// `ys{target}{ch}` — wrap a motion/object range with the pair
+    /// implied by `ch`.
+    SurroundAdd { target: Target, ch: char },
+    /// `cs{from}{to}` — replace the surrounding pair identified by
+    /// `from` with the pair implied by `to`.
+    SurroundChange { from: char, to: char },
+    /// `ds{ch}` — remove the surrounding pair identified by `ch`.
+    SurroundDelete { ch: char },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
