@@ -223,18 +223,8 @@ pub(super) fn handle_direct(app: &mut App, kind: DirectKind, count: u32, ctx: Ct
         D::SelectWholeBuffer => cmds.push(Cmd::SelectWholeBuffer),
         D::ToggleComment => match buffer_comment_token(app) {
             Some(token) => {
-                let start_row = app.buffer.cursor.row;
-                let start_col = app.buffer.cursor.col;
-                let max = app.buffer.lines.len();
-                for i in 0..count {
-                    app.buffer.toggle_line_comment(&token);
-                    if i + 1 < count && app.buffer.cursor.row + 1 < max {
-                        app.buffer.cursor.row += 1;
-                    }
-                }
-                app.buffer.cursor.row = start_row;
-                app.buffer.cursor.col = start_col;
-                app.buffer.clamp_col(false);
+                let rows = comment_target_rows(app, count);
+                app.buffer.toggle_block_comment(&token, &rows);
             }
             None => cmds.push(Cmd::ToastError("no comment token for this buffer".into())),
         },
@@ -413,4 +403,29 @@ fn buffer_comment_token(app: &App) -> Option<String> {
     let path = app.buffer.path.as_deref()?;
     let lang = app.config.languages.by_path(path)?;
     lang.comment_token.clone()
+}
+
+/// Decide which rows `<space>c` should target.
+///
+/// - With extra cursors active: the unique rows of (primary + extras),
+///   so each cursor's row is in the block regardless of column.
+/// - With only a primary cursor: `count` rows starting at the primary
+///   row, clipped to the buffer end. So `5<space>c` selects 5 rows.
+///
+/// Either way, the result is fed to `toggle_block_comment` which
+/// computes the shared anchor (shallowest indent among non-blank
+/// rows) and toggles every row against it.
+fn comment_target_rows(app: &App, count: u32) -> Vec<usize> {
+    if app.buffer.extra_cursors.is_empty() {
+        let start = app.buffer.cursor.row;
+        let max = app.buffer.lines.len();
+        (0..count as usize)
+            .map(|i| start + i)
+            .take_while(|&r| r < max)
+            .collect()
+    } else {
+        std::iter::once(app.buffer.cursor.row)
+            .chain(app.buffer.extra_cursors.iter().map(|c| c.row))
+            .collect()
+    }
 }

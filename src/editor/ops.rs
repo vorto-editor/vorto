@@ -356,41 +356,115 @@ impl Buffer {
         self.touch();
     }
 
-    /// Toggle a single-line comment on the current line using `token`
-    /// as the prefix (e.g. `"//"`, `"#"`). If the first non-blank run
-    /// of the line already starts with `token`, the prefix (and a
-    /// single trailing space, when present) is stripped; otherwise
-    /// `token + " "` is inserted at the first non-blank column. Blank
-    /// lines are skipped — vim-commentary semantics.
-    pub fn toggle_line_comment(&mut self, token: &str) {
-        let row = self.cursor.row;
-        let line = &self.lines[row];
-        let indent_chars = line.chars().take_while(|c| c.is_whitespace()).count();
-        let indent_bytes = char_to_byte(line, indent_chars);
-        let rest = &line[indent_bytes..];
-        if rest.is_empty() {
+    /// Toggle a block-aligned line comment across `rows` using `token`
+    /// (e.g. `"//"`, `"#"`).
+    ///
+    /// Block semantics: the operation finds the **shallowest indent
+    /// among the non-blank target rows** and uses that single column as
+    /// the comment anchor for every row. So a mixed-indent block
+    /// commented together stays visually aligned (the deeper rows get
+    /// `// ` inserted *before* their own extra indent, not at the
+    /// per-row first-non-blank position).
+    ///
+    /// Toggle direction: if every non-blank target row already starts
+    /// with `token` at the shared anchor, the prefix (and a single
+    /// trailing space, when present) is stripped from each; otherwise
+    /// `token + " "` is inserted at the anchor on every row. Blank
+    /// lines are skipped from both the indent calculation and the
+    /// mutation — vim-commentary semantics generalized to a block.
+    ///
+    /// Cursor bookkeeping: the primary cursor and every extra cursor
+    /// on a mutated row gets shifted by the column delta. Cursors that
+    /// land inside a deleted range collapse to the anchor column.
+    /// Single-row callers can just pass `&[row]`.
+    pub fn toggle_block_comment(&mut self, token: &str, rows: &[usize]) {
+        let mut rows: Vec<usize> = rows.iter().copied().filter(|&r| r < self.lines.len()).collect();
+        rows.sort_unstable();
+        rows.dedup();
+
+        // (row, indent_chars) for rows with any non-whitespace content.
+        let non_blank: Vec<(usize, usize)> = rows
+            .iter()
+            .filter_map(|&row| {
+                let line = &self.lines[row];
+                let indent_chars = line.chars().take_while(|c| c.is_whitespace()).count();
+                if indent_chars == line.chars().count() {
+                    None
+                } else {
+                    Some((row, indent_chars))
+                }
+            })
+            .collect();
+        if non_blank.is_empty() {
             return;
         }
-        if let Some(after_token) = rest.strip_prefix(token) {
-            let trim_len = if after_token.starts_with(' ') {
-                token.len() + 1
-            } else {
-                token.len()
-            };
-            self.lines[row].replace_range(indent_bytes..indent_bytes + trim_len, "");
-            let removed_chars = token.chars().count() + (trim_len - token.len());
-            if self.cursor.col > indent_chars {
-                self.cursor.col = self.cursor.col.saturating_sub(removed_chars);
+
+        let anchor = non_blank.iter().map(|&(_, i)| i).min().unwrap();
+        let token_bytes = token.len();
+        let token_chars = token.chars().count();
+
+        // Note: anchor <= every row's indent_chars by construction, so
+        // the byte at column `anchor` is always whitespace or the first
+        // non-blank char — never the middle of a multi-byte cluster.
+        let all_commented = non_blank.iter().all(|&(row, _)| {
+            let line = &self.lines[row];
+            let byte = char_to_byte(line, anchor);
+            line[byte..].starts_with(token)
+        });
+
+        // Per-row signed char delta at column `anchor`.
+        let mut deltas: Vec<(usize, i32)> = Vec::with_capacity(non_blank.len());
+        if all_commented {
+            for &(row, _) in &non_blank {
+                let line = &mut self.lines[row];
+                let byte = char_to_byte(line, anchor);
+                let after_token = &line[byte + token_bytes..];
+                let trim_bytes = if after_token.starts_with(' ') {
+                    token_bytes + 1
+                } else {
+                    token_bytes
+                };
+                let removed_chars = token_chars + (trim_bytes - token_bytes);
+                line.replace_range(byte..byte + trim_bytes, "");
+                deltas.push((row, -(removed_chars as i32)));
             }
         } else {
             let insert = format!("{} ", token);
-            self.lines[row].insert_str(indent_bytes, &insert);
             let added_chars = insert.chars().count();
-            if self.cursor.col >= indent_chars {
-                self.cursor.col += added_chars;
+            for &(row, _) in &non_blank {
+                let line = &mut self.lines[row];
+                let byte = char_to_byte(line, anchor);
+                line.insert_str(byte, &insert);
+                deltas.push((row, added_chars as i32));
             }
+        }
+
+        shift_cursor_for_block_comment(&mut self.cursor, &deltas, anchor);
+        for c in self.extra_cursors.iter_mut() {
+            shift_cursor_for_block_comment(c, &deltas, anchor);
         }
         self.clamp_col(false);
         self.touch();
+    }
+}
+
+/// Apply the per-row column delta from `toggle_block_comment` to a
+/// single cursor. Cursors before the anchor are untouched; cursors
+/// inside a deletion range collapse to the anchor column.
+fn shift_cursor_for_block_comment(c: &mut Cursor, deltas: &[(usize, i32)], anchor: usize) {
+    let Some(&(_, delta)) = deltas.iter().find(|(r, _)| *r == c.row) else {
+        return;
+    };
+    if delta > 0 {
+        if c.col >= anchor {
+            c.col = c.col.saturating_add(delta as usize);
+        }
+    } else if delta < 0 {
+        let d = (-delta) as usize;
+        if c.col >= anchor + d {
+            c.col -= d;
+        } else if c.col > anchor {
+            c.col = anchor;
+        }
     }
 }
