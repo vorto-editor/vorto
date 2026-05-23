@@ -255,6 +255,13 @@ pub(super) fn draw_pending_hints(f: &mut Frame, app: &App, status_area: Rect) {
 /// useful can be hinted (initial state, or in the middle of a count
 /// without further context).
 fn pending_hints(tokens: &[Token]) -> Option<(&'static str, Vec<(String, &'static str)>)> {
+    // Surround dispatch wins over the per-last-token rules: char-pending
+    // states leave a Motion/Object/SelfDouble sitting on the stack and
+    // the generic dispatch would otherwise miss them.
+    if surround_char_pending(tokens) {
+        return Some(surround_char_menu());
+    }
+
     // Find the trailing non-Count token — counts don't change what the
     // hint context is.
     let last = tokens
@@ -262,6 +269,20 @@ fn pending_hints(tokens: &[Token]) -> Option<(&'static str, Vec<(String, &'stati
         .rev()
         .find(|t| !matches!(t, Token::Count(_)))?;
     let (name, entries) = match last {
+        // After `ys` the user is picking a target — same menu as op-
+        // pending plus `s` for the line-wise self-double (`yss`).
+        Token::SurroundAddPrefix => {
+            let mut entries = vec![("s".to_string(), "current line (yss)")];
+            entries.extend(
+                OP_PENDING_BINDINGS
+                    .iter()
+                    .map(|b| (display_key(b.key), b.label)),
+            );
+            ("surround target", entries)
+        }
+        // `cs` / `ds` — char menu (target-less surround variants).
+        Token::SurroundChangePrefix => ("change surround (from)", surround_char_entries()),
+        Token::SurroundDeletePrefix => ("delete surround", surround_char_entries()),
         Token::LeaderPrefix => (
             "leader",
             LEADER_DEFAULTS
@@ -338,6 +359,17 @@ fn pending_hints(tokens: &[Token]) -> Option<(&'static str, Vec<(String, &'stati
                 Operator::BlockComment => ("block-comment", "c", "block-comment line (gbc)"),
             };
             let mut entries = vec![(self_key.to_string(), self_label)];
+            // y/c/d open the surround grammar with `s` — list it here
+            // so users can discover ys/cs/ds without reading docs.
+            let surround_hint = match op {
+                Operator::Yank => Some("add surround (ys…)"),
+                Operator::Change => Some("change surround (cs…)"),
+                Operator::Delete => Some("delete surround (ds…)"),
+                _ => None,
+            };
+            if let Some(label) = surround_hint {
+                entries.push(("s".to_string(), label));
+            }
             entries.extend(
                 OP_PENDING_BINDINGS
                     .iter()
@@ -359,6 +391,55 @@ fn pending_hints(tokens: &[Token]) -> Option<(&'static str, Vec<(String, &'stati
         _ => return None,
     };
     Some((name, entries))
+}
+
+/// True when the next key in `prev` should be captured as a literal
+/// surround char. Mirrors `parse::is_surround_char_pending` — kept
+/// inline so the hint layer doesn't need a `pub` peephole into the
+/// parser internals.
+fn surround_char_pending(prev: &[Token]) -> bool {
+    use Token::*;
+    if matches!(
+        prev,
+        [.., SurroundDeletePrefix]
+            | [.., SurroundChangePrefix]
+            | [.., SurroundChangePrefix, SurroundChar(_)]
+    ) {
+        return true;
+    }
+    // ys with a complete target. Anything after the prefix that lands
+    // on a Motion/Object/SelfDouble (the three target-terminator
+    // tokens) counts as "ready for the surround char."
+    let Some(prefix_idx) = prev.iter().rposition(|t| matches!(t, SurroundAddPrefix)) else {
+        return false;
+    };
+    matches!(
+        prev[prefix_idx + 1..].last(),
+        Some(Motion(_)) | Some(Object(_)) | Some(SelfDouble(_))
+    )
+}
+
+fn surround_char_menu() -> (&'static str, Vec<(String, &'static str)>) {
+    ("surround char", surround_char_entries())
+}
+
+/// Hint table for the surround char prompt. Listed in display order:
+/// quotes first, then asymmetric pairs (spaced/tight variants
+/// adjacent), so the user can read the column top-to-bottom.
+fn surround_char_entries() -> Vec<(String, &'static str)> {
+    vec![
+        ("\"".to_string(), "double quotes"),
+        ("'".to_string(), "single quotes"),
+        ("`".to_string(), "backticks"),
+        ("(".to_string(), "( spaced )"),
+        (")".to_string(), "(tight)"),
+        ("{".to_string(), "{ spaced }"),
+        ("}".to_string(), "{tight}"),
+        ("[".to_string(), "[ spaced ]"),
+        ("]".to_string(), "[tight]"),
+        ("<".to_string(), "< spaced >"),
+        (">".to_string(), "<tight>"),
+    ]
 }
 
 /// Human-readable form of a `KeyCode` for which-key hint rendering.
