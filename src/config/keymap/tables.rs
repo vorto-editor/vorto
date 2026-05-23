@@ -632,6 +632,12 @@ pub const OBJECT_BINDINGS: &[Binding] = {
             label: "word",
         },
         Binding {
+            key: KeyCode::Char('W'),
+            aliases: &[],
+            token: O(WORD),
+            label: "WORD",
+        },
+        Binding {
             key: KeyCode::Char('p'),
             aliases: &[],
             token: O(Paragraph),
@@ -648,6 +654,12 @@ pub const OBJECT_BINDINGS: &[Binding] = {
             aliases: &[],
             token: O(SingleQuote),
             label: "single-quotes",
+        },
+        Binding {
+            key: KeyCode::Char('`'),
+            aliases: &[],
+            token: O(Backtick),
+            label: "backticks",
         },
         Binding {
             key: KeyCode::Char('('),
@@ -668,6 +680,12 @@ pub const OBJECT_BINDINGS: &[Binding] = {
             label: "brackets",
         },
         Binding {
+            key: KeyCode::Char('<'),
+            aliases: &[KeyCode::Char('>')],
+            token: O(AngleBracket),
+            label: "angle-brackets",
+        },
+        Binding {
             key: KeyCode::Char('f'),
             aliases: &[],
             token: O(Function),
@@ -684,6 +702,12 @@ pub const OBJECT_BINDINGS: &[Binding] = {
             aliases: &[],
             token: O(Parameter),
             label: "argument (ts)",
+        },
+        Binding {
+            key: KeyCode::Char('T'),
+            aliases: &[],
+            token: O(Type),
+            label: "type (ts)",
         },
     ]
 };

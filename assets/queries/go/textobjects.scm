@@ -16,6 +16,14 @@
   (type_spec
     type: (interface_type) @class.inner)) @class.outer
 
+(type_spec
+  name: (_) @_n
+  type: (_) @type.inner) @type.outer
+
+(type_alias
+  name: (_) @_an
+  type: (_) @type.inner) @type.outer
+
 (parameter_declaration) @parameter.inner
 (parameter_declaration) @parameter.outer
 (variadic_parameter_declaration) @parameter.inner

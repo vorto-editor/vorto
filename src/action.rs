@@ -164,17 +164,27 @@ pub enum Scope {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Object {
     Word,
+    /// `W` — vim's WORD: a whitespace-bounded run. Differs from
+    /// [`Object::Word`] in that punctuation does *not* split the run,
+    /// so `foo.bar(baz)` is one WORD but three words.
+    WORD,
     DoubleQuote,
     SingleQuote,
+    Backtick,
     Paren,
     Brace,
     Bracket,
+    AngleBracket,
     // Syntactic objects resolved through tree-sitter `textobjects.scm`.
     // `Inner` / `Around` map to the query capture suffixes `.inner` /
     // `.outer` respectively.
     Function,
     Class,
     Parameter,
+    /// `T` — type definitions / aliases (TS `type Foo = ...`, Rust
+    /// `type Foo = ...`, Go `type Foo ...`). Resolved through
+    /// `textobjects.scm` like [`Object::Function`].
+    Type,
     /// `p` — vim's paragraph: a contiguous run of non-blank lines
     /// bordered by blank lines (or file start/end). Char-class
     /// equivalent at the line level: `is_blank` vs not.

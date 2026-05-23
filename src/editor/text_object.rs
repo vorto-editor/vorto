@@ -27,6 +27,9 @@ impl Buffer {
         if matches!(object, Object::Word) {
             return self.word_object_range(scope);
         }
+        if matches!(object, Object::WORD) {
+            return self.big_word_object_range(scope);
+        }
         if matches!(object, Object::Paragraph) {
             return Some(self.paragraph_object_range(scope));
         }
@@ -110,6 +113,49 @@ impl Buffer {
         Some((Cursor { row, col: from_col }, Cursor { row, col: to_col }))
     }
 
+    /// Vim-style `iW`/`aW`. Same shape as [`Self::word_object_range`]
+    /// but the only class boundary is whitespace vs non-whitespace, so
+    /// `foo.bar(baz)` is one WORD. `Around` swallows trailing
+    /// whitespace (or leading at end-of-line) just like `aw`.
+    fn big_word_object_range(&self, scope: Scope) -> Option<(Cursor, Cursor)> {
+        let row = self.cursor.row;
+        let chars: Vec<char> = self.lines[row].chars().collect();
+        if chars.is_empty() {
+            return None;
+        }
+        let col = self.cursor.col.min(chars.len() - 1);
+
+        let cursor_blank = chars[col].is_whitespace();
+        let mut start = col;
+        while start > 0 && chars[start - 1].is_whitespace() == cursor_blank {
+            start -= 1;
+        }
+        let mut end = col;
+        while end < chars.len() && chars[end].is_whitespace() == cursor_blank {
+            end += 1;
+        }
+
+        let (from_col, to_col) = match scope {
+            Scope::Inner => (start, end),
+            Scope::Around => {
+                let mut e = end;
+                while e < chars.len() && chars[e].is_whitespace() {
+                    e += 1;
+                }
+                if e != end {
+                    (start, e)
+                } else {
+                    let mut s = start;
+                    while s > 0 && chars[s - 1].is_whitespace() {
+                        s -= 1;
+                    }
+                    (s, end)
+                }
+            }
+        };
+        Some((Cursor { row, col: from_col }, Cursor { row, col: to_col }))
+    }
+
     /// Vim-style `ip`/`ap`. The "class" at the line level is `blank` vs
     /// `non-blank`; `ip` selects the run the cursor is on, `ap`
     /// additionally swallows the adjacent blank-line run (trailing if
@@ -157,17 +203,19 @@ fn delim(object: Object) -> (char, char) {
     match object {
         Object::DoubleQuote => ('"', '"'),
         Object::SingleQuote => ('\'', '\''),
+        Object::Backtick => ('`', '`'),
         Object::Paren => ('(', ')'),
         Object::Brace => ('{', '}'),
         Object::Bracket => ('[', ']'),
-        // `iw` (inner word) — not really a delimited object; treat as a
-        // pair of non-existent chars so callers can branch. For now, the
-        // word object isn't matched specially: callers can use
-        // motion_target(WordBack/WordForward) instead.
-        Object::Word => ('\0', '\0'),
+        Object::AngleBracket => ('<', '>'),
+        // `iw`/`iW` — not really delimited objects; treat as a pair of
+        // non-existent chars so callers can branch. The dispatcher in
+        // `text_object_range` actually routes these to the word
+        // scanners before reaching `delim`.
+        Object::Word | Object::WORD => ('\0', '\0'),
         // Syntactic objects are handled via tree-sitter — the
         // caller should never reach `delim` for these.
-        Object::Function | Object::Class | Object::Parameter => ('\0', '\0'),
+        Object::Function | Object::Class | Object::Parameter | Object::Type => ('\0', '\0'),
         // Paragraph is line-wise — also handled before reaching here.
         Object::Paragraph => ('\0', '\0'),
     }
@@ -207,6 +255,8 @@ fn ts_target(object: Object, scope: Scope) -> Option<&'static str> {
         (Object::Class, Scope::Around) => "class.outer",
         (Object::Parameter, Scope::Inner) => "parameter.inner",
         (Object::Parameter, Scope::Around) => "parameter.outer",
+        (Object::Type, Scope::Inner) => "type.inner",
+        (Object::Type, Scope::Around) => "type.outer",
         _ => return None,
     })
 }

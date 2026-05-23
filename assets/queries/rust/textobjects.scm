@@ -19,6 +19,9 @@
 (impl_item
   body: (_) @class.inner) @class.outer
 
+(type_item
+  type: (_) @type.inner) @type.outer
+
 (parameters
   (parameter) @parameter.inner)
 (parameters
