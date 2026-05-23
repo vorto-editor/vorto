@@ -1,8 +1,8 @@
 [package]
 name = "vorto"
-version = "0.10.3"
+version = "0.11.0"
 edition = "2024"
-description = "A terminal text editor with tree-sitter syntax highlighting and LSP support"
+description = "A Vim-flavored modal terminal editor with batteries included: tree-sitter, LSP, fuzzy pickers, vim-surround, multi-cursor, and optional Copilot."
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/shka-k/vorto"
