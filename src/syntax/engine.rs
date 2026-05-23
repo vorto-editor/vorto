@@ -206,9 +206,12 @@ impl Engine {
         q.find(&self.source, tree, target, cursor_row, cursor_col_chars)
     }
 
-    /// Bracket-pair mate of the character at `(row, col_chars)`, when
-    /// tree-sitter resolved that position to a bracket token (i.e.
-    /// brackets inside strings and comments are skipped automatically).
+    /// Pair mate of the character at `(row, col_chars)` when the cursor
+    /// sits on a syntactic bracket (`()`, `[]`, `{}`, `<>`) or quote
+    /// (`"`, `'`, `` ` ``). Tree-sitter resolves brackets inside
+    /// strings/comments to the enclosing literal so they don't match,
+    /// and disambiguates `<`/`>` between generics and comparison
+    /// operators by parent kind.
     pub fn matching_bracket(&self, row: usize, col_chars: usize) -> Option<(usize, usize)> {
         let tree = self.tree.as_ref()?;
         bracket::matching(&self.source, tree, row, col_chars)

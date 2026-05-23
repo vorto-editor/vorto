@@ -106,11 +106,11 @@ pub(super) fn draw_buffer(f: &mut Frame, app: &App, area: Rect) {
     let extras = &app.buffer.extra_cursors;
     let search_query = &app.search.query;
     let jump_overlay = build_jump_overlay(app.jump_state.as_ref());
-    // Tree-sitter–driven matching-bracket highlight. Yields the two
-    // cells to paint (cursor's bracket + its mate) only when the
-    // cursor sits on a syntactic bracket token; brackets inside
-    // strings/comments resolve to the containing literal node and
-    // naturally don't match here.
+    // Tree-sitter–driven matching-pair highlight. Yields the two cells
+    // to paint (cursor's pair half + its mate) when the cursor sits on
+    // a syntactic bracket or quote; brackets inside strings/comments
+    // resolve to the containing literal node and naturally don't match
+    // here.
     let bracket_pair: Vec<(usize, usize)> = app
         .buffer
         .highlighter
