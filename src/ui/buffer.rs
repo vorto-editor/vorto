@@ -28,10 +28,19 @@ const SEL_BG: Color = Color::DarkGray;
 /// visual selection.
 const SEARCH_HIT_BG: Color = Color::DarkGray;
 
-/// Background used to render each extra-cursor cell. Distinct from
-/// `SEL_BG` and `SEARCH_HIT_BG` so a stacked cursor remains visible
-/// even when it sits inside a selection or a search match.
-const EXTRA_CURSOR_BG: Color = Color::Rgb(160, 110, 60);
+/// Background used to render each extra-cursor cell. ANSI bright-black
+/// so the cell picks up the user's terminal palette as a subdued gray —
+/// calm enough to live in code without competing with syntax. Note that
+/// this matches `SEL_BG` and `SEARCH_HIT_BG`, so an extra cursor sitting
+/// inside a selection or a search match merges into the underlying
+/// layer; the contrasting `EXTRA_CURSOR_FG` keeps the cell legible in
+/// the common case where the cursor sits on plain code.
+const EXTRA_CURSOR_BG: Color = Color::DarkGray;
+
+/// Foreground paired with `EXTRA_CURSOR_BG`. ANSI white so the cell
+/// inherits the terminal theme's light tone and stays legible against
+/// the dim gray cursor cell, regardless of the base style's fg.
+const EXTRA_CURSOR_FG: Color = Color::White;
 
 /// Foreground used to mark the bracket pair when the cursor sits on
 /// one half of `()`, `[]`, or `{}`. Combined with `BOLD` rather than a
@@ -1105,7 +1114,7 @@ fn render_line(
 /// so the cell stays visible against any underlying syntax / search /
 /// selection layer.
 fn extra_cursor_style(base: Style) -> Style {
-    base.bg(EXTRA_CURSOR_BG)
+    base.bg(EXTRA_CURSOR_BG).fg(EXTRA_CURSOR_FG)
 }
 
 /// Lower the active `gw` jump state into a `(row, col) → char` overlay
