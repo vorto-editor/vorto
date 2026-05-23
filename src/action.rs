@@ -167,6 +167,7 @@ pub enum Object {
     /// `W` — vim's WORD: a whitespace-bounded run. Differs from
     /// [`Object::Word`] in that punctuation does *not* split the run,
     /// so `foo.bar(baz)` is one WORD but three words.
+    #[allow(clippy::upper_case_acronyms, reason = "vim spells this `WORD`")]
     WORD,
     DoubleQuote,
     SingleQuote,
