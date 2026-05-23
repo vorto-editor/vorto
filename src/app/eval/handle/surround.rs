@@ -91,20 +91,16 @@ pub(super) fn handle_change(app: &mut App, from: char, to: char) -> Vec<Cmd> {
 
 /// Map a vim-surround char to the `(open, close)` literal pair to insert.
 ///
-/// Asymmetric brackets follow vim-surround convention: typing the
-/// *opening* form (`(`, `{`, `[`, `<`) adds a space on each side of the
-/// content; the *closing* form (`)`, `}`, `]`, `>`, plus the `b`/`B`
-/// aliases) wraps tightly. Quotes are symmetric — no space variant.
+/// Unlike tpope's vim-surround we do *not* distinguish "spaced" vs
+/// "tight" by which side of the bracket pair was typed: every variant
+/// wraps tightly. Inserting interior spaces is a formatter's job, not
+/// surround's. `b` / `B` remain aliases for `)` / `}` for muscle-memory.
 fn pair_for(ch: char) -> Option<(String, String)> {
     Some(match ch {
-        '(' => ("( ".into(), " )".into()),
-        ')' | 'b' => ("(".into(), ")".into()),
-        '{' => ("{ ".into(), " }".into()),
-        '}' | 'B' => ("{".into(), "}".into()),
-        '[' => ("[ ".into(), " ]".into()),
-        ']' => ("[".into(), "]".into()),
-        '<' => ("< ".into(), " >".into()),
-        '>' => ("<".into(), ">".into()),
+        '(' | ')' | 'b' => ("(".into(), ")".into()),
+        '{' | '}' | 'B' => ("{".into(), "}".into()),
+        '[' | ']' => ("[".into(), "]".into()),
+        '<' | '>' => ("<".into(), ">".into()),
         '"' => ("\"".into(), "\"".into()),
         '\'' => ("'".into(), "'".into()),
         '`' => ("`".into(), "`".into()),

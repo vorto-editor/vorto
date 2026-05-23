@@ -423,22 +423,19 @@ fn surround_char_menu() -> (&'static str, Vec<(String, &'static str)>) {
     ("surround char", surround_char_entries())
 }
 
-/// Hint table for the surround char prompt. Listed in display order:
-/// quotes first, then asymmetric pairs (spaced/tight variants
-/// adjacent), so the user can read the column top-to-bottom.
+/// Hint table for the surround char prompt. Quotes first, then the
+/// asymmetric pairs. Both opening and closing forms are valid (and
+/// `b` / `B` alias `)` / `}`), but each pair gets a single row to
+/// keep the menu compact — the alias hint goes in the label.
 fn surround_char_entries() -> Vec<(String, &'static str)> {
     vec![
         ("\"".to_string(), "double quotes"),
         ("'".to_string(), "single quotes"),
         ("`".to_string(), "backticks"),
-        ("(".to_string(), "( spaced )"),
-        (")".to_string(), "(tight)"),
-        ("{".to_string(), "{ spaced }"),
-        ("}".to_string(), "{tight}"),
-        ("[".to_string(), "[ spaced ]"),
-        ("]".to_string(), "[tight]"),
-        ("<".to_string(), "< spaced >"),
-        (">".to_string(), "<tight>"),
+        ("( )".to_string(), "parens (b)"),
+        ("{ }".to_string(), "braces (B)"),
+        ("[ ]".to_string(), "brackets"),
+        ("< >".to_string(), "angles"),
     ]
 }
 

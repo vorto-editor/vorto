@@ -140,10 +140,12 @@ mod tests {
     }
 
     #[test]
-    fn wrap_with_paren_adds_spaces() {
+    fn wrap_accepts_multi_char_delimiters() {
+        // The primitive doesn't care about the delimiter shape — a
+        // future block-comment-style caller could feed it `/* … */`.
         let mut b = buf_of(&["foo bar"]);
-        b.surround_wrap("( ", " )", Cursor { row: 0, col: 0 }, Cursor { row: 0, col: 3 });
-        assert_eq!(b.lines[0], "( foo ) bar");
+        b.surround_wrap("/*", "*/", Cursor { row: 0, col: 0 }, Cursor { row: 0, col: 3 });
+        assert_eq!(b.lines[0], "/*foo*/ bar");
     }
 
     #[test]
@@ -166,15 +168,17 @@ mod tests {
     }
 
     #[test]
-    fn replace_quotes_with_paren_spaces() {
+    fn replace_accepts_multi_char_delimiters() {
+        // Same as wrap: surround_replace is just a boundary swap and
+        // shouldn't care about delimiter length.
         let mut b = buf_of(&["\"foo\""]);
         b.surround_replace(
             Cursor { row: 0, col: 0 },
             Cursor { row: 0, col: 5 },
-            "( ",
-            " )",
+            "/*",
+            "*/",
         );
-        assert_eq!(b.lines[0], "( foo )");
+        assert_eq!(b.lines[0], "/*foo*/");
     }
 
     #[test]
