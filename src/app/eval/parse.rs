@@ -330,9 +330,7 @@ fn op_pending_token(code: KeyCode, prev: &[Token]) -> Option<Token> {
 
     // `yss` — second `s` after `[Op(Yank), SurroundAddPrefix]` means
     // "surround the current line", same line-wise role as `dd` / `yy`.
-    if matches!(code, KeyCode::Char('s'))
-        && matches!(prev.last(), Some(Token::SurroundAddPrefix))
-    {
+    if matches!(code, KeyCode::Char('s')) && matches!(prev.last(), Some(Token::SurroundAddPrefix)) {
         return Some(Token::SelfDouble(pending_op));
     }
 
@@ -672,9 +670,7 @@ fn is_valid_prefix(tokens: &[Token]) -> bool {
         // `gc` / `gci` / `gc<count>...` — recurse into the post-prefix
         // tail so a `g`-introduced operator keeps the same valid-prefix
         // rules as a bare operator.
-        [GotoPrefix, after @ ..] if matches!(after.first(), Some(Op(_))) => {
-            is_valid_prefix(after)
-        }
+        [GotoPrefix, after @ ..] if matches!(after.first(), Some(Op(_))) => is_valid_prefix(after),
         // `ds` waiting for its single char.
         [Op(Operator::Delete), SurroundDeletePrefix] => true,
         // `cs` waiting for its first char.
@@ -698,8 +694,7 @@ fn is_valid_ys_tail(tail: &[Token]) -> bool {
     let (_, after) = take_count(tail);
     matches!(
         after,
-        []
-            | [Scope(_)]
+        [] | [Scope(_)]
             | [FindCharPrefix { .. }]
             | [GotoPrefix]
             | [Motion(_)]

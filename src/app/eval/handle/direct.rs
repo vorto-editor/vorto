@@ -388,4 +388,3 @@ fn run_substitute(app: &mut App, raw: &str, cmds: &mut Vec<Cmd>) {
         if outcome.lines_changed == 1 { "" } else { "s" },
     )));
 }
-

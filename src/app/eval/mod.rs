@@ -191,7 +191,9 @@ fn override_count(expr: Expr, count: u32) -> Expr {
         },
         // Surround commands don't carry a meaningful count — `.` with
         // a prefix replays them as-is.
-        e @ (Expr::SurroundAdd { .. } | Expr::SurroundChange { .. } | Expr::SurroundDelete { .. }) => e,
+        e @ (Expr::SurroundAdd { .. }
+        | Expr::SurroundChange { .. }
+        | Expr::SurroundDelete { .. }) => e,
     }
 }
 

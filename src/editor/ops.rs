@@ -378,7 +378,11 @@ impl Buffer {
     /// land inside a deleted range collapse to the anchor column.
     /// Single-row callers can just pass `&[row]`.
     pub fn toggle_block_comment(&mut self, token: &str, rows: &[usize]) {
-        let mut rows: Vec<usize> = rows.iter().copied().filter(|&r| r < self.lines.len()).collect();
+        let mut rows: Vec<usize> = rows
+            .iter()
+            .copied()
+            .filter(|&r| r < self.lines.len())
+            .collect();
         rows.sort_unstable();
         rows.dedup();
 
@@ -616,7 +620,13 @@ fn shift_cursor_for_row_delta(c: &mut Cursor, pivot: usize, delta: i32) {
 /// Adjust `c` for an edit on `row` that, starting at char column
 /// `col_start`, removed `delete` chars and inserted `insert` in their
 /// place. Pure column arithmetic — no row changes, no clamping.
-pub(super) fn shift_cursor_for_edit(c: &mut Cursor, row: usize, col_start: usize, delete: usize, insert: usize) {
+pub(super) fn shift_cursor_for_edit(
+    c: &mut Cursor,
+    row: usize,
+    col_start: usize,
+    delete: usize,
+    insert: usize,
+) {
     if c.row != row {
         return;
     }

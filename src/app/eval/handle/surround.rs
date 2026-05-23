@@ -44,7 +44,9 @@ pub(super) fn handle_add(app: &mut App, target: Target, ch: char) -> Vec<Cmd> {
             Some((Cursor { row, col: 0 }, Cursor { row, col: line_len }))
         }
         Target::SearchMatch { .. } => {
-            cmds.push(Cmd::ToastError("surround over search match not supported".into()));
+            cmds.push(Cmd::ToastError(
+                "surround over search match not supported".into(),
+            ));
             return cmds;
         }
     };

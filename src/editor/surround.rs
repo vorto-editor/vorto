@@ -24,15 +24,11 @@ impl Buffer {
         if hi.row < self.lines.len() {
             let hi_byte = char_to_byte(&self.lines[hi.row], hi.col);
             self.lines[hi.row].insert_str(hi_byte, close);
-            self.for_each_cursor(|c| {
-                shift_cursor_for_edit(c, hi.row, hi.col, 0, close_chars)
-            });
+            self.for_each_cursor(|c| shift_cursor_for_edit(c, hi.row, hi.col, 0, close_chars));
         }
         let lo_byte = char_to_byte(&self.lines[lo.row], lo.col);
         self.lines[lo.row].insert_str(lo_byte, open);
-        self.for_each_cursor(|c| {
-            shift_cursor_for_edit(c, lo.row, lo.col, 0, open_chars)
-        });
+        self.for_each_cursor(|c| shift_cursor_for_edit(c, lo.row, lo.col, 0, open_chars));
 
         self.clamp_col(false);
         self.touch();
@@ -69,13 +65,7 @@ impl Buffer {
     /// `new_close`. Inner content is preserved verbatim — no attempt to
     /// trim / add the asymmetric-bracket space convention beyond what
     /// the caller bakes into `new_open` / `new_close`.
-    pub fn surround_replace(
-        &mut self,
-        lo: Cursor,
-        hi: Cursor,
-        new_open: &str,
-        new_close: &str,
-    ) {
+    pub fn surround_replace(&mut self, lo: Cursor, hi: Cursor, new_open: &str, new_close: &str) {
         let (lo, hi) = order(lo, hi);
         if lo == hi {
             return;
@@ -135,7 +125,12 @@ mod tests {
     #[test]
     fn wrap_inline_with_quotes() {
         let mut b = buf_of(&["foo bar"]);
-        b.surround_wrap("\"", "\"", Cursor { row: 0, col: 0 }, Cursor { row: 0, col: 3 });
+        b.surround_wrap(
+            "\"",
+            "\"",
+            Cursor { row: 0, col: 0 },
+            Cursor { row: 0, col: 3 },
+        );
         assert_eq!(b.lines[0], "\"foo\" bar");
     }
 
@@ -144,7 +139,12 @@ mod tests {
         // The primitive doesn't care about the delimiter shape — a
         // future block-comment-style caller could feed it `/* … */`.
         let mut b = buf_of(&["foo bar"]);
-        b.surround_wrap("/*", "*/", Cursor { row: 0, col: 0 }, Cursor { row: 0, col: 3 });
+        b.surround_wrap(
+            "/*",
+            "*/",
+            Cursor { row: 0, col: 0 },
+            Cursor { row: 0, col: 3 },
+        );
         assert_eq!(b.lines[0], "/*foo*/ bar");
     }
 
@@ -184,7 +184,12 @@ mod tests {
     #[test]
     fn wrap_multi_row_keeps_content() {
         let mut b = buf_of(&["foo", "bar"]);
-        b.surround_wrap("/*", "*/", Cursor { row: 0, col: 0 }, Cursor { row: 1, col: 3 });
+        b.surround_wrap(
+            "/*",
+            "*/",
+            Cursor { row: 0, col: 0 },
+            Cursor { row: 1, col: 3 },
+        );
         assert_eq!(b.lines[0], "/*foo");
         assert_eq!(b.lines[1], "bar*/");
     }
@@ -193,7 +198,12 @@ mod tests {
     fn cursor_shifts_after_wrap() {
         let mut b = buf_of(&["foo bar"]);
         b.cursor = Cursor { row: 0, col: 1 }; // on the 'o'
-        b.surround_wrap("\"", "\"", Cursor { row: 0, col: 0 }, Cursor { row: 0, col: 3 });
+        b.surround_wrap(
+            "\"",
+            "\"",
+            Cursor { row: 0, col: 0 },
+            Cursor { row: 0, col: 3 },
+        );
         // After inserting `"` at col 0, cursor on col 1 (the 'o' at original col 1)
         // should land at col 2 since the open `"` shifted us right by one.
         assert_eq!(b.cursor, Cursor { row: 0, col: 2 });

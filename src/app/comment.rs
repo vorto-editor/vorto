@@ -47,11 +47,7 @@ impl App {
     /// Returns `false` when neither block- nor line-comment tokens are
     /// available — the caller decides whether to surface that as a
     /// toast / `Cmd::ToastError`.
-    pub fn apply_block_comment(
-        &mut self,
-        rows: &[usize],
-        range: Option<(Cursor, Cursor)>,
-    ) -> bool {
+    pub fn apply_block_comment(&mut self, rows: &[usize], range: Option<(Cursor, Cursor)>) -> bool {
         match self.block_comment_tokens() {
             Some((open, close)) => {
                 let (lo, hi) = range.unwrap_or_else(|| {
@@ -114,10 +110,7 @@ fn trim_blank_edges(lines: &[String], lo: Cursor, hi: Cursor) -> (Cursor, Cursor
         last -= 1;
     }
 
-    let new_lo = Cursor {
-        row: first,
-        col: 0,
-    };
+    let new_lo = Cursor { row: first, col: 0 };
     let new_hi = if hi.col == 0 {
         Cursor {
             row: last + 1,

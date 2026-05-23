@@ -139,7 +139,10 @@ fn match_quote(
                     // an escape sequence or an interpolation marker.
                     return None;
                 };
-                return Some((target.row, byte_to_char_col(source, target.row, target.column)));
+                return Some((
+                    target.row,
+                    byte_to_char_col(source, target.row, target.column),
+                ));
             }
         }
         node = node.parent()?;

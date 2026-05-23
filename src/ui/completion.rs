@@ -288,12 +288,7 @@ fn draw_detail_popup(
     let lines: Vec<Line> = wrapped
         .into_iter()
         .take(body_h)
-        .map(|s| {
-            Line::from(Span::styled(
-                s,
-                Style::default().fg(Color::Gray),
-            ))
-        })
+        .map(|s| Line::from(Span::styled(s, Style::default().fg(Color::Gray))))
         .collect();
     let para = ratatui::widgets::Paragraph::new(lines);
     f.render_widget(para, inner);

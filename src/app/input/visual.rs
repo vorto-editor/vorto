@@ -477,9 +477,7 @@ impl App {
                 // `/* … */` doesn't have a natural meaning, so we
                 // intentionally don't honor BlockComment differently
                 // here — both fall through to per-row line comment.
-                Operator::Comment | Operator::BlockComment => {
-                    self.apply_visual_comment(r0, r1)
-                }
+                Operator::Comment | Operator::BlockComment => self.apply_visual_comment(r0, r1),
             },
         }
     }
@@ -492,17 +490,13 @@ impl App {
         }
     }
 
-    fn apply_visual_block_comment(
-        &mut self,
-        from: Cursor,
-        to: Cursor,
-        row_a: usize,
-        row_b: usize,
-    ) {
+    fn apply_visual_block_comment(&mut self, from: Cursor, to: Cursor, row_a: usize, row_b: usize) {
         let (lo, hi) = (row_a.min(row_b), row_a.max(row_b));
         let rows: Vec<usize> = (lo..=hi).collect();
         if !self.apply_block_comment(&rows, Some((from, to))) {
-            self.push_toast(Toast::error("no block- or line-comment tokens for this buffer"));
+            self.push_toast(Toast::error(
+                "no block- or line-comment tokens for this buffer",
+            ));
         }
     }
 }
