@@ -11,7 +11,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, List, ListItem, Padding, Paragraph};
 
 use crate::app::{App, Prompt};
-use crate::finder::ExplorerState;
+use crate::finder::{ExplorerMode, ExplorerState};
 
 /// Color the dir glyph and dir name share — matches the fuzzy picker's
 /// directory tint so the two widgets read as siblings.
@@ -19,6 +19,36 @@ const DIR_FG: Color = Color::Blue;
 /// Indent step (cells) per tree depth. Two-space indent is the same
 /// step the indent guides use for content panes.
 const INDENT_STEP: usize = 2;
+
+/// True when the tree pane should reserve a row at the top for the
+/// filter input line: either Filter mode is active, or the user has a
+/// query that's still narrowing the visible set. The pending modes
+/// (create/delete/rename/move) get their own modal overlay and don't
+/// influence the tree header.
+fn filter_header_visible(state: &ExplorerState) -> bool {
+    matches!(state.mode, ExplorerMode::Filter) || !state.query.is_empty()
+}
+
+/// Filter-only header. Called when [`filter_header_visible`] is true.
+/// Returns the line and the cursor column when Filter mode owns the
+/// input; in Selection mode with a non-empty query the line is a
+/// passive "filter: foo" indicator and the cursor is `None`.
+fn filter_header(state: &ExplorerState) -> (Line<'_>, Option<usize>) {
+    if matches!(state.mode, ExplorerMode::Filter) {
+        let line = Line::from(vec![
+            Span::styled("/ ", Style::default().fg(Color::Yellow)),
+            Span::raw(state.query.clone()),
+        ]);
+        (line, Some(2 + state.cursor))
+    } else {
+        // Selection mode with an active query — passive indicator.
+        let line = Line::from(vec![
+            Span::styled("filter: ", Style::default().fg(Color::DarkGray)),
+            Span::styled(state.query.clone(), Style::default().fg(Color::Gray)),
+        ]);
+        (line, None)
+    }
+}
 
 pub(super) fn draw_explorer(f: &mut Frame, app: &App, area: Rect) {
     let Prompt::Explorer(state) = &app.prompt.state else {
@@ -61,41 +91,198 @@ pub(super) fn draw_explorer(f: &mut Frame, app: &App, area: Rect) {
     // fuzzy popup.
     f.render_widget(Clear, panes[2]);
     draw_preview(f, app, state, panes[2]);
+
+    // Pending file-op modals (add / delete / rename / move) float on
+    // top of the explorer popup so the tree underneath stays visible
+    // for context — the user can see what they're acting on while
+    // typing the new name.
+    draw_action_modal(f, state, area);
+}
+
+/// Render a small modal box for the pending action modes. The box
+/// floats over the explorer popup; the title (`add`/`delete`/`rename`/
+/// `move`) and body change per mode. No-op for [`Selection`] /
+/// [`Filter`].
+///
+/// [`Selection`]: ExplorerMode::Selection
+/// [`Filter`]: ExplorerMode::Filter
+fn draw_action_modal(f: &mut Frame, state: &ExplorerState, area: Rect) {
+    let Some((title, body_lines, cursor)) = action_modal_content(state) else {
+        return;
+    };
+    let modal = centered_action_rect(area);
+    f.render_widget(Clear, modal);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(super::PANEL_BORDER_FG))
+        .title(format!(" {title} "))
+        .padding(Padding::horizontal(1));
+    let inner = block.inner(modal);
+    f.render_widget(block, modal);
+    f.render_widget(Paragraph::new(body_lines), inner);
+    if let Some((row, col)) = cursor {
+        let x = inner.x + (col as u16).min(inner.width.saturating_sub(1));
+        let y = inner.y + row as u16;
+        f.set_cursor_position((x, y));
+    }
+}
+
+/// Translate the explorer state into modal content. Returns
+/// `(title, body lines, optional (row, col) for the terminal cursor)`,
+/// or `None` when no modal should be drawn.
+fn action_modal_content(state: &ExplorerState) -> Option<(&'static str, Vec<Line<'_>>, Option<(usize, usize)>)> {
+    let target_label = state
+        .selection()
+        .map(|n| {
+            if n.is_dir {
+                format!("{}/", n.rel_path)
+            } else {
+                n.rel_path.clone()
+            }
+        })
+        .unwrap_or_default();
+    let err_line = state.error.as_deref().map(|e| {
+        Line::from(Span::styled(
+            format!("error: {e}"),
+            Style::default().fg(Color::Red),
+        ))
+    });
+
+    match state.mode {
+        ExplorerMode::Selection | ExplorerMode::Filter => None,
+        ExplorerMode::PendingCreate => {
+            let input = state.action.as_ref()?;
+            let mut lines = vec![
+                Line::from(Span::styled(
+                    "new path (trailing `/` for directory)",
+                    Style::default().fg(Color::DarkGray),
+                )),
+                Line::from(Span::raw(input.text.clone())),
+            ];
+            if let Some(e) = err_line {
+                lines.push(e);
+            }
+            // The input lives on row 1 inside the modal body.
+            Some(("add", lines, Some((1, input.cursor))))
+        }
+        ExplorerMode::PendingRename => {
+            let input = state.action.as_ref()?;
+            let mut lines = vec![
+                Line::from(vec![
+                    Span::styled("rename ", Style::default().fg(Color::DarkGray)),
+                    Span::styled(
+                        target_label.clone(),
+                        Style::default().fg(Color::Gray).add_modifier(Modifier::BOLD),
+                    ),
+                ]),
+                Line::from(Span::raw(input.text.clone())),
+            ];
+            if let Some(e) = err_line {
+                lines.push(e);
+            }
+            Some(("rename", lines, Some((1, input.cursor))))
+        }
+        ExplorerMode::PendingMove => {
+            let input = state.action.as_ref()?;
+            let mut lines = vec![
+                Line::from(vec![
+                    Span::styled("move ", Style::default().fg(Color::DarkGray)),
+                    Span::styled(
+                        target_label.clone(),
+                        Style::default().fg(Color::Gray).add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(" → ", Style::default().fg(Color::DarkGray)),
+                ]),
+                Line::from(Span::raw(input.text.clone())),
+            ];
+            if let Some(e) = err_line {
+                lines.push(e);
+            }
+            Some(("move", lines, Some((1, input.cursor))))
+        }
+        ExplorerMode::PendingDelete => {
+            let mut lines = vec![
+                Line::from(vec![
+                    Span::styled("delete ", Style::default().fg(Color::DarkGray)),
+                    Span::styled(
+                        target_label,
+                        Style::default()
+                            .fg(Color::White)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled("?", Style::default().fg(Color::DarkGray)),
+                ]),
+                Line::from(Span::styled(
+                    "[y]es / [N]o",
+                    Style::default().fg(Color::Gray),
+                )),
+            ];
+            if let Some(e) = err_line {
+                lines.push(e);
+            }
+            Some(("delete", lines, None))
+        }
+    }
+}
+
+/// Centered rectangle for the action modal. Sized to fit the title +
+/// label + input + optional error (4 rows of body + 2 for borders), and
+/// to stay narrow enough that the tree underneath remains visible at
+/// the edges. Clamped against the surrounding area so small terminals
+/// still get a usable modal.
+fn centered_action_rect(area: Rect) -> Rect {
+    let width = area.width.saturating_mul(60) / 100;
+    let width = width.clamp(30, area.width.saturating_sub(2)).max(10);
+    let height = 6u16.min(area.height.saturating_sub(2)).max(3);
+    let x = area.x + (area.width.saturating_sub(width)) / 2;
+    let y = area.y + (area.height.saturating_sub(height)) / 2;
+    Rect {
+        x,
+        y,
+        width,
+        height,
+    }
 }
 
 fn draw_tree(f: &mut Frame, state: &ExplorerState, area: Rect) {
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
+    // The header strip (filter input + separator) only exists when a
+    // filter is active or being entered. Selection mode with no query
+    // gets the full pane for the tree, so the explorer doesn't pay a
+    // two-row tax for a widget the user isn't using.
+    let show_header = filter_header_visible(state);
+    let constraints: Vec<Constraint> = if show_header {
+        vec![
             Constraint::Length(1),
             Constraint::Length(1),
             Constraint::Min(1),
-        ])
+        ]
+    } else {
+        vec![Constraint::Min(1)]
+    };
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints(constraints)
         .split(area);
 
-    // Query line — single source of truth for the filter; even though
-    // selected nodes can be expanded with Enter, typing also flows
-    // straight into the query buffer.
-    let query_line = Line::from(vec![
-        Span::styled("› ", Style::default().fg(Color::Yellow)),
-        Span::raw(state.query.clone()),
-    ]);
-    f.render_widget(Paragraph::new(query_line), chunks[0]);
+    let list_rect = if show_header {
+        let (line, cursor_col) = filter_header(state);
+        f.render_widget(Paragraph::new(line), chunks[0]);
+        if let Some(col) = cursor_col {
+            let x = chunks[0].x + (col as u16).min(chunks[0].width.saturating_sub(1));
+            f.set_cursor_position((x, chunks[0].y));
+        }
+        let sep = "─".repeat(chunks[1].width as usize);
+        f.render_widget(
+            Paragraph::new(Span::styled(sep, Style::default().fg(Color::DarkGray))),
+            chunks[1],
+        );
+        chunks[2]
+    } else {
+        chunks[0]
+    };
 
-    // Park the terminal cursor at the insertion point so backspace
-    // visibly lands. `› ` is two single-cell glyphs.
-    let col = (2 + state.cursor) as u16;
-    let x = chunks[0].x + col.min(chunks[0].width.saturating_sub(1));
-    f.set_cursor_position((x, chunks[0].y));
-
-    let sep = "─".repeat(chunks[1].width as usize);
-    f.render_widget(
-        Paragraph::new(Span::styled(sep, Style::default().fg(Color::DarkGray))),
-        chunks[1],
-    );
-
-    let list_h = chunks[2].height as usize;
-    let list_w = chunks[2].width as usize;
+    let list_h = list_rect.height as usize;
+    let list_w = list_rect.width as usize;
     // Viewport-style vertical scroll: the cursor moves freely inside the
     // visible page; the page only shifts when the cursor would step off
     // either edge. We clamp the stored offset against the live `visible`
@@ -157,7 +344,7 @@ fn draw_tree(f: &mut Frame, state: &ExplorerState, area: Rect) {
             ))
         })
         .collect();
-    f.render_widget(List::new(items), chunks[2]);
+    f.render_widget(List::new(items), list_rect);
 }
 
 /// One row in the tree pane: indent, expand/collapse glyph (dirs

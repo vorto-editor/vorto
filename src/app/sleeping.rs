@@ -160,6 +160,18 @@ impl SleepingBuffer {
         }
     }
 
+    /// Borrow the current path. `None` for scratch buffers.
+    pub fn path(&self) -> Option<&PathBuf> {
+        self.path.as_ref()
+    }
+
+    /// Overwrite the path of a sleeping buffer. Used when the explorer
+    /// renames or moves a file underneath an inactive buffer so the
+    /// next thaw lands the buffer at the new on-disk location.
+    pub fn set_path(&mut self, path: Option<PathBuf>) {
+        self.path = path;
+    }
+
     /// Decompress the main line payload without consuming the
     /// snapshot. Used by the fuzzy preview pane so a diagnostic
     /// pointing at a sleeping buffer (e.g. `:e new_file.rs` after

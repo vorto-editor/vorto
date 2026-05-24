@@ -11,10 +11,13 @@ use std::cell::Cell;
 use std::collections::{BTreeMap, HashSet};
 use std::path::Path;
 
+use std::fs;
+use std::path::PathBuf;
+
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use super::IgnoreOpts;
-use super::fuzzy::{fuzzy_match, workspace_files};
+use super::fuzzy::{fuzzy_match, workspace_dirs, workspace_files};
 
 /// One row in the explorer's logical tree. The full node list is kept
 /// in DFS pre-order so parents appear before children and every node
@@ -35,6 +38,86 @@ pub struct ExplorerNode {
     /// Used as the expand-state key for dirs and the open target for
     /// files.
     pub rel_path: String,
+}
+
+/// Top-level input mode for the explorer.
+///
+/// The widget opens in [`Selection`] — keys like `j/k/a/d/r/m` operate
+/// on the highlighted row. `/` switches to [`Filter`] for fuzzy-querying
+/// the tree; the pending modes are transient prompts driven by `a/d/r/m`.
+///
+/// [`Selection`]: Self::Selection
+/// [`Filter`]: Self::Filter
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExplorerMode {
+    /// Default. Single-key navigation and file ops.
+    Selection,
+    /// `/` — query field is live; characters flow into the fuzzy filter.
+    Filter,
+    /// `a` — input field for a new file/dir path. Trailing `/` means dir.
+    PendingCreate,
+    /// `r` — input field for a renamed basename.
+    PendingRename,
+    /// `m` — input field for the destination rel path.
+    PendingMove,
+    /// `d` — y/N confirmation overlay on the highlighted entry.
+    PendingDelete,
+}
+
+/// Tiny insertion-point text buffer used by the pending action prompts.
+/// We don't reuse `prompt::LineInput` to avoid a finder→prompt module
+/// dependency; the editing surface here is intentionally small and
+/// mirrors the existing query input behavior.
+#[derive(Default, Debug)]
+pub struct ActionInput {
+    pub text: String,
+    pub cursor: usize,
+}
+
+impl ActionInput {
+    fn new(initial: &str) -> Self {
+        Self {
+            text: initial.to_string(),
+            cursor: initial.chars().count(),
+        }
+    }
+
+    fn char_len(&self) -> usize {
+        self.text.chars().count()
+    }
+
+    fn byte_idx(&self, char_idx: usize) -> usize {
+        self.text
+            .char_indices()
+            .nth(char_idx)
+            .map(|(i, _)| i)
+            .unwrap_or(self.text.len())
+    }
+
+    fn insert(&mut self, c: char) {
+        let byte = self.byte_idx(self.cursor);
+        self.text.insert(byte, c);
+        self.cursor += 1;
+    }
+
+    fn backspace(&mut self) {
+        if self.cursor == 0 {
+            return;
+        }
+        let end = self.byte_idx(self.cursor);
+        let start = self.byte_idx(self.cursor - 1);
+        self.text.replace_range(start..end, "");
+        self.cursor -= 1;
+    }
+
+    fn delete(&mut self) {
+        if self.cursor >= self.char_len() {
+            return;
+        }
+        let start = self.byte_idx(self.cursor);
+        let end = self.byte_idx(self.cursor + 1);
+        self.text.replace_range(start..end, "");
+    }
 }
 
 /// Live state for the explorer prompt. Owns the full node list, the
@@ -69,12 +152,27 @@ pub struct ExplorerState {
     /// state by shared reference but still needs to nudge scroll based on
     /// the live viewport height it discovers each frame.
     pub scroll: Cell<usize>,
+    /// Current input mode. Defaults to [`ExplorerMode::Selection`].
+    pub mode: ExplorerMode,
+    /// In-flight action input (path for create/move, basename for
+    /// rename). `None` outside the pending-input modes.
+    pub action: Option<ActionInput>,
+    /// Workspace root captured at open time so file ops can resolve
+    /// rel paths and the tree can be rebuilt after a mutation.
+    pub root: PathBuf,
+    /// Ignore options captured at open time, mirrored when the tree is
+    /// rebuilt after a create/delete/rename/move.
+    pub ignore: IgnoreOpts,
+    /// Last error message produced by a file op. Cleared on the next
+    /// successful op or mode change.
+    pub error: Option<String>,
 }
 
 impl ExplorerState {
     pub fn new(root: &Path, ignore: IgnoreOpts, _compact: bool) -> Self {
         let files = workspace_files(root, ignore);
-        let nodes = build_nodes(&files);
+        let dirs = workspace_dirs(root, ignore);
+        let nodes = build_nodes(&files, &dirs);
         let mut s = Self {
             nodes,
             expanded: HashSet::new(),
@@ -83,9 +181,42 @@ impl ExplorerState {
             selected: 0,
             visible: Vec::new(),
             scroll: Cell::new(0),
+            mode: ExplorerMode::Selection,
+            action: None,
+            root: root.to_path_buf(),
+            ignore,
+            error: None,
         };
         s.refilter();
         s
+    }
+
+    /// Re-scan the workspace and rebuild the node list — used after
+    /// create/delete/rename/move so the tree reflects what's on disk.
+    /// Tries to keep the selected node on the same rel_path when it
+    /// still exists; otherwise clamps to the new last visible row.
+    pub fn refresh(&mut self) {
+        let prev_path = self.selection().map(|n| n.rel_path.clone());
+        let files = workspace_files(&self.root, self.ignore);
+        let dirs = workspace_dirs(&self.root, self.ignore);
+        self.nodes = build_nodes(&files, &dirs);
+        // Drop any expanded entry that no longer maps to a dir.
+        let alive: HashSet<String> = self
+            .nodes
+            .iter()
+            .filter(|n| n.is_dir)
+            .map(|n| n.rel_path.clone())
+            .collect();
+        self.expanded.retain(|p| alive.contains(p));
+        self.refilter();
+        if let Some(path) = prev_path
+            && let Some(pos) = self
+                .visible
+                .iter()
+                .position(|&i| self.nodes[i].rel_path == path)
+        {
+            self.selected = pos;
+        }
     }
 
     /// Recompute [`visible`] from the current expand state and query.
@@ -315,26 +446,44 @@ impl ExplorerState {
     }
 
     pub fn apply_key(&mut self, key: KeyEvent) {
+        match self.mode {
+            ExplorerMode::Selection => self.apply_selection_key(key),
+            ExplorerMode::Filter => self.apply_filter_key(key),
+            ExplorerMode::PendingCreate
+            | ExplorerMode::PendingRename
+            | ExplorerMode::PendingMove => self.apply_action_input_key(key),
+            ExplorerMode::PendingDelete => self.apply_delete_key(key),
+        }
+    }
+
+    /// Selection mode — single-key navigation and op triggers. The
+    /// arrow / Ctrl-N/P bindings remain too so users who reach for them
+    /// out of habit still get the expected motion.
+    fn apply_selection_key(&mut self, key: KeyEvent) {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
         match key.code {
-            KeyCode::Left => {
-                // Inside the query field Left moves the cursor; on
-                // empty-query we treat Left as the tree's
-                // collapse-or-parent so the user can navigate without
-                // first clicking out of the query.
-                if self.query.is_empty() {
-                    self.collapse_or_parent();
-                } else {
-                    self.cursor = self.cursor.saturating_sub(1);
-                }
-            }
-            KeyCode::Right => {
-                if self.query.is_empty() {
-                    self.expand_or_descend();
-                } else if self.cursor < self.char_len() {
-                    self.cursor += 1;
-                }
-            }
+            KeyCode::Left | KeyCode::Char('h') if !ctrl => self.collapse_or_parent(),
+            KeyCode::Right | KeyCode::Char('l') if !ctrl => self.expand_or_descend(),
+            KeyCode::Up | KeyCode::Char('k') if !ctrl => self.move_up(),
+            KeyCode::Down | KeyCode::Char('j') if !ctrl => self.move_down(),
+            KeyCode::Char('p') if ctrl => self.move_up(),
+            KeyCode::Char('n') if ctrl => self.move_down(),
+            KeyCode::Char('/') => self.enter_filter_mode(),
+            KeyCode::Char('a') => self.enter_create_mode(),
+            KeyCode::Char('d') => self.enter_delete_mode(),
+            KeyCode::Char('r') => self.enter_rename_mode(),
+            KeyCode::Char('m') => self.enter_move_mode(),
+            _ => {}
+        }
+    }
+
+    /// Filter mode — the legacy readline-style query input. Esc returns
+    /// to selection mode (handled by the prompt controller, not here).
+    fn apply_filter_key(&mut self, key: KeyEvent) {
+        let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+        match key.code {
+            KeyCode::Left => self.cursor = self.cursor.saturating_sub(1),
+            KeyCode::Right if self.cursor < self.char_len() => self.cursor += 1,
             KeyCode::Home => self.cursor = 0,
             KeyCode::End => self.cursor = self.char_len(),
             KeyCode::Backspace => self.backspace(),
@@ -351,18 +500,290 @@ impl ExplorerState {
             _ => {}
         }
     }
+
+    /// Shared key handler for the create/rename/move input prompts.
+    /// Enter and Esc are intercepted upstream (the prompt controller
+    /// needs filesystem access to submit, and Esc has to know which
+    /// mode to fall back to).
+    fn apply_action_input_key(&mut self, key: KeyEvent) {
+        // Editing the input invalidates any sticky error from the
+        // previous submission attempt — clear it so the user isn't
+        // staring at a stale complaint while they fix the path.
+        self.error = None;
+        let Some(input) = self.action.as_mut() else {
+            return;
+        };
+        let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+        match key.code {
+            KeyCode::Left => input.cursor = input.cursor.saturating_sub(1),
+            KeyCode::Right if input.cursor < input.char_len() => input.cursor += 1,
+            KeyCode::Home => input.cursor = 0,
+            KeyCode::End => input.cursor = input.char_len(),
+            KeyCode::Backspace => input.backspace(),
+            KeyCode::Delete => input.delete(),
+            KeyCode::Char('b') if ctrl => input.cursor = input.cursor.saturating_sub(1),
+            KeyCode::Char('f') if ctrl && input.cursor < input.char_len() => input.cursor += 1,
+            KeyCode::Char('a') if ctrl => input.cursor = 0,
+            KeyCode::Char('e') if ctrl => input.cursor = input.char_len(),
+            KeyCode::Char(c) if !ctrl => input.insert(c),
+            _ => {}
+        }
+    }
+
+    /// Delete confirmation: `y`/`Y` deletes via the controller, anything
+    /// else (besides Enter/Esc, which are handled upstream) cancels.
+    fn apply_delete_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Char('y') | KeyCode::Char('Y') => {
+                // Mark intent — the controller drains it after each key
+                // event and runs the filesystem mutation.
+            }
+            _ => {
+                self.cancel_pending();
+            }
+        }
+    }
+
+    // ── mode transitions ─────────────────────────────────────────
+
+    /// Switch to filter mode. The query is preserved across switches so
+    /// the user can toggle back to selection (Esc) without losing what
+    /// they typed.
+    pub fn enter_filter_mode(&mut self) {
+        self.mode = ExplorerMode::Filter;
+        self.cursor = self.char_len();
+        self.error = None;
+    }
+
+    /// Return to selection mode from anywhere. Drops any in-flight
+    /// action input but keeps the query string (filtering remains in
+    /// effect; the user can re-enter filter mode with `/`).
+    pub fn cancel_pending(&mut self) {
+        self.mode = ExplorerMode::Selection;
+        self.action = None;
+        self.error = None;
+    }
+
+    /// `a` — open the create-path prompt. The seed text is the
+    /// directory the new entry will land in (the selected dir, or the
+    /// selected file's parent) plus a trailing `/` so the user can type
+    /// the basename directly. A submitted path ending in `/` creates a
+    /// directory; otherwise a file.
+    pub fn enter_create_mode(&mut self) {
+        let seed = self.create_seed();
+        self.mode = ExplorerMode::PendingCreate;
+        self.action = Some(ActionInput::new(&seed));
+        self.error = None;
+    }
+
+    /// `r` — open the rename prompt, seeded with the selected entry's
+    /// basename. No-op when nothing is selected.
+    pub fn enter_rename_mode(&mut self) {
+        let Some(name) = self.selection().map(|n| n.name.clone()) else {
+            return;
+        };
+        self.mode = ExplorerMode::PendingRename;
+        self.action = Some(ActionInput::new(&name));
+        self.error = None;
+    }
+
+    /// `m` — open the move prompt, seeded with the selected entry's
+    /// full rel path. The user edits to the destination rel path.
+    pub fn enter_move_mode(&mut self) {
+        let Some(rel) = self.selection().map(|n| n.rel_path.clone()) else {
+            return;
+        };
+        self.mode = ExplorerMode::PendingMove;
+        self.action = Some(ActionInput::new(&rel));
+        self.error = None;
+    }
+
+    /// `d` — open the delete confirmation. No-op when nothing is
+    /// selected.
+    pub fn enter_delete_mode(&mut self) {
+        if self.selection().is_none() {
+            return;
+        }
+        self.mode = ExplorerMode::PendingDelete;
+        self.action = None;
+        self.error = None;
+    }
+
+    /// Compute the parent directory string the create prompt should
+    /// seed into the input. Returns `""` when the user should type a
+    /// top-level entry (selection is at depth 0 or nothing is
+    /// selected); otherwise returns the path with a trailing `/`.
+    fn create_seed(&self) -> String {
+        let Some(node) = self.selection() else {
+            return String::new();
+        };
+        if node.is_dir {
+            // Inside the dir.
+            format!("{}/", node.rel_path)
+        } else if let Some(slash) = node.rel_path.rfind('/') {
+            // Sibling of a file → parent dir + `/`.
+            format!("{}/", &node.rel_path[..slash])
+        } else {
+            // File at the root → no prefix.
+            String::new()
+        }
+    }
+
+    // ── file operations ──────────────────────────────────────────
+    //
+    // All ops resolve paths against [`Self::root`], then call
+    // [`Self::refresh`] on success so the tree mirrors disk state.
+
+    /// Create a file or directory at `rel` (relative to the workspace
+    /// root). A trailing `/` selects the directory variant; anything
+    /// else creates an empty file. Missing parent directories are
+    /// created either way.
+    ///
+    /// Returns the rel path of the created entry on success (for the
+    /// caller to surface as the next selection / open intent).
+    pub fn perform_create(&mut self, rel: &str) -> Result<String, String> {
+        let trimmed = rel.trim();
+        if trimmed.is_empty() {
+            return Err("empty path".into());
+        }
+        let is_dir = trimmed.ends_with('/');
+        let clean = trimmed.trim_end_matches('/').to_string();
+        if clean.is_empty() || clean.starts_with('/') || clean.contains("..") {
+            return Err(format!("invalid path: {trimmed}"));
+        }
+        let target = self.root.join(&clean);
+        if target.exists() {
+            return Err(format!("already exists: {clean}"));
+        }
+        if is_dir {
+            fs::create_dir_all(&target).map_err(|e| format!("mkdir: {e}"))?;
+        } else {
+            if let Some(parent) = target.parent() {
+                fs::create_dir_all(parent).map_err(|e| format!("mkdir: {e}"))?;
+            }
+            fs::File::create(&target).map_err(|e| format!("create: {e}"))?;
+        }
+        self.refresh();
+        self.select_by_path(&clean);
+        Ok(clean)
+    }
+
+    /// Delete the entry at `rel`. Directories are removed recursively
+    /// (the confirmation prompt is the user-facing safety net).
+    pub fn perform_delete(&mut self, rel: &str) -> Result<(), String> {
+        if rel.is_empty() {
+            return Err("nothing to delete".into());
+        }
+        let target = self.root.join(rel);
+        let meta = fs::symlink_metadata(&target).map_err(|e| format!("stat: {e}"))?;
+        if meta.file_type().is_dir() {
+            fs::remove_dir_all(&target).map_err(|e| format!("rmdir: {e}"))?;
+        } else {
+            fs::remove_file(&target).map_err(|e| format!("rm: {e}"))?;
+        }
+        self.refresh();
+        Ok(())
+    }
+
+    /// Rename the selected entry's basename to `new_name`. The parent
+    /// directory stays the same — for cross-directory moves the user
+    /// reaches for `m` instead.
+    pub fn perform_rename(&mut self, old_rel: &str, new_name: &str) -> Result<String, String> {
+        let new_name = new_name.trim();
+        if new_name.is_empty() || new_name.contains('/') {
+            return Err(format!("invalid name: {new_name}"));
+        }
+        let parent_rel = match old_rel.rfind('/') {
+            Some(i) => &old_rel[..i],
+            None => "",
+        };
+        let new_rel = if parent_rel.is_empty() {
+            new_name.to_string()
+        } else {
+            format!("{parent_rel}/{new_name}")
+        };
+        self.fs_rename(old_rel, &new_rel)
+    }
+
+    /// Move the entry at `old_rel` to `new_rel`. Missing destination
+    /// parents are created.
+    pub fn perform_move(&mut self, old_rel: &str, new_rel: &str) -> Result<String, String> {
+        let new_rel = new_rel.trim().trim_end_matches('/');
+        if new_rel.is_empty() || new_rel.starts_with('/') || new_rel.contains("..") {
+            return Err(format!("invalid path: {new_rel}"));
+        }
+        self.fs_rename(old_rel, new_rel)
+    }
+
+    fn fs_rename(&mut self, old_rel: &str, new_rel: &str) -> Result<String, String> {
+        if old_rel == new_rel {
+            return Err("source and destination are the same".into());
+        }
+        let src = self.root.join(old_rel);
+        let dst = self.root.join(new_rel);
+        if dst.exists() {
+            return Err(format!("already exists: {new_rel}"));
+        }
+        if let Some(parent) = dst.parent() {
+            fs::create_dir_all(parent).map_err(|e| format!("mkdir: {e}"))?;
+        }
+        fs::rename(&src, &dst).map_err(|e| format!("rename: {e}"))?;
+        self.refresh();
+        self.select_by_path(new_rel);
+        Ok(new_rel.to_string())
+    }
+
+    /// Best-effort: move the cursor to the row whose rel_path matches.
+    /// Walks ancestors and auto-expands them so the target row is
+    /// visible. No-op when the path isn't in the tree yet (caller
+    /// should refresh first).
+    pub fn select_by_path(&mut self, rel: &str) {
+        // Expand every ancestor so the target row materializes.
+        let mut prefix = rel;
+        while let Some(slash) = prefix.rfind('/') {
+            prefix = &prefix[..slash];
+            self.expanded.insert(prefix.to_string());
+        }
+        self.refilter();
+        if let Some(pos) = self
+            .visible
+            .iter()
+            .position(|&i| self.nodes[i].rel_path == rel)
+        {
+            self.selected = pos;
+        }
+    }
 }
 
 /// Build the DFS-ordered node list from the workspace's relative path
 /// list. We synthesize a node for every intermediate directory the
-/// paths imply (the path list is files-only), then emit dirs-first
-/// then files within each directory level — the same order
-/// `workspace_files` already sorts paths by, so the build is a single
-/// linear pass over a BTreeMap-grouped view of the inputs.
-fn build_nodes(files: &[String]) -> Vec<ExplorerNode> {
+/// files imply, then merge in `dirs` (explicit directory paths, which
+/// is how empty directories show up — `workspace_files` only sees
+/// files). Within each level dirs come before files, matching the
+/// fuzzy picker's sort.
+fn build_nodes(files: &[String], dirs: &[String]) -> Vec<ExplorerNode> {
     // Map every (parent_dir, basename, is_dir) the input implies.
     // BTreeMap keeps siblings sorted alphabetically.
+    // Value semantics: `true` = file, `false` = dir.
     let mut children_by_parent: BTreeMap<String, BTreeMap<String, bool>> = BTreeMap::new();
+    // Register explicit directories first so a dir without any files
+    // underneath still has an entry. We mark every path segment as a
+    // dir (false) — the file pass below can never flip a dir entry
+    // back to a file because its `and_modify` only writes `false`.
+    for d in dirs {
+        let parts: Vec<&str> = d.split('/').collect();
+        let mut acc = String::new();
+        for part in &parts {
+            children_by_parent
+                .entry(acc.clone())
+                .or_default()
+                .insert((*part).to_string(), false);
+            if !acc.is_empty() {
+                acc.push('/');
+            }
+            acc.push_str(part);
+        }
+    }
     for f in files {
         let parts: Vec<&str> = f.split('/').collect();
         let mut acc = String::new();
@@ -448,7 +869,7 @@ mod tests {
 
     #[test]
     fn build_nodes_dirs_before_files() {
-        let n = build_nodes(&paths());
+        let n = build_nodes(&paths(), &[]);
         let rels: Vec<&str> = n.iter().map(|x| x.rel_path.as_str()).collect();
         assert_eq!(
             rels,
@@ -468,18 +889,31 @@ mod tests {
         assert_eq!(depths, vec![0, 1, 2, 2, 1, 2, 3, 0]);
     }
 
-    #[test]
-    fn empty_query_collapses_to_top_level() {
-        let nodes = build_nodes(&paths());
-        let mut s = ExplorerState {
+    fn make_state(nodes: Vec<ExplorerNode>, query: &str) -> ExplorerState {
+        ExplorerState {
             nodes,
             expanded: HashSet::new(),
-            query: String::new(),
-            cursor: 0,
+            query: query.to_string(),
+            cursor: query.chars().count(),
             selected: 0,
             visible: Vec::new(),
             scroll: Cell::new(0),
-        };
+            mode: if query.is_empty() {
+                ExplorerMode::Selection
+            } else {
+                ExplorerMode::Filter
+            },
+            action: None,
+            root: PathBuf::from("/tmp/vorto-test"),
+            ignore: IgnoreOpts::DEFAULT,
+            error: None,
+        }
+    }
+
+    #[test]
+    fn empty_query_collapses_to_top_level() {
+        let nodes = build_nodes(&paths(), &[]);
+        let mut s = make_state(nodes, "");
         s.refilter();
         let visible_paths: Vec<&str> = s
             .visible
@@ -490,17 +924,33 @@ mod tests {
     }
 
     #[test]
+    fn selection_mode_swallows_chars_no_query_change() {
+        // Confirms `j` / `a` / random text in Selection mode never
+        // leaks into the query input — the failure mode the user hit
+        // when this initially shipped.
+        let nodes = build_nodes(&paths(), &[]);
+        let mut s = make_state(nodes, "");
+        assert_eq!(s.mode, ExplorerMode::Selection);
+        s.apply_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
+        s.apply_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
+        assert_eq!(s.query, "");
+        assert_eq!(s.mode, ExplorerMode::Selection);
+    }
+
+    #[test]
+    fn slash_enters_filter_mode() {
+        let nodes = build_nodes(&paths(), &[]);
+        let mut s = make_state(nodes, "");
+        s.apply_key(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
+        assert_eq!(s.mode, ExplorerMode::Filter);
+        s.apply_key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE));
+        assert_eq!(s.query, "l");
+    }
+
+    #[test]
     fn query_filters_and_expands_ancestors() {
-        let nodes = build_nodes(&paths());
-        let mut s = ExplorerState {
-            nodes,
-            expanded: HashSet::new(),
-            query: "list".into(),
-            cursor: 4,
-            selected: 0,
-            visible: Vec::new(),
-            scroll: Cell::new(0),
-        };
+        let nodes = build_nodes(&paths(), &[]);
+        let mut s = make_state(nodes, "list");
         s.refilter();
         let visible_paths: Vec<&str> = s
             .visible

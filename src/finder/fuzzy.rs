@@ -104,6 +104,18 @@ pub struct Finder {
     pub selected: usize,
 }
 
+/// Enumerate every directory under `root` (excluding `root` itself),
+/// respecting the same hidden/build-dir filters [`workspace_files`]
+/// applies. Always walks the filesystem — `git ls-files` doesn't surface
+/// empty directories, so even in a repo we need a manual pass for the
+/// explorer to expose them as targets for new files.
+pub fn workspace_dirs(root: &Path, ignore: IgnoreOpts) -> Vec<String> {
+    let mut out = Vec::new();
+    collect_dirs(root, root, &mut out, 0, ignore);
+    out.sort();
+    out
+}
+
 /// Enumerate every file the file/workspace pickers should see, anchored
 /// at `root` and respecting `ignore`. Prefers `git ls-files` when in a
 /// repo; otherwise walks the directory tree applying the same caps and
@@ -663,6 +675,43 @@ fn is_symlink(path: &Path) -> bool {
     fs::symlink_metadata(path)
         .map(|m| m.file_type().is_symlink())
         .unwrap_or(false)
+}
+
+/// Walk variant that records directory paths instead of files.
+/// Used by the explorer so empty directories show up as creatable
+/// targets — the file walker would skip them entirely.
+fn collect_dirs(root: &Path, dir: &Path, out: &mut Vec<String>, depth: usize, ignore: IgnoreOpts) {
+    if depth > 12 || out.len() >= 5000 {
+        return;
+    }
+    let entries = match fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name = match path.file_name().and_then(|s| s.to_str()) {
+            Some(n) => n.to_string(),
+            None => continue,
+        };
+        if ignore.hidden && name.starts_with('.') {
+            continue;
+        }
+        if ignore.vcs && matches!(name.as_str(), "target" | "node_modules" | "dist" | "build") {
+            continue;
+        }
+        let file_type = match entry.file_type() {
+            Ok(t) => t,
+            Err(_) => continue,
+        };
+        if file_type.is_symlink() || !file_type.is_dir() {
+            continue;
+        }
+        if let Some(s) = path.strip_prefix(root).ok().and_then(|p| p.to_str()) {
+            out.push(s.to_string());
+        }
+        collect_dirs(root, &path, out, depth + 1, ignore);
+    }
 }
 
 fn collect_files(root: &Path, dir: &Path, out: &mut Vec<String>, depth: usize, ignore: IgnoreOpts) {

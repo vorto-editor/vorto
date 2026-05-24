@@ -224,4 +224,89 @@ impl App {
         self.spawn_lsp_worker(path);
         Ok(())
     }
+
+    /// Re-point every buffer that referenced `old` (or anything under
+    /// it, for a directory move) at `new`. Used after the explorer's
+    /// rename/move so an open buffer's next save lands at the moved
+    /// file's new location instead of resurrecting the source.
+    ///
+    /// Touches: the active buffer's path, each parked buffer's path
+    /// and its hashmap key, every sleeping buffer's stored path and
+    /// hashmap key, the MRU list, and the per-pane buffer-ref map.
+    /// The order matters only in that we collect remap targets first
+    /// and apply them in a second pass — mutating a hashmap while
+    /// iterating it is otherwise rejected by the borrow checker.
+    pub fn rewrite_buffer_paths(&mut self, old: &Path, new: &Path) {
+        if let Some(p) = self.buffer.path.as_ref()
+            && let Some(updated) = remap_path(p, old, new)
+        {
+            self.buffer.path = Some(updated);
+        }
+
+        // Parked buffers — rekey + update each buffer's own `path`.
+        let parked_remap: Vec<(BufferRef, PathBuf)> = self
+            .parked_buffers
+            .keys()
+            .filter_map(|k| match k {
+                BufferRef::File(p) => remap_path(p, old, new).map(|np| (k.clone(), np)),
+                _ => None,
+            })
+            .collect();
+        for (old_ref, new_path) in parked_remap {
+            if let Some(mut buf) = self.parked_buffers.remove(&old_ref) {
+                buf.path = Some(new_path.clone());
+                self.parked_buffers
+                    .insert(BufferRef::File(new_path), buf);
+            }
+        }
+
+        // Sleeping buffers — same shape as parked, but the path lives
+        // behind setter/getter so we can keep the freeze-compressed
+        // payload untouched.
+        let sleep_remap: Vec<(BufferRef, PathBuf)> = self
+            .sleeping
+            .iter()
+            .filter_map(|(k, s)| match (k, s.path()) {
+                (BufferRef::File(kp), Some(_)) => {
+                    remap_path(kp, old, new).map(|np| (k.clone(), np))
+                }
+                _ => None,
+            })
+            .collect();
+        for (old_ref, new_path) in sleep_remap {
+            if let Some(mut sleep) = self.sleeping.remove(&old_ref) {
+                sleep.set_path(Some(new_path.clone()));
+                self.sleeping.insert(BufferRef::File(new_path), sleep);
+            }
+        }
+
+        // MRU list — keep order, just rewrite the path inside each ref.
+        for r in &mut self.opened_paths {
+            if let BufferRef::File(p) = r
+                && let Some(np) = remap_path(p, old, new)
+            {
+                *r = BufferRef::File(np);
+            }
+        }
+
+        // Inactive pane refs.
+        for r in self.pane_refs.values_mut() {
+            if let BufferRef::File(p) = r
+                && let Some(np) = remap_path(p, old, new)
+            {
+                *r = BufferRef::File(np);
+            }
+        }
+    }
+}
+
+/// Remap a single path against an `old → new` move. Returns `Some(new
+/// path)` when `p` is either exactly `old` (a single-file rename) or
+/// lies under `old/` (caught by a directory move). Returns `None` when
+/// the path is unaffected so the caller can skip it cheaply.
+fn remap_path(p: &Path, old: &Path, new: &Path) -> Option<PathBuf> {
+    if p == old {
+        return Some(new.to_path_buf());
+    }
+    p.strip_prefix(old).ok().map(|suffix| new.join(suffix))
 }

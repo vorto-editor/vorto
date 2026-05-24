@@ -10,7 +10,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use crate::app::COPILOT_SUBCOMMANDS;
 use crate::buffer_ref::BufferRef;
 use crate::config::COMMAND_BINDS;
-use crate::finder::{ExplorerState, Finder, FuzzyKind, IgnoreOpts};
+use crate::finder::{ExplorerMode, ExplorerState, Finder, FuzzyKind, IgnoreOpts};
 use crate::lsp::{CodeAction, Location};
 
 /// Single-line text input with a movable insertion point. `cursor` is a
@@ -432,6 +432,15 @@ pub enum PromptOutcome {
     /// embedded `WorkspaceEdit` or sends a `codeAction/resolve` round
     /// trip first when `edit` is `None`.
     SelectCodeAction(CodeAction),
+    /// Explorer rename/move — a file or directory was relocated on
+    /// disk from `old` to `new` (both absolute). The caller rewrites
+    /// any open or sleeping buffer whose path falls under `old` so the
+    /// next save lands at the new location instead of recreating the
+    /// source. The explorer prompt stays open.
+    PathMoved {
+        old: PathBuf,
+        new: PathBuf,
+    },
 }
 
 pub struct PromptController {
@@ -578,28 +587,41 @@ impl PromptController {
     pub fn handle_key(&mut self, key: KeyEvent, root: &Path) -> PromptOutcome {
         let ctrl_c =
             key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c');
+
+        // Explorer steals Esc/Enter ahead of the generic close/submit
+        // path so its sub-modes can carry their own meaning: Esc may
+        // pop back to selection (from filter / pending input) rather
+        // than closing the prompt, and Enter routes to file ops when a
+        // pending mode is up.
+        if let Prompt::Explorer(state) = &mut self.state {
+            if key.code == KeyCode::Esc || ctrl_c {
+                if matches!(state.mode, ExplorerMode::Selection) {
+                    self.close();
+                    return PromptOutcome::Cancelled;
+                }
+                state.cancel_pending();
+                return PromptOutcome::Nothing;
+            }
+            if key.code == KeyCode::Enter {
+                return self.handle_explorer_enter();
+            }
+            // `y` confirms a pending delete; the explorer's apply_key
+            // treats anything else (besides Enter/Esc above) as a
+            // cancel.
+            if matches!(state.mode, ExplorerMode::PendingDelete)
+                && matches!(key.code, KeyCode::Char('y') | KeyCode::Char('Y'))
+            {
+                return self.run_explorer_delete();
+            }
+            state.apply_key(key);
+            return PromptOutcome::Nothing;
+        }
+
         if key.code == KeyCode::Esc || ctrl_c {
             self.close();
             return PromptOutcome::Cancelled;
         }
         if key.code == KeyCode::Enter {
-            // Explorer's Enter has two meanings depending on the row:
-            // submit on a file produces an open intent, submit on a
-            // dir toggles its expansion in-place. Handled here so the
-            // common `submit()` path can stay file-oriented.
-            if let Prompt::Explorer(state) = &mut self.state {
-                let Some(node) = state.selection() else {
-                    return PromptOutcome::Nothing;
-                };
-                if node.is_dir {
-                    state.toggle_selected();
-                    state.refilter();
-                    return PromptOutcome::Nothing;
-                }
-                let rel = node.rel_path.clone();
-                self.close();
-                return PromptOutcome::OpenRelativeFile(rel);
-            }
             return self.submit();
         }
 
@@ -652,8 +674,11 @@ impl PromptController {
                 }
                 PromptOutcome::Nothing
             }
-            Prompt::Explorer(state) => {
-                state.apply_key(key);
+            Prompt::Explorer(_) => {
+                // Explorer is fully handled by the early intercept above
+                // (it owns Esc/Enter and per-mode dispatch). Reaching
+                // this arm means the early branch didn't match — i.e.
+                // none, which shouldn't happen — but stay defensive.
                 PromptOutcome::Nothing
             }
             Prompt::Hover { scroll, .. } | Prompt::LspStatus { scroll, .. } => {
@@ -685,6 +710,139 @@ impl PromptController {
                 // dismisses too. Esc/Ctrl-C handled at the top.
                 self.close();
                 PromptOutcome::Cancelled
+            }
+        }
+    }
+
+    /// Enter handler for the Explorer prompt. The meaning depends on
+    /// the current mode:
+    ///   * `Selection` / `Filter` — on a dir, toggle expand; on a file,
+    ///     close the prompt and signal `OpenRelativeFile`.
+    ///   * `PendingCreate` / `PendingRename` / `PendingMove` — run the
+    ///     filesystem op against the input buffer.
+    ///   * `PendingDelete` — Enter on the confirmation is treated as
+    ///     "yes" (matching the shell convention for default-yes when
+    ///     the user explicitly pressed `d` already; we still default
+    ///     the chord to N for any other key).
+    fn handle_explorer_enter(&mut self) -> PromptOutcome {
+        let Prompt::Explorer(state) = &mut self.state else {
+            return PromptOutcome::Nothing;
+        };
+        match state.mode {
+            ExplorerMode::Selection | ExplorerMode::Filter => {
+                let Some(node) = state.selection() else {
+                    return PromptOutcome::Nothing;
+                };
+                if node.is_dir {
+                    state.toggle_selected();
+                    state.refilter();
+                    return PromptOutcome::Nothing;
+                }
+                let rel = node.rel_path.clone();
+                self.close();
+                PromptOutcome::OpenRelativeFile(rel)
+            }
+            ExplorerMode::PendingCreate => self.run_explorer_create(),
+            ExplorerMode::PendingRename => self.run_explorer_rename(),
+            ExplorerMode::PendingMove => self.run_explorer_move(),
+            ExplorerMode::PendingDelete => self.run_explorer_delete(),
+        }
+    }
+
+    fn run_explorer_create(&mut self) -> PromptOutcome {
+        let Prompt::Explorer(state) = &mut self.state else {
+            return PromptOutcome::Nothing;
+        };
+        let Some(input) = state.action.as_ref() else {
+            return PromptOutcome::Nothing;
+        };
+        let raw = input.text.clone();
+        match state.perform_create(&raw) {
+            Ok(_) => {
+                state.cancel_pending();
+                PromptOutcome::Nothing
+            }
+            Err(msg) => {
+                state.error = Some(msg);
+                PromptOutcome::Nothing
+            }
+        }
+    }
+
+    fn run_explorer_rename(&mut self) -> PromptOutcome {
+        let Prompt::Explorer(state) = &mut self.state else {
+            return PromptOutcome::Nothing;
+        };
+        let Some(node) = state.selection() else {
+            return PromptOutcome::Nothing;
+        };
+        let old_rel = node.rel_path.clone();
+        let Some(input) = state.action.as_ref() else {
+            return PromptOutcome::Nothing;
+        };
+        let new_name = input.text.clone();
+        match state.perform_rename(&old_rel, &new_name) {
+            Ok(new_rel) => {
+                let old_abs = state.root.join(&old_rel);
+                let new_abs = state.root.join(&new_rel);
+                state.cancel_pending();
+                PromptOutcome::PathMoved {
+                    old: old_abs,
+                    new: new_abs,
+                }
+            }
+            Err(msg) => {
+                state.error = Some(msg);
+                PromptOutcome::Nothing
+            }
+        }
+    }
+
+    fn run_explorer_move(&mut self) -> PromptOutcome {
+        let Prompt::Explorer(state) = &mut self.state else {
+            return PromptOutcome::Nothing;
+        };
+        let Some(node) = state.selection() else {
+            return PromptOutcome::Nothing;
+        };
+        let old_rel = node.rel_path.clone();
+        let Some(input) = state.action.as_ref() else {
+            return PromptOutcome::Nothing;
+        };
+        let new_rel = input.text.clone();
+        match state.perform_move(&old_rel, &new_rel) {
+            Ok(new_rel) => {
+                let old_abs = state.root.join(&old_rel);
+                let new_abs = state.root.join(&new_rel);
+                state.cancel_pending();
+                PromptOutcome::PathMoved {
+                    old: old_abs,
+                    new: new_abs,
+                }
+            }
+            Err(msg) => {
+                state.error = Some(msg);
+                PromptOutcome::Nothing
+            }
+        }
+    }
+
+    fn run_explorer_delete(&mut self) -> PromptOutcome {
+        let Prompt::Explorer(state) = &mut self.state else {
+            return PromptOutcome::Nothing;
+        };
+        let Some(node) = state.selection() else {
+            return PromptOutcome::Nothing;
+        };
+        let rel = node.rel_path.clone();
+        match state.perform_delete(&rel) {
+            Ok(()) => {
+                state.cancel_pending();
+                PromptOutcome::Nothing
+            }
+            Err(msg) => {
+                state.error = Some(msg);
+                PromptOutcome::Nothing
             }
         }
     }

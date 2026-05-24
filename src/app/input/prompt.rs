@@ -78,6 +78,10 @@ impl App {
                 self.submit_code_action(action);
                 Ok(())
             }
+            PromptOutcome::PathMoved { old, new } => {
+                self.rewrite_buffer_paths(&old, &new);
+                Ok(())
+            }
         }
     }
 }
