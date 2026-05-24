@@ -1,6 +1,6 @@
 [package]
 name = "vorto"
-version = "0.11.2"
+version = "0.11.3"
 edition = "2024"
 description = "A Vim-flavored modal terminal editor with batteries included: tree-sitter, LSP, fuzzy pickers, vim-surround, multi-cursor, and optional Copilot."
 license = "MIT OR Apache-2.0"
