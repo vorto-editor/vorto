@@ -58,14 +58,17 @@ optional GitHub Copilot — all in a single, dependency-light binary.
 | Rename                 | `<space>r`                          |
 | Format on save         | `:w` runs configured formatter      |
 
-Each language's server and formatter are configured per-language in
-`config.toml`.
+Servers and formatters ship with built-in defaults for the common
+languages (rust-analyzer, pyright, gopls, clangd, vtsls, and ~30
+more). Override or add to them per-language in `config.toml`.
 
 ### Tree-sitter
 
-- Built-in grammar recipes for 20 languages: **rust, python, go,
+- Built-in grammar recipes for 37 languages: **rust, python, go,
   javascript, typescript, tsx, toml, kotlin, c, cpp, java, bash, json,
-  yaml, markdown, html, css, lua, ruby, zig**.
+  yaml, markdown, html, css, lua, ruby, zig, sql, dockerfile, make,
+  hcl, diff, vue, svelte, haskell, elixir, nix, c-sharp, swift, php,
+  dart, ocaml, graphql, fish**.
 - Install on demand — only the grammars you use are built and cached:
   ```sh
   vorto grammar list
@@ -84,7 +87,10 @@ Each language's server and formatter are configured per-language in
   - **Files** — `:e` (git-aware)
   - **Buffers** — `:ls` / `:buffers`
   - **Document symbols** — `<space><space>` (LSP)
-- **File explorer** tree on `<space>e`
+- **File explorer** tree on `<space>e` — navigate with `j k l` /
+  arrows, toggle hidden files with `.`, toggle `.gitignore`d files
+  with `h`, filter with `/`, and create / delete / rename / move with
+  `a` / `d` / `r` / `m`
 - **Splits**: `:split` / `:vsplit`, `<space>w h` / `<space>w v`,
   cycle with `<C-w w>`
 - Status bar with mode badge, filename, cursor position, dirty flag
@@ -140,7 +146,9 @@ Configuration lives under `$XDG_CONFIG_HOME/vorto/` (typically
 `~/.config/vorto/`):
 
 - `config.toml` — editor settings, keymap, theme, per-language LSP /
-  formatter / indent overrides
+  formatter / indent overrides, and a `[finder]` table
+  (`hidden_patterns`, `max_items`) controlling what the file picker
+  and explorer treat as hidden
 - `grammars/` — installed tree-sitter `.so` libraries
 - `queries/<lang>/` — installed `highlights.scm`, `indents.scm`,
   `textobjects.scm`
