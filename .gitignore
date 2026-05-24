@@ -12,3 +12,6 @@
 # Editor/IDE
 .idea/
 .vscode/
+
+# Local sample files for trying out new language support
+/assets/samples/

@@ -210,6 +210,24 @@ pub fn builtin_recipes() -> Vec<GrammarRecipe> {
             subpath: None,
             rev: None,
         },
+        GrammarRecipe {
+            name: "haskell",
+            repo: "https://github.com/tree-sitter/tree-sitter-haskell",
+            subpath: None,
+            rev: None,
+        },
+        GrammarRecipe {
+            name: "elixir",
+            repo: "https://github.com/elixir-lang/tree-sitter-elixir",
+            subpath: None,
+            rev: None,
+        },
+        GrammarRecipe {
+            name: "nix",
+            repo: "https://github.com/nix-community/tree-sitter-nix",
+            subpath: None,
+            rev: None,
+        },
     ]
 }
 

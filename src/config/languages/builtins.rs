@@ -200,6 +200,41 @@ pub fn builtin_lsp() -> HashMap<String, LspConfig> {
         None,
         &["package.json", "svelte.config.js", "svelte.config.ts"],
     );
+    // HLS ships a `-wrapper` binary that picks the right GHC-matched
+    // server for the project; users override to `haskell-language-server`
+    // directly if they need to pin a version.
+    add(
+        &mut m,
+        "haskell-language-server",
+        "haskell-language-server-wrapper",
+        &["--lsp"],
+        None,
+        &["*.cabal", "stack.yaml", "cabal.project", "package.yaml", "hie.yaml"],
+    );
+    // Elixir ships with both lexical and elixir-ls registered — the
+    // first one found on PATH wins (`is_command_not_found` skip in the
+    // LSP spawner). Lexical is preferred for speed; users on legacy
+    // setups keep elixir-ls.
+    add(
+        &mut m,
+        "lexical",
+        "lexical",
+        &["server"],
+        None,
+        &["mix.exs"],
+    );
+    add(
+        &mut m,
+        "elixir-ls",
+        "elixir-ls",
+        &[],
+        None,
+        &["mix.exs"],
+    );
+    // Nix gets both nixd (more diagnostics, slower) and nil (lighter,
+    // faster) — same precedence trick as Elixir.
+    add(&mut m, "nixd", "nixd", &[], None, &["flake.nix", "default.nix", "shell.nix"]);
+    add(&mut m, "nil", "nil", &[], None, &["flake.nix", "default.nix", "shell.nix"]);
     m
 }
 
@@ -573,6 +608,47 @@ pub fn builtin_languages() -> HashMap<String, LanguageConfig> {
             comment_token: Some("<!--".into()),
             block_comment_token: Some(("<!--".into(), "-->".into())),
             lsp: lsp(&["svelteserver"]),
+            ..Default::default()
+        },
+    );
+    // `.lhs` (Literate Haskell) shares the entry; the haskell grammar
+    // doesn't parse the bird-track wrapping, so highlights inside `>`
+    // blocks degrade gracefully to plain text.
+    m.insert(
+        "haskell".into(),
+        LanguageConfig {
+            extensions: Some(vec!["hs".into(), "lhs".into()]),
+            comment_token: Some("--".into()),
+            block_comment_token: Some(("{-".into(), "-}".into())),
+            lsp: lsp(&["haskell-language-server"]),
+            ..Default::default()
+        },
+    );
+    // Elixir: `.ex` for compiled modules, `.exs` for scripts (incl.
+    // `mix.exs`). Lexical preferred, elixir-ls fallback.
+    m.insert(
+        "elixir".into(),
+        LanguageConfig {
+            extensions: Some(vec!["ex".into(), "exs".into()]),
+            filenames: Some(vec!["mix.lock".into()]),
+            comment_token: Some("#".into()),
+            lsp: lsp(&["lexical", "elixir-ls"]),
+            ..Default::default()
+        },
+    );
+    // Nix uses 2-space indent by convention (nixpkgs / nixfmt agree).
+    m.insert(
+        "nix".into(),
+        LanguageConfig {
+            extensions: Some(vec!["nix".into()]),
+            comment_token: Some("#".into()),
+            block_comment_token: Some(("/*".into(), "*/".into())),
+            editor: EditorToml {
+                indent_width: Some(2),
+                tab_width: Some(2),
+                ..Default::default()
+            },
+            lsp: lsp(&["nixd", "nil"]),
             ..Default::default()
         },
     );
