@@ -219,6 +219,22 @@ impl ExplorerState {
         }
     }
 
+    /// Flip the dotfile filter and rebuild the tree. Bound to `.` in
+    /// selection mode so the user can surface `.env`/`.github/...` without
+    /// reopening the explorer with `<space>F`.
+    pub fn toggle_hidden(&mut self) {
+        self.ignore.hidden = !self.ignore.hidden;
+        self.refresh();
+    }
+
+    /// Flip the VCS-ignore filter and rebuild the tree. Bound to `h` in
+    /// selection mode — useful for peeking at `target/`, `node_modules/`,
+    /// or anything else `.gitignore` normally hides.
+    pub fn toggle_vcs(&mut self) {
+        self.ignore.vcs = !self.ignore.vcs;
+        self.refresh();
+    }
+
     /// Recompute [`visible`] from the current expand state and query.
     ///
     /// With no query: walk `nodes` in order and skip any node whose
@@ -462,12 +478,14 @@ impl ExplorerState {
     fn apply_selection_key(&mut self, key: KeyEvent) {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
         match key.code {
-            KeyCode::Left | KeyCode::Char('h') if !ctrl => self.collapse_or_parent(),
+            KeyCode::Left => self.collapse_or_parent(),
             KeyCode::Right | KeyCode::Char('l') if !ctrl => self.expand_or_descend(),
             KeyCode::Up | KeyCode::Char('k') if !ctrl => self.move_up(),
             KeyCode::Down | KeyCode::Char('j') if !ctrl => self.move_down(),
             KeyCode::Char('p') if ctrl => self.move_up(),
             KeyCode::Char('n') if ctrl => self.move_down(),
+            KeyCode::Char('.') => self.toggle_hidden(),
+            KeyCode::Char('h') if !ctrl => self.toggle_vcs(),
             KeyCode::Char('/') => self.enter_filter_mode(),
             KeyCode::Char('a') => self.enter_create_mode(),
             KeyCode::Char('d') => self.enter_delete_mode(),
