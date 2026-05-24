@@ -21,11 +21,11 @@
 mod buffer;
 mod code_action;
 mod completion;
+mod copilot_signin;
 mod explorer;
 mod fuzzy;
 mod hints;
 mod hover;
-mod copilot_signin;
 mod lsp_status;
 mod signature;
 mod status;

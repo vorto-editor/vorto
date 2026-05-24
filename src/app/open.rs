@@ -255,8 +255,7 @@ impl App {
         for (old_ref, new_path) in parked_remap {
             if let Some(mut buf) = self.parked_buffers.remove(&old_ref) {
                 buf.path = Some(new_path.clone());
-                self.parked_buffers
-                    .insert(BufferRef::File(new_path), buf);
+                self.parked_buffers.insert(BufferRef::File(new_path), buf);
             }
         }
 

@@ -127,10 +127,13 @@ fn draw_action_modal(f: &mut Frame, state: &ExplorerState, area: Rect) {
     }
 }
 
-/// Translate the explorer state into modal content. Returns
-/// `(title, body lines, optional (row, col) for the terminal cursor)`,
-/// or `None` when no modal should be drawn.
-fn action_modal_content(state: &ExplorerState) -> Option<(&'static str, Vec<Line<'_>>, Option<(usize, usize)>)> {
+/// `(title, body lines, optional (row, col) for the terminal cursor)`
+/// returned by [`action_modal_content`].
+type ActionModalContent<'a> = (&'static str, Vec<Line<'a>>, Option<(usize, usize)>);
+
+/// Translate the explorer state into modal content. Returns the
+/// content tuple, or `None` when no modal should be drawn.
+fn action_modal_content(state: &ExplorerState) -> Option<ActionModalContent<'_>> {
     let target_label = state
         .selection()
         .map(|n| {
@@ -172,7 +175,9 @@ fn action_modal_content(state: &ExplorerState) -> Option<(&'static str, Vec<Line
                     Span::styled("rename ", Style::default().fg(Color::DarkGray)),
                     Span::styled(
                         target_label.clone(),
-                        Style::default().fg(Color::Gray).add_modifier(Modifier::BOLD),
+                        Style::default()
+                            .fg(Color::Gray)
+                            .add_modifier(Modifier::BOLD),
                     ),
                 ]),
                 Line::from(Span::raw(input.text.clone())),
@@ -189,7 +194,9 @@ fn action_modal_content(state: &ExplorerState) -> Option<(&'static str, Vec<Line
                     Span::styled("move ", Style::default().fg(Color::DarkGray)),
                     Span::styled(
                         target_label.clone(),
-                        Style::default().fg(Color::Gray).add_modifier(Modifier::BOLD),
+                        Style::default()
+                            .fg(Color::Gray)
+                            .add_modifier(Modifier::BOLD),
                     ),
                     Span::styled(" → ", Style::default().fg(Color::DarkGray)),
                 ]),

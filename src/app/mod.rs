@@ -53,8 +53,7 @@ use crate::action::{InsertKey, LastChange, LastFind, Token};
 /// Copilot's server-side latency dominates total perceived delay
 /// (~hundreds of ms), so keeping the client-side wait short is what
 /// makes the ghost feel responsive.
-const INLINE_REQUEST_DEBOUNCE: std::time::Duration =
-    std::time::Duration::from_millis(75);
+const INLINE_REQUEST_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(75);
 
 /// Active insert-session recording. Lives on `App` so `handle_insert_key`
 /// can append the keystrokes the user types, and finalize on Esc.
@@ -483,8 +482,7 @@ impl App {
     /// the debounce we want.
     pub(super) fn schedule_inline_suggestion(&mut self) {
         self.inline_suggestion.dismiss();
-        self.inline_request_deadline =
-            Some(std::time::Instant::now() + INLINE_REQUEST_DEBOUNCE);
+        self.inline_request_deadline = Some(std::time::Instant::now() + INLINE_REQUEST_DEBOUNCE);
     }
 
     /// Time until the next debounced inline-completion fire, or `None`

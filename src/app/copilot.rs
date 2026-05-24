@@ -27,7 +27,11 @@ use crate::vlog;
 fn open_url_in_browser(url: &str) -> bool {
     use std::process::{Command, Stdio};
     #[cfg(target_os = "macos")]
-    let cmd = Command::new("open").arg(url).stdout(Stdio::null()).stderr(Stdio::null()).spawn();
+    let cmd = Command::new("open")
+        .arg(url)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn();
     #[cfg(all(unix, not(target_os = "macos")))]
     let cmd = Command::new("xdg-open")
         .arg(url)
@@ -41,8 +45,10 @@ fn open_url_in_browser(url: &str) -> bool {
         .stderr(Stdio::null())
         .spawn();
     #[cfg(not(any(target_os = "macos", unix, target_os = "windows")))]
-    let cmd: std::io::Result<std::process::Child> =
-        Err(std::io::Error::new(std::io::ErrorKind::Other, "unsupported platform"));
+    let cmd: std::io::Result<std::process::Child> = Err(std::io::Error::new(
+        std::io::ErrorKind::Other,
+        "unsupported platform",
+    ));
     cmd.is_ok()
 }
 
@@ -509,8 +515,7 @@ impl App {
                 // + re-surface the modal if the user dismissed it or
                 // the clipboard got overwritten before confirming in
                 // the browser.
-                self.copilot_pending_code =
-                    Some((user_code.clone(), verification_uri.clone()));
+                self.copilot_pending_code = Some((user_code.clone(), verification_uri.clone()));
                 self.prompt
                     .open_copilot_signin(user_code.clone(), verification_uri);
                 // Auto-fire signInConfirm. The server holds the response
