@@ -22,14 +22,22 @@ pub(super) fn draw_fuzzy_preview(f: &mut Frame, app: &App, finder: &Finder, area
     let Some(sel) = finder.selection() else {
         return;
     };
+    // Header style mirrors the buffer-name color used elsewhere — bold,
+    // default fg. The body Rect is what the per-kind preview renders
+    // into; falling through without rendering still leaves the header
+    // in place so the user knows what they're looking at.
+    let header_style = Style::default().add_modifier(Modifier::BOLD);
     match finder.kind {
         FuzzyKind::Files { .. } => {
             let rel = &finder.items[sel.idx];
+            let body = super::split_with_header(f, area, rel, header_style);
             let path = app.startup_cwd.join(rel);
-            preview_from_file(f, app, area, &path, 0);
+            preview_from_file(f, app, body, &path, 0);
         }
         FuzzyKind::Lines => {
-            preview_from_buffer(f, app, area, sel.idx);
+            let label = buffer_label(app);
+            let body = super::split_with_header(f, area, &label, header_style);
+            preview_from_buffer(f, app, body, sel.idx);
         }
         FuzzyKind::Locations | FuzzyKind::Diagnostics { .. } => {
             let Some(loc) = app.prompt.locations().get(sel.idx) else {
@@ -38,20 +46,22 @@ pub(super) fn draw_fuzzy_preview(f: &mut Frame, app: &App, finder: &Finder, area
             let Some(path) = crate::lsp::uri_to_path(&loc.uri) else {
                 return;
             };
+            let label = display_path(app, &path);
+            let body = super::split_with_header(f, area, &label, header_style);
             let row = loc.range.start.line as usize;
             // Active / parked / sleeping all reach the buffer copy
             // before falling through to disk — that way `:e new.rs`
             // followed by a switch keeps previewing the typed-but-
             // never-saved content, instead of "(cannot read file)".
             if app.buffer.path.as_deref() == Some(path.as_path()) {
-                preview_from_buffer(f, app, area, row);
+                preview_from_buffer(f, app, body, row);
                 return;
             }
             for (key, buf) in &app.parked_buffers {
                 if let crate::buffer_ref::BufferRef::File(p) = key
                     && p == &path
                 {
-                    preview_from_parked_buffer(f, area, buf, row);
+                    preview_from_parked_buffer(f, body, buf, row);
                     return;
                 }
             }
@@ -59,11 +69,11 @@ pub(super) fn draw_fuzzy_preview(f: &mut Frame, app: &App, finder: &Finder, area
                 if let crate::buffer_ref::BufferRef::File(p) = key
                     && p == &path
                 {
-                    preview_from_sleeping(f, area, snap, row);
+                    preview_from_sleeping(f, body, snap, row);
                     return;
                 }
             }
-            preview_from_file(f, app, area, &path, row);
+            preview_from_file(f, app, body, &path, row);
         }
         FuzzyKind::WorkspaceSearch => {
             // The base location stores line 0; the actual preview target
@@ -74,8 +84,10 @@ pub(super) fn draw_fuzzy_preview(f: &mut Frame, app: &App, finder: &Finder, area
             let Some(path) = crate::lsp::uri_to_path(&loc.uri) else {
                 return;
             };
+            let label = display_path(app, &path);
+            let body = super::split_with_header(f, area, &label, header_style);
             let target = sel.line_hits.first().copied().unwrap_or(0);
-            preview_from_file(f, app, area, &path, target);
+            preview_from_file(f, app, body, &path, target);
         }
         FuzzyKind::Buffers => {
             // The picker keeps a parallel `BufferRef` slice on the
@@ -86,13 +98,38 @@ pub(super) fn draw_fuzzy_preview(f: &mut Frame, app: &App, finder: &Finder, area
                 return;
             };
             match r {
-                crate::buffer_ref::BufferRef::Scratch(_) => {}
+                crate::buffer_ref::BufferRef::Scratch(id) => {
+                    let label = crate::buffer_ref::BufferRef::scratch_label(*id);
+                    let _ = super::split_with_header(f, area, &label, header_style);
+                }
                 crate::buffer_ref::BufferRef::File(path) => {
-                    preview_from_file(f, app, area, path, 0);
+                    let label = display_path(app, path);
+                    let body = super::split_with_header(f, area, &label, header_style);
+                    preview_from_file(f, app, body, path, 0);
                 }
             }
         }
     }
+}
+
+/// Render the active buffer's name for the preview header. Files show
+/// the rel-to-startup_cwd path; scratch buffers show their label using
+/// the live scratch id so multiple `:new` scratches don't all collapse
+/// to `[scratch]`.
+fn buffer_label(app: &App) -> String {
+    match app.buffer.path.as_deref() {
+        Some(p) => display_path(app, p),
+        None => crate::buffer_ref::BufferRef::scratch_label(app.current_scratch_id.unwrap_or(0)),
+    }
+}
+
+/// Format `path` for the preview header — strip the startup cwd when
+/// `path` lives under it so the label stays short, otherwise fall back
+/// to the absolute path.
+fn display_path(app: &App, path: &std::path::Path) -> String {
+    path.strip_prefix(&app.startup_cwd)
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|_| path.display().to_string())
 }
 
 /// Render a Lines-kind preview using the current buffer and its existing

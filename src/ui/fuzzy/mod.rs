@@ -78,6 +78,45 @@ pub(super) fn draw_explorer_preview(f: &mut Frame, app: &App, area: Rect, path: 
     preview::preview_from_file(f, app, area, path, 0);
 }
 
+/// Reserve a 1-row header (the file label, tail-truncated with `…` when
+/// it can't fit) plus a 1-row separator at the top of `area`, returning
+/// the remaining body Rect for the actual preview content. The fuzzy
+/// preview and the explorer preview both use this so the "filename on
+/// top, content below" layout stays consistent.
+pub(super) fn split_with_header(
+    f: &mut Frame,
+    area: Rect,
+    label: &str,
+    label_style: Style,
+) -> Rect {
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Min(1),
+        ])
+        .split(area);
+    let label_w = label.chars().count();
+    let avail = chunks[0].width as usize;
+    let display: String = if label_w > avail && avail >= 2 {
+        let tail: String = label.chars().skip(label_w - (avail - 1)).collect();
+        format!("…{}", tail)
+    } else {
+        label.to_string()
+    };
+    f.render_widget(
+        Paragraph::new(Line::from(Span::styled(display, label_style))),
+        chunks[0],
+    );
+    let sep = "─".repeat(chunks[1].width as usize);
+    f.render_widget(
+        Paragraph::new(Span::styled(sep, Style::default().fg(Color::DarkGray))),
+        chunks[1],
+    );
+    chunks[2]
+}
+
 fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
     let v = Layout::default()
         .direction(Direction::Vertical)

@@ -96,12 +96,46 @@ fn draw_tree(f: &mut Frame, state: &ExplorerState, area: Rect) {
 
     let list_h = chunks[2].height as usize;
     let list_w = chunks[2].width as usize;
-    // Selection-anchored scroll: keep `selected` at the bottom of the
-    // window once we'd otherwise scroll past, and snap to the very top
-    // until the cursor leaves the first page. Same heuristic the fuzzy
-    // picker uses — there's no separate scroll input the user can move
-    // independently, so deriving from selection each frame is correct.
-    let scroll = state.selected.saturating_sub(list_h.saturating_sub(1));
+    // Viewport-style vertical scroll: the cursor moves freely inside the
+    // visible page; the page only shifts when the cursor would step off
+    // either edge. We clamp the stored offset against the live `visible`
+    // length first so a refilter that shrinks the list doesn't strand the
+    // viewport past the end.
+    let mut scroll = state.scroll.get();
+    let max_scroll = state.visible.len().saturating_sub(list_h);
+    if scroll > max_scroll {
+        scroll = max_scroll;
+    }
+    if list_h > 0 && state.selected >= scroll + list_h {
+        scroll = state.selected + 1 - list_h;
+    }
+    if state.selected < scroll {
+        scroll = state.selected;
+    }
+    state.scroll.set(scroll);
+
+    // Horizontal scroll: judged off the *parent directory* row, not the
+    // selected file. If the parent's "indent + glyph + name + /" fits in
+    // the pane, we don't scroll at all — even a long file basename can
+    // stay clipped, since the preview header below carries the full
+    // path. When the parent overflows, scroll just enough to fit it,
+    // capped at `(depth - 1) * INDENT_STEP` so the parent row is pinned
+    // at column 0 in the worst case.
+    let h_scroll = state
+        .visible
+        .get(state.selected)
+        .map(|&i| {
+            let n = &state.nodes[i];
+            if n.depth == 0 {
+                return 0;
+            }
+            let parent_name = parent_basename(&n.rel_path);
+            let parent_total = INDENT_STEP * (n.depth - 1) + 2 + parent_name.chars().count() + 1;
+            let needed = parent_total.saturating_sub(list_w);
+            let ceiling = INDENT_STEP * (n.depth - 1);
+            needed.min(ceiling)
+        })
+        .unwrap_or(0);
     let items: Vec<ListItem> = state
         .visible
         .iter()
@@ -119,6 +153,7 @@ fn draw_tree(f: &mut Frame, state: &ExplorerState, area: Rect) {
                 expanded,
                 selected,
                 list_w,
+                h_scroll,
             ))
         })
         .collect();
@@ -129,6 +164,12 @@ fn draw_tree(f: &mut Frame, state: &ExplorerState, area: Rect) {
 /// only), basename. Selected rows get a dark background so the cursor
 /// stays visible; dir rows get the directory tint regardless of
 /// selection so the user can tell apart files and folders at a glance.
+///
+/// `h_scroll` shifts every row's content left by that many cells before
+/// clipping to `width`. The caller picks it from the selected row so the
+/// cursor's file name is guaranteed visible; deeper neighbors will have
+/// their indent (and possibly the start of their name) clipped off, but
+/// the trade-off is what makes deep trees navigable.
 fn render_row<'a>(
     depth: usize,
     name: &str,
@@ -136,6 +177,7 @@ fn render_row<'a>(
     expanded: bool,
     selected: bool,
     width: usize,
+    h_scroll: usize,
 ) -> Line<'a> {
     let base = if selected {
         Style::default()
@@ -146,54 +188,55 @@ fn render_row<'a>(
     };
     let dir = base.fg(DIR_FG).add_modifier(Modifier::BOLD);
     let glyph_style = base.fg(Color::DarkGray);
-    let ellipsis_style = base.fg(Color::DarkGray);
 
     let indent = INDENT_STEP * depth;
-    // Each row: indent spaces, then "▾ " / "▸ " for dirs (2 cells) or
-    // "  " for files. Limit by `width` so a deep tree doesn't blow up
-    // the right margin.
     let glyph = if is_dir {
         if expanded { "▾ " } else { "▸ " }
     } else {
         "  "
     };
-    let glyph_cells = 2;
-    let prefix_w = indent + glyph_cells;
+
+    // Materialize the row as (char, style) cells, then window it to
+    // [h_scroll, h_scroll+width). Building the full row first keeps the
+    // scroll math trivial — one assumption per cell rather than juggling
+    // span boundaries.
+    let name_chars: Vec<char> = name.chars().collect();
+    let mut cells: Vec<(char, Style)> =
+        Vec::with_capacity(indent + 2 + name_chars.len() + if is_dir { 1 } else { 0 });
+    for _ in 0..indent {
+        cells.push((' ', base));
+    }
+    let gstyle = if is_dir { dir } else { glyph_style };
+    for c in glyph.chars() {
+        cells.push((c, gstyle));
+    }
+    let nstyle = if is_dir { dir } else { base };
+    for c in &name_chars {
+        cells.push((*c, nstyle));
+    }
+    if is_dir {
+        cells.push(('/', dir));
+    }
 
     let mut spans: Vec<Span<'a>> = Vec::new();
-    if indent > 0 {
-        spans.push(Span::styled(" ".repeat(indent), base));
+    let mut buf = String::new();
+    let mut cur: Option<Style> = None;
+    let mut written = 0usize;
+    for (c, st) in cells.into_iter().skip(h_scroll).take(width) {
+        if cur != Some(st) {
+            if let Some(prev) = cur {
+                spans.push(Span::styled(std::mem::take(&mut buf), prev));
+            }
+            cur = Some(st);
+        }
+        buf.push(c);
+        written += 1;
     }
-    spans.push(Span::styled(
-        glyph.to_string(),
-        if is_dir { dir } else { glyph_style },
-    ));
-
-    let name_chars: Vec<char> = name.chars().collect();
-    let budget = width.saturating_sub(prefix_w);
-    // For dirs we want the trailing `/` to read like a path; reserve
-    // a cell for it when we're laying out the name.
-    let suffix = if is_dir { 1 } else { 0 };
-    let name_budget = budget.saturating_sub(suffix);
-
-    let (start, lead) = if name_budget >= 2 && name_chars.len() > name_budget {
-        (name_chars.len() - (name_budget - 1), Some("…"))
-    } else {
-        (0, None)
-    };
-    if let Some(e) = lead {
-        spans.push(Span::styled(e, ellipsis_style));
+    if let Some(st) = cur
+        && !buf.is_empty()
+    {
+        spans.push(Span::styled(buf, st));
     }
-    let visible: String = name_chars[start..].iter().collect();
-    spans.push(Span::styled(visible, if is_dir { dir } else { base }));
-    if is_dir {
-        spans.push(Span::styled("/", dir));
-    }
-
-    // Pad to the right edge with the row's base background so the
-    // selection bar reaches the separator instead of stopping at the
-    // end of the name.
-    let written = prefix_w + (lead.is_some() as usize) + (name_chars.len() - start) + suffix;
     if written < width {
         spans.push(Span::styled(" ".repeat(width - written), base));
     }
@@ -204,15 +247,44 @@ fn draw_preview(f: &mut Frame, app: &App, state: &ExplorerState, area: Rect) {
     let Some(node) = state.selection() else {
         return;
     };
+
+    // Header carries the full relative path of the current selection.
+    // The tree pane scrolls the indent off-screen so a deep selection's
+    // basename may be clipped there; the header is the unambiguous label
+    // that tells the user what they're about to open.
+    let header_style = if node.is_dir {
+        Style::default().fg(DIR_FG).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().add_modifier(Modifier::BOLD)
+    };
+    let mut label = node.rel_path.clone();
     if node.is_dir {
-        // No useful preview for a directory row; just leave it blank.
+        label.push('/');
+    }
+    let body = super::fuzzy::split_with_header(f, area, &label, header_style);
+
+    if node.is_dir {
+        // No useful preview for a directory row; the header line above
+        // already says which dir it is.
         return;
     }
     // Defer to the fuzzy preview's file path — shares the same LRU /
     // worker that already warms previews for `<space>f`. We construct
     // the absolute path the same way `FuzzyKind::Files` does.
     let path = app.startup_cwd.join(&node.rel_path);
-    super::fuzzy::draw_explorer_preview(f, app, area, &path);
+    super::fuzzy::draw_explorer_preview(f, app, body, &path);
+}
+
+/// Extract the parent directory's basename from a relative path.
+/// `"src/ui/baz.rs"` → `"ui"`. Top-level entries (no slash) return `""`,
+/// matching the depth-0 short-circuit in the scroll math.
+fn parent_basename(rel_path: &str) -> &str {
+    let trimmed = rel_path.trim_end_matches('/');
+    let parent = match trimmed.rfind('/') {
+        Some(i) => &trimmed[..i],
+        None => return "",
+    };
+    parent.rsplit('/').next().unwrap_or("")
 }
 
 fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {

@@ -7,6 +7,7 @@
 //! whose path matches — and auto-expands every ancestor directory of a
 //! matched file so the hit is reachable without manual chord work.
 
+use std::cell::Cell;
 use std::collections::{BTreeMap, HashSet};
 use std::path::Path;
 
@@ -60,6 +61,14 @@ pub struct ExplorerState {
     /// [`nodes`]: Self::nodes
     /// [`visible`]: Self::visible
     pub visible: Vec<usize>,
+    /// Top row of the visible window inside `visible`. The renderer pulls
+    /// it down/up only when `selected` falls outside the viewport, so the
+    /// list stays put while the cursor moves around inside the visible
+    /// page (instead of pinning the cursor to the bottom row once it
+    /// scrolls past). Wrapped in a `Cell` because the renderer holds the
+    /// state by shared reference but still needs to nudge scroll based on
+    /// the live viewport height it discovers each frame.
+    pub scroll: Cell<usize>,
 }
 
 impl ExplorerState {
@@ -73,6 +82,7 @@ impl ExplorerState {
             cursor: 0,
             selected: 0,
             visible: Vec::new(),
+            scroll: Cell::new(0),
         };
         s.refilter();
         s
@@ -468,6 +478,7 @@ mod tests {
             cursor: 0,
             selected: 0,
             visible: Vec::new(),
+            scroll: Cell::new(0),
         };
         s.refilter();
         let visible_paths: Vec<&str> = s
@@ -488,6 +499,7 @@ mod tests {
             cursor: 4,
             selected: 0,
             visible: Vec::new(),
+            scroll: Cell::new(0),
         };
         s.refilter();
         let visible_paths: Vec<&str> = s
