@@ -209,7 +209,13 @@ pub fn builtin_lsp() -> HashMap<String, LspConfig> {
         "haskell-language-server-wrapper",
         &["--lsp"],
         None,
-        &["*.cabal", "stack.yaml", "cabal.project", "package.yaml", "hie.yaml"],
+        &[
+            "*.cabal",
+            "stack.yaml",
+            "cabal.project",
+            "package.yaml",
+            "hie.yaml",
+        ],
     );
     // Elixir ships with both lexical and elixir-ls registered — the
     // first one found on PATH wins (`is_command_not_found` skip in the
@@ -223,18 +229,92 @@ pub fn builtin_lsp() -> HashMap<String, LspConfig> {
         None,
         &["mix.exs"],
     );
-    add(
-        &mut m,
-        "elixir-ls",
-        "elixir-ls",
-        &[],
-        None,
-        &["mix.exs"],
-    );
+    add(&mut m, "elixir-ls", "elixir-ls", &[], None, &["mix.exs"]);
     // Nix gets both nixd (more diagnostics, slower) and nil (lighter,
     // faster) — same precedence trick as Elixir.
-    add(&mut m, "nixd", "nixd", &[], None, &["flake.nix", "default.nix", "shell.nix"]);
-    add(&mut m, "nil", "nil", &[], None, &["flake.nix", "default.nix", "shell.nix"]);
+    add(
+        &mut m,
+        "nixd",
+        "nixd",
+        &[],
+        None,
+        &["flake.nix", "default.nix", "shell.nix"],
+    );
+    add(
+        &mut m,
+        "nil",
+        "nil",
+        &[],
+        None,
+        &["flake.nix", "default.nix", "shell.nix"],
+    );
+    // csharp-ls is a lighter alternative to OmniSharp/Roslyn — single
+    // binary, no SDK detection step. Users who want full Roslyn should
+    // override `[lsp.csharp-ls]` or add their own server entry.
+    add(
+        &mut m,
+        "csharp-ls",
+        "csharp-ls",
+        &[],
+        Some("csharp"),
+        &["global.json", "Directory.Build.props"],
+    );
+    // SourceKit-LSP ships with the Swift toolchain.
+    add(
+        &mut m,
+        "sourcekit-lsp",
+        "sourcekit-lsp",
+        &[],
+        None,
+        &["Package.swift"],
+    );
+    add(
+        &mut m,
+        "intelephense",
+        "intelephense",
+        &["--stdio"],
+        None,
+        &["composer.json", ".phpactor.json"],
+    );
+    // Dart's CLI hosts the language server; the client metadata flags
+    // are required by `dart language-server` to start.
+    add(
+        &mut m,
+        "dart",
+        "dart",
+        &[
+            "language-server",
+            "--client-id=vorto",
+            "--client-version=0.11",
+        ],
+        None,
+        &["pubspec.yaml"],
+    );
+    add(
+        &mut m,
+        "ocamllsp",
+        "ocamllsp",
+        &[],
+        None,
+        &["dune-project", "dune"],
+    );
+    // graphql-lsp (from graphql-language-service-cli) needs the `server`
+    // subcommand and the `--method=stream` flag to speak LSP over stdio.
+    add(
+        &mut m,
+        "graphql-lsp",
+        "graphql-lsp",
+        &["server", "--method=stream"],
+        Some("graphql"),
+        &[
+            ".graphqlrc",
+            ".graphqlrc.json",
+            ".graphqlrc.yml",
+            "graphql.config.js",
+            "package.json",
+        ],
+    );
+    add(&mut m, "fish-lsp", "fish-lsp", &["start"], None, &[]);
     m
 }
 
@@ -264,6 +344,10 @@ pub fn builtin_extension_language_ids() -> HashMap<String, String> {
     add("htm", "html");
     add("mdx", "markdown");
     add("yml", "yaml");
+    // C#'s LSP id is `csharp` (no dash) — our language name is `c-sharp`
+    // to match the grammar's repo/symbol convention, so override per
+    // extension here.
+    add("cs", "csharp");
     m
 }
 
@@ -649,6 +733,137 @@ pub fn builtin_languages() -> HashMap<String, LanguageConfig> {
                 ..Default::default()
             },
             lsp: lsp(&["nixd", "nil"]),
+            ..Default::default()
+        },
+    );
+    // C#: dotnet convention is 4-space indent. Language name uses a
+    // dash to keep parity with the grammar (`tree-sitter-c-sharp`); the
+    // LSP id `csharp` is set both per-extension and on the LSP entry
+    // so it stays right regardless of route.
+    m.insert(
+        "c-sharp".into(),
+        LanguageConfig {
+            extensions: Some(vec!["cs".into()]),
+            comment_token: Some("//".into()),
+            block_comment_token: Some(("/*".into(), "*/".into())),
+            editor: EditorToml {
+                indent_width: Some(4),
+                tab_width: Some(4),
+                ..Default::default()
+            },
+            lsp: lsp(&["csharp-ls"]),
+            ..Default::default()
+        },
+    );
+    m.insert(
+        "swift".into(),
+        LanguageConfig {
+            extensions: Some(vec!["swift".into()]),
+            comment_token: Some("//".into()),
+            block_comment_token: Some(("/*".into(), "*/".into())),
+            editor: EditorToml {
+                indent_width: Some(4),
+                tab_width: Some(4),
+                ..Default::default()
+            },
+            lsp: lsp(&["sourcekit-lsp"]),
+            ..Default::default()
+        },
+    );
+    // PHP: `<?php` blocks plus surrounding HTML are both parsed by the
+    // `php/` subgrammar. PSR-12 mandates 4-space indent.
+    m.insert(
+        "php".into(),
+        LanguageConfig {
+            extensions: Some(vec!["php".into()]),
+            comment_token: Some("//".into()),
+            block_comment_token: Some(("/*".into(), "*/".into())),
+            editor: EditorToml {
+                indent_width: Some(4),
+                tab_width: Some(4),
+                ..Default::default()
+            },
+            lsp: lsp(&["intelephense"]),
+            ..Default::default()
+        },
+    );
+    // Dart / Flutter convention is 2-space indent (`dart format`
+    // enforces it).
+    m.insert(
+        "dart".into(),
+        LanguageConfig {
+            extensions: Some(vec!["dart".into()]),
+            comment_token: Some("//".into()),
+            block_comment_token: Some(("/*".into(), "*/".into())),
+            editor: EditorToml {
+                indent_width: Some(2),
+                tab_width: Some(2),
+                ..Default::default()
+            },
+            lsp: lsp(&["dart"]),
+            formatter: Some(FormatterToml {
+                command: Some("dart".into()),
+                args: Some(vec!["format".into(), "--output=show".into()]),
+            }),
+            ..Default::default()
+        },
+    );
+    // OCaml: `.ml` implementation, `.mli` interface — both share the
+    // single `ocaml` grammar / queries. No single-line comment syntax,
+    // so the `<space>c` toggle uses the block form via
+    // `block_comment_token`. ocamlformat is the canonical formatter.
+    m.insert(
+        "ocaml".into(),
+        LanguageConfig {
+            extensions: Some(vec!["ml".into(), "mli".into()]),
+            comment_token: None,
+            block_comment_token: Some(("(*".into(), "*)".into())),
+            editor: EditorToml {
+                indent_width: Some(2),
+                tab_width: Some(2),
+                ..Default::default()
+            },
+            lsp: lsp(&["ocamllsp"]),
+            formatter: Some(FormatterToml {
+                command: Some("ocamlformat".into()),
+                args: Some(vec![
+                    "--enable-outside-detected-project".into(),
+                    "--name".into(),
+                    "stdin.ml".into(),
+                    "-".into(),
+                ]),
+            }),
+            ..Default::default()
+        },
+    );
+    // GraphQL uses 2-space indent in every common style guide; `#` is
+    // the only comment syntax (no block form).
+    m.insert(
+        "graphql".into(),
+        LanguageConfig {
+            extensions: Some(vec!["graphql".into(), "gql".into()]),
+            comment_token: Some("#".into()),
+            editor: EditorToml {
+                indent_width: Some(2),
+                tab_width: Some(2),
+                ..Default::default()
+            },
+            lsp: lsp(&["graphql-lsp"]),
+            ..Default::default()
+        },
+    );
+    // Fish shell scripts. `fish_indent` is the canonical formatter,
+    // shipped with fish itself.
+    m.insert(
+        "fish".into(),
+        LanguageConfig {
+            extensions: Some(vec!["fish".into()]),
+            comment_token: Some("#".into()),
+            lsp: lsp(&["fish-lsp"]),
+            formatter: Some(FormatterToml {
+                command: Some("fish_indent".into()),
+                args: None,
+            }),
             ..Default::default()
         },
     );

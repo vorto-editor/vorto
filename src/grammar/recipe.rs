@@ -228,6 +228,65 @@ pub fn builtin_recipes() -> Vec<GrammarRecipe> {
             subpath: None,
             rev: None,
         },
+        // For the seven below, revisions are pinned to match
+        // nvim-treesitter's lockfile at the same commit we vendored
+        // queries from (`cf12346…`). Leaving these unpinned drifts the
+        // grammar AST away from the captured node names — eg. the Swift
+        // grammar at HEAD no longer exposes `"#available"` as a literal
+        // token, which makes our `highlights.scm` fail to compile.
+
+        // tree-sitter-c-sharp's library symbol is `tree_sitter_c_sharp`,
+        // which the loader derives by replacing `-` with `_` in the
+        // grammar name — so the `c-sharp` recipe name lines up.
+        GrammarRecipe {
+            name: "c-sharp",
+            repo: "https://github.com/tree-sitter/tree-sitter-c-sharp",
+            subpath: None,
+            rev: Some("b5eb5742f6a7e9438bee22ce8026d6b927be2cd7"),
+        },
+        GrammarRecipe {
+            name: "swift",
+            repo: "https://github.com/alex-pinkus/tree-sitter-swift",
+            subpath: None,
+            rev: Some("aca5a52aa3cab858944d3c02701ccf5b2d8fd0f9"),
+        },
+        // tree-sitter-php is a monorepo; the `php/` subdir is the full
+        // grammar (parses both `<?php` blocks and surrounding HTML),
+        // which is what most PHP files in the wild are.
+        GrammarRecipe {
+            name: "php",
+            repo: "https://github.com/tree-sitter/tree-sitter-php",
+            subpath: Some("php"),
+            rev: Some("576a56fa7f8b68c91524cdd211eb2ffc43e7bb11"),
+        },
+        GrammarRecipe {
+            name: "dart",
+            repo: "https://github.com/UserNobody14/tree-sitter-dart",
+            subpath: None,
+            rev: Some("80e23c07b64494f7e21090bb3450223ef0b192f4"),
+        },
+        // tree-sitter-ocaml is a monorepo; `grammars/ocaml/` is the
+        // implementation grammar (covers `.ml`). `.mli` interface files
+        // share the entry — the grammar tolerates them well enough that
+        // a separate `ocaml-interface` grammar isn't worth the size.
+        GrammarRecipe {
+            name: "ocaml",
+            repo: "https://github.com/tree-sitter/tree-sitter-ocaml",
+            subpath: Some("grammars/ocaml"),
+            rev: Some("91708deb10cb4fe68ab3c50891426b9967dbf35a"),
+        },
+        GrammarRecipe {
+            name: "graphql",
+            repo: "https://github.com/bkegley/tree-sitter-graphql",
+            subpath: None,
+            rev: Some("5e66e961eee421786bdda8495ed1db045e06b5fe"),
+        },
+        GrammarRecipe {
+            name: "fish",
+            repo: "https://github.com/ram02z/tree-sitter-fish",
+            subpath: None,
+            rev: Some("70640c0696abde32622afc43291a385681afbd32"),
+        },
     ]
 }
 

@@ -395,16 +395,16 @@ mod tests {
     fn resolve_adds_user_only_language() {
         let mut user = HashMap::new();
         user.insert(
-            "fish".into(),
+            "brainfuck".into(),
             LanguageConfig {
-                extensions: Some(vec!["fish".into()]),
+                extensions: Some(vec!["bf".into()]),
                 ..Default::default()
             },
         );
         let langs = resolve(user, &empty_lsp()).unwrap();
-        assert!(langs.contains_key("fish"));
-        assert_eq!(langs["fish"].grammar, "fish");
-        assert!(langs["fish"].lsp.is_empty());
+        assert!(langs.contains_key("brainfuck"));
+        assert_eq!(langs["brainfuck"].grammar, "brainfuck");
+        assert!(langs["brainfuck"].lsp.is_empty());
     }
 
     #[test]
