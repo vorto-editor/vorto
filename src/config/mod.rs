@@ -25,6 +25,7 @@
 mod command;
 mod cursor;
 mod editor;
+mod finder;
 mod keymap;
 mod keys;
 mod languages;
@@ -38,6 +39,7 @@ use serde::Deserialize;
 pub use command::{COMMAND_BINDS, CommandBind};
 pub use cursor::{CursorShape, CursorShapes};
 pub use editor::{EditorConfig, EditorToml, IndentGuideStyle};
+pub use finder::{FinderConfig, FinderToml};
 pub use keymap::{
     BRACKET_NEXT_BINDINGS, BRACKET_PREV_BINDINGS, CTRL_W_BINDINGS, GOTO_BINDINGS, KeySig, Keymap,
     LEADER_DEFAULTS, OBJECT_BINDINGS, OP_PENDING_BINDINGS, WINDOW_BINDINGS, Z_BINDINGS,
@@ -60,6 +62,9 @@ pub struct Config {
     /// Global editor settings, applied to every buffer that doesn't get
     /// a more specific override from a `[languages.<name>]` block.
     pub editor: EditorConfig,
+    /// File picker / tree explorer behavior — currently just the
+    /// `hidden_patterns` glob list.
+    pub finder: FinderConfig,
     /// Absolute path to the grammar directory (`<grammar>.{so,dylib,dll}`).
     pub grammar_dir: PathBuf,
     /// Absolute path to the query directory (`<lang>/highlights.scm`).
@@ -84,6 +89,7 @@ impl Config {
 
         let cursor_shapes = resolve_cursor_shapes(&toml.cursor)?;
         let editor = EditorConfig::default().overlay(&toml.editor);
+        let finder = FinderConfig::default().overlay(&toml.finder);
         let languages = LanguageRegistry::build(toml.languages, toml.lsp)?;
         let grammar_dir = toml
             .grammar_dir
@@ -99,6 +105,7 @@ impl Config {
             cursor_shapes,
             languages,
             editor,
+            finder,
             grammar_dir,
             query_dir,
         })
@@ -119,6 +126,9 @@ struct Toml {
     /// fields directly into each `[languages.<name>]` table.
     #[serde(default)]
     editor: EditorToml,
+    /// `[finder]` table — file picker / explorer behavior.
+    #[serde(default)]
+    finder: FinderToml,
     /// `[languages.<name>]` blocks. Resolved against built-in defaults
     /// by [`LanguageRegistry::build`].
     #[serde(default)]

@@ -153,9 +153,12 @@ impl App {
         match kind {
             PromptKind::Command => self.prompt.open_command(),
             PromptKind::Search { forward } => self.prompt.open_search(forward),
-            PromptKind::Fuzzy(FuzzyKind::Files { ignore }) => {
-                self.prompt.open_files(&self.startup_cwd, ignore)
-            }
+            PromptKind::Fuzzy(FuzzyKind::Files { ignore }) => self.prompt.open_files(
+                &self.startup_cwd,
+                ignore,
+                &self.config.finder.hidden_patterns,
+                self.config.finder.max_items,
+            ),
             PromptKind::Fuzzy(FuzzyKind::Lines) => self.prompt.open_lines(&self.buffer.lines),
             PromptKind::Fuzzy(FuzzyKind::Buffers) => self.open_buffer_picker(),
             // `Locations` pickers are built from server results, not opened
@@ -169,6 +172,8 @@ impl App {
             PromptKind::Explorer => self.prompt.open_explorer(
                 &self.startup_cwd,
                 IgnoreOpts::DEFAULT,
+                self.config.finder.hidden_patterns.clone(),
+                self.config.finder.max_items,
                 self.config.editor.compact_folders,
             ),
         }
@@ -338,7 +343,12 @@ impl App {
     ///   - Hard cap of [`WORKSPACE_SEARCH_MAX_LINES`] total entries.
     fn open_workspace_search(&mut self) {
         let cwd = &self.startup_cwd;
-        let files = workspace_files(cwd, IgnoreOpts::DEFAULT);
+        let files = workspace_files(
+            cwd,
+            IgnoreOpts::DEFAULT,
+            &self.config.finder.hidden_patterns,
+            self.config.finder.max_items,
+        );
         let mut items: Vec<String> = Vec::new();
         let mut file_lines: Vec<Vec<String>> = Vec::new();
         let mut locations: Vec<Location> = Vec::new();

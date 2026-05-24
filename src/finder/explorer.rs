@@ -163,15 +163,29 @@ pub struct ExplorerState {
     /// Ignore options captured at open time, mirrored when the tree is
     /// rebuilt after a create/delete/rename/move.
     pub ignore: IgnoreOpts,
+    /// Glob patterns marking entries as hidden. Captured at open time;
+    /// `refresh` forwards them to `workspace_files` / `workspace_dirs`
+    /// so toggling `ignore.hidden` produces a consistent view.
+    pub hidden_patterns: Vec<String>,
+    /// Walker / `git ls-files` cap. Surfaced here so `refresh` after a
+    /// file op rebuilds the tree with the same limit the explorer was
+    /// opened under.
+    pub max_items: usize,
     /// Last error message produced by a file op. Cleared on the next
     /// successful op or mode change.
     pub error: Option<String>,
 }
 
 impl ExplorerState {
-    pub fn new(root: &Path, ignore: IgnoreOpts, _compact: bool) -> Self {
-        let files = workspace_files(root, ignore);
-        let dirs = workspace_dirs(root, ignore);
+    pub fn new(
+        root: &Path,
+        ignore: IgnoreOpts,
+        hidden_patterns: Vec<String>,
+        max_items: usize,
+        _compact: bool,
+    ) -> Self {
+        let files = workspace_files(root, ignore, &hidden_patterns, max_items);
+        let dirs = workspace_dirs(root, ignore, &hidden_patterns, max_items);
         let nodes = build_nodes(&files, &dirs);
         let mut s = Self {
             nodes,
@@ -185,6 +199,8 @@ impl ExplorerState {
             action: None,
             root: root.to_path_buf(),
             ignore,
+            hidden_patterns,
+            max_items,
             error: None,
         };
         s.refilter();
@@ -197,8 +213,18 @@ impl ExplorerState {
     /// still exists; otherwise clamps to the new last visible row.
     pub fn refresh(&mut self) {
         let prev_path = self.selection().map(|n| n.rel_path.clone());
-        let files = workspace_files(&self.root, self.ignore);
-        let dirs = workspace_dirs(&self.root, self.ignore);
+        let files = workspace_files(
+            &self.root,
+            self.ignore,
+            &self.hidden_patterns,
+            self.max_items,
+        );
+        let dirs = workspace_dirs(
+            &self.root,
+            self.ignore,
+            &self.hidden_patterns,
+            self.max_items,
+        );
         self.nodes = build_nodes(&files, &dirs);
         // Drop any expanded entry that no longer maps to a dir.
         let alive: HashSet<String> = self
@@ -907,6 +933,16 @@ mod tests {
         assert_eq!(depths, vec![0, 1, 2, 2, 1, 2, 3, 0]);
     }
 
+    fn default_patterns() -> Vec<String> {
+        vec![
+            ".*".into(),
+            "node_modules".into(),
+            "target".into(),
+            "dist".into(),
+            "build".into(),
+        ]
+    }
+
     fn make_state(nodes: Vec<ExplorerNode>, query: &str) -> ExplorerState {
         ExplorerState {
             nodes,
@@ -924,8 +960,241 @@ mod tests {
             action: None,
             root: PathBuf::from("/tmp/vorto-test"),
             ignore: IgnoreOpts::DEFAULT,
+            hidden_patterns: default_patterns(),
+            max_items: 5000,
             error: None,
         }
+    }
+
+    #[test]
+    fn toggle_hidden_surfaces_dotfile_at_root() {
+        // Repro for an explorer bug report: pressing `.` in selection
+        // mode should reveal a tracked-but-dotfile entry like
+        // `.gitignore`. Uses a real tmp dir so the workspace_files
+        // walker actually runs end-to-end.
+        let tmp = std::env::temp_dir().join(format!(
+            "vorto-explorer-dotfile-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0),
+        ));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        std::fs::write(tmp.join(".gitignore"), "/target\n").unwrap();
+        std::fs::write(tmp.join("README.md"), "# test\n").unwrap();
+        std::fs::create_dir_all(tmp.join("src")).unwrap();
+        std::fs::write(tmp.join("src/main.rs"), "fn main() {}\n").unwrap();
+
+        let mut s = ExplorerState::new(&tmp, IgnoreOpts::DEFAULT, default_patterns(), 5000, false);
+        let initial_visible: Vec<String> = s
+            .visible
+            .iter()
+            .map(|&i| s.nodes[i].rel_path.clone())
+            .collect();
+        assert!(
+            !initial_visible.iter().any(|p| p == ".gitignore"),
+            "dotfile should be hidden by default, got {:?}",
+            initial_visible
+        );
+
+        s.apply_key(KeyEvent::new(KeyCode::Char('.'), KeyModifiers::NONE));
+
+        let after: Vec<String> = s
+            .visible
+            .iter()
+            .map(|&i| s.nodes[i].rel_path.clone())
+            .collect();
+        let _ = std::fs::remove_dir_all(&tmp);
+        assert!(
+            after.iter().any(|p| p == ".gitignore"),
+            "after pressing `.`, dotfile should appear, got {:?}",
+            after
+        );
+    }
+
+    #[test]
+    fn toggle_vcs_after_expanding_empty_gitignored_dir() {
+        // Realistic user flow: navigate into a gitignored dir (which
+        // appears empty at default settings), press `h` to flip vcs,
+        // expect the files to materialise without having to re-expand.
+        let tmp = std::env::temp_dir().join(format!(
+            "vorto-explorer-expand-then-h-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0),
+        ));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        std::fs::write(tmp.join(".gitignore"), "/scratch/\n").unwrap();
+        std::fs::write(tmp.join("README.md"), "# test\n").unwrap();
+        std::fs::create_dir_all(tmp.join("scratch")).unwrap();
+        std::fs::write(tmp.join("scratch/hello.txt"), "hi\n").unwrap();
+        let ok = std::process::Command::new("git")
+            .args(["-C"])
+            .arg(&tmp)
+            .args(["init", "-q"])
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if !ok {
+            let _ = std::fs::remove_dir_all(&tmp);
+            return;
+        }
+        let _ = std::process::Command::new("git")
+            .args(["-C"])
+            .arg(&tmp)
+            .args(["add", "-A"])
+            .status();
+
+        let mut s = ExplorerState::new(&tmp, IgnoreOpts::DEFAULT, default_patterns(), 5000, false);
+        // Step 1: user expands `scratch` (empty at this point).
+        s.expanded.insert("scratch".into());
+        s.refilter();
+        let after_expand: Vec<String> = s
+            .visible
+            .iter()
+            .map(|&i| s.nodes[i].rel_path.clone())
+            .collect();
+        eprintln!("expanded but vcs=true: {:?}", after_expand);
+
+        // Step 2: user presses `h`.
+        s.apply_key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::NONE));
+        let after_h: Vec<String> = s
+            .visible
+            .iter()
+            .map(|&i| s.nodes[i].rel_path.clone())
+            .collect();
+        eprintln!("after h: {:?}", after_h);
+
+        let _ = std::fs::remove_dir_all(&tmp);
+        assert!(
+            after_h.iter().any(|p| p == "scratch/hello.txt"),
+            "expected scratch/hello.txt to appear after `h`, got {:?}",
+            after_h
+        );
+    }
+
+    #[test]
+    fn toggle_vcs_surfaces_gitignored_dir_in_git_repo() {
+        // Repro: in a git repo with `scratch/` listed in `.gitignore`,
+        // the default explorer view hides files inside `scratch/`.
+        // Pressing `h` should reveal them. Mirrors the
+        // `/assets/samples/` setup in this repo.
+        let tmp = std::env::temp_dir().join(format!(
+            "vorto-explorer-gitignored-dir-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0),
+        ));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        std::fs::write(tmp.join(".gitignore"), "/scratch/\n").unwrap();
+        std::fs::write(tmp.join("README.md"), "# test\n").unwrap();
+        std::fs::create_dir_all(tmp.join("scratch")).unwrap();
+        std::fs::write(tmp.join("scratch/hello.txt"), "hi\n").unwrap();
+        let ok = std::process::Command::new("git")
+            .args(["-C"])
+            .arg(&tmp)
+            .args(["init", "-q"])
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if !ok {
+            let _ = std::fs::remove_dir_all(&tmp);
+            return;
+        }
+        let _ = std::process::Command::new("git")
+            .args(["-C"])
+            .arg(&tmp)
+            .args(["add", "-A"])
+            .status();
+
+        let mut s = ExplorerState::new(&tmp, IgnoreOpts::DEFAULT, default_patterns(), 5000, false);
+        let initial: Vec<String> = s
+            .visible
+            .iter()
+            .map(|&i| s.nodes[i].rel_path.clone())
+            .collect();
+        eprintln!("DEFAULT visible: {:?}", initial);
+
+        s.apply_key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::NONE));
+
+        // After toggle, expand the `scratch` dir so its child is in
+        // visible — the toggle just rebuilds nodes, it doesn't auto-
+        // expand previously-empty dirs.
+        s.expanded.insert("scratch".into());
+        s.refilter();
+        let after: Vec<String> = s
+            .visible
+            .iter()
+            .map(|&i| s.nodes[i].rel_path.clone())
+            .collect();
+        eprintln!("AFTER h + expand visible: {:?}", after);
+        let _ = std::fs::remove_dir_all(&tmp);
+        assert!(
+            after.iter().any(|p| p == "scratch/hello.txt"),
+            "after pressing `h` and expanding scratch, gitignored file should appear, got {:?}",
+            after
+        );
+    }
+
+    #[test]
+    fn toggle_hidden_surfaces_dotfile_in_git_repo() {
+        // Same repro but inside an actual git repo, which routes
+        // workspace_files through `git ls-files` instead of the manual
+        // walker.
+        let tmp = std::env::temp_dir().join(format!(
+            "vorto-explorer-dotfile-git-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0),
+        ));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        std::fs::write(tmp.join(".gitignore"), "/target\n").unwrap();
+        std::fs::write(tmp.join("README.md"), "# test\n").unwrap();
+        std::fs::create_dir_all(tmp.join("src")).unwrap();
+        std::fs::write(tmp.join("src/main.rs"), "fn main() {}\n").unwrap();
+        // init + stage so .gitignore is tracked by `git ls-files --cached`
+        let ok = std::process::Command::new("git")
+            .args(["-C"])
+            .arg(&tmp)
+            .args(["init", "-q"])
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if !ok {
+            let _ = std::fs::remove_dir_all(&tmp);
+            return; // git not available — skip
+        }
+        let _ = std::process::Command::new("git")
+            .args(["-C"])
+            .arg(&tmp)
+            .args(["add", "-A"])
+            .status();
+
+        let mut s = ExplorerState::new(&tmp, IgnoreOpts::DEFAULT, default_patterns(), 5000, false);
+        s.apply_key(KeyEvent::new(KeyCode::Char('.'), KeyModifiers::NONE));
+
+        let after: Vec<String> = s
+            .visible
+            .iter()
+            .map(|&i| s.nodes[i].rel_path.clone())
+            .collect();
+        let _ = std::fs::remove_dir_all(&tmp);
+        assert!(
+            after.iter().any(|p| p == ".gitignore"),
+            "in git repo, after pressing `.`, .gitignore should appear, got {:?}",
+            after
+        );
     }
 
     #[test]

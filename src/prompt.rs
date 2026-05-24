@@ -485,16 +485,40 @@ impl PromptController {
         };
     }
 
-    pub fn open_files(&mut self, startup_cwd: &Path, ignore: IgnoreOpts) {
-        self.state = Prompt::Fuzzy(Finder::files(startup_cwd, ignore));
+    pub fn open_files(
+        &mut self,
+        startup_cwd: &Path,
+        ignore: IgnoreOpts,
+        hidden_patterns: &[String],
+        max_items: usize,
+    ) {
+        self.state = Prompt::Fuzzy(Finder::files(
+            startup_cwd,
+            ignore,
+            hidden_patterns,
+            max_items,
+        ));
     }
 
     /// `<space>e` — tree file explorer. All dirs start collapsed; the
     /// user expands by pressing Enter / Right on a dir row. Typing
     /// into the query box fuzzy-filters files and auto-expands their
     /// ancestor dirs so matches stay reachable.
-    pub fn open_explorer(&mut self, startup_cwd: &Path, ignore: IgnoreOpts, compact: bool) {
-        self.state = Prompt::Explorer(ExplorerState::new(startup_cwd, ignore, compact));
+    pub fn open_explorer(
+        &mut self,
+        startup_cwd: &Path,
+        ignore: IgnoreOpts,
+        hidden_patterns: Vec<String>,
+        max_items: usize,
+        compact: bool,
+    ) {
+        self.state = Prompt::Explorer(ExplorerState::new(
+            startup_cwd,
+            ignore,
+            hidden_patterns,
+            max_items,
+            compact,
+        ));
     }
 
     pub fn open_lines(&mut self, lines: &[String]) {
