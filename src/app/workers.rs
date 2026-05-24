@@ -127,6 +127,49 @@ impl App {
         }
     }
 
+    /// Read the HEAD blob for `path` off the main thread and deliver it
+    /// via [`AppEvent::VcsBaseReady`]. `vcs::head_blob_lines` shells out
+    /// to git twice (`rev-parse` + `show`), which on a cold cache or a
+    /// large repo is slow enough to be felt at the first paint — so we
+    /// keep it off the open path and let the gutter fill in a frame
+    /// later. Reconciled by `open_gen` in [`Self::handle_vcs_base_ready`].
+    pub(super) fn spawn_vcs_worker(&mut self) {
+        let Some(path) = self.buffer.path.clone() else {
+            // Scratch buffer — nothing to diff against.
+            return;
+        };
+        let tx = self.event_tx.clone();
+        let generation = self.open_gen;
+        thread::spawn(move || {
+            let base = crate::vcs::head_blob_lines(&path);
+            let _ = tx.send(AppEvent::VcsBaseReady {
+                generation,
+                path,
+                base,
+            });
+        });
+    }
+
+    /// Install the HEAD base on the active buffer. Dropped when
+    /// `generation` is stale (another file was opened since) or the
+    /// active buffer's path drifted from the one we read — either way
+    /// the result no longer describes what's on screen.
+    pub fn handle_vcs_base_ready(
+        &mut self,
+        generation: u64,
+        path: PathBuf,
+        base: Option<Vec<String>>,
+    ) {
+        if generation != self.open_gen {
+            return;
+        }
+        if self.buffer.path.as_deref() != Some(path.as_path()) {
+            return;
+        }
+        self.buffer.vcs_base = base;
+        self.buffer.vcs_diff.borrow_mut().take();
+    }
+
     /// Install a freshly-built highlighter on the active buffer. Dropped
     /// when `generation` doesn't match — the user opened another file
     /// while the worker was running.

@@ -143,6 +143,7 @@ impl App {
             self.lsp.set_last_synced_version(self.buffer.version);
             self.push_toast(Toast::info(format!("restored {}", path.display())));
             self.spawn_engine_worker(&path);
+            self.spawn_vcs_worker();
             self.spawn_lsp_worker(&path);
             return Ok(());
         }
@@ -221,6 +222,7 @@ impl App {
         } else {
             self.spawn_engine_worker(path);
         }
+        self.spawn_vcs_worker();
         self.spawn_lsp_worker(path);
         Ok(())
     }

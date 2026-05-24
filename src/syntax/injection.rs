@@ -31,10 +31,11 @@
 //! against the sub-tree, and translates the sub-captures back into
 //! host-source row/column coordinates.
 
-use std::collections::HashMap;
+use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
 
 use anyhow::{Context, Result};
-use tree_sitter::{Language, Parser, Query, QueryCursor, StreamingIterator, Tree};
+use tree_sitter::{Language, Parser, Point, Query, QueryCursor, StreamingIterator, Tree};
 
 use super::highlight::Capture;
 use super::loader::Loader;
@@ -95,6 +96,20 @@ pub struct InjectionEngine {
     /// Pre-loaded sub-language highlighters keyed by the language
     /// name as it appears in `#set! injection.language`.
     subs: HashMap<String, SubHighlighter>,
+    /// Parsed sub-trees keyed by the exact `@injection.content` text,
+    /// with the language they were parsed as stored alongside so two
+    /// regions sharing identical text but different languages (e.g. a
+    /// markdown ` ```rust ` and ` ```python ` block both holding
+    /// `x = 1`) can't return each other's tree.
+    ///
+    /// Re-parsing every embedded region from scratch on each frame was
+    /// the injection path's dominant cost (a markdown code block or
+    /// `<script>` body re-parsed per keystroke / redraw). Keying on the
+    /// region *content* rather than its byte offset means edits in
+    /// host prose that merely shift a region's position still hit the
+    /// cache. Pruned each call down to the regions actually visited so
+    /// it stays bounded by what's on screen.
+    sub_tree_cache: RefCell<HashMap<String, (String, Tree)>>,
 }
 
 impl InjectionEngine {
@@ -173,6 +188,7 @@ impl InjectionEngine {
             pattern_lang,
             content_idx,
             subs,
+            sub_tree_cache: RefCell::new(HashMap::new()),
         }))
     }
 
@@ -185,6 +201,7 @@ impl InjectionEngine {
     pub(super) fn captures_in_rows(
         &self,
         host_source: &str,
+        host_line_starts: &[usize],
         tree: &Tree,
         start_row: usize,
         end_row: usize,
@@ -194,8 +211,24 @@ impl InjectionEngine {
         };
         let mut out = Vec::new();
         let mut cursor = QueryCursor::new();
+        // Only walk injection matches overlapping the visible window;
+        // off-screen regions are skipped before we ever pay to parse
+        // them (mirrors the range limiting on the host highlight query).
+        cursor.set_point_range(
+            Point {
+                row: start_row,
+                column: 0,
+            }..Point {
+                row: end_row.saturating_add(1),
+                column: 0,
+            },
+        );
         let mut matches = cursor.matches(&self.query, tree.root_node(), host_source.as_bytes());
         let host_bytes = host_source.as_bytes();
+        let mut cache = self.sub_tree_cache.borrow_mut();
+        // Region contents touched this pass; everything else is evicted
+        // afterwards so the cache tracks the on-screen working set.
+        let mut seen: HashSet<&str> = HashSet::new();
         while let Some(m) = matches.next() {
             let Some(lang_name) = self
                 .pattern_lang
@@ -225,12 +258,25 @@ impl InjectionEngine {
                 let Ok(slice) = std::str::from_utf8(&host_bytes[start_byte..end_byte]) else {
                     continue;
                 };
-                let mut parser = Parser::new();
-                if parser.set_language(&sub.language).is_err() {
-                    continue;
-                }
-                let Some(sub_tree) = parser.parse(slice, None) else {
-                    continue;
+                seen.insert(slice);
+                // Reuse the sub-tree when this exact region text was
+                // already parsed (cheap `Tree` clone — it's internally
+                // reference-counted). `Tree` carries no borrow of the
+                // source it was parsed from, so a cached tree stays
+                // valid across frames.
+                let sub_tree = match cache.get(slice) {
+                    Some((cached_lang, t)) if cached_lang == lang_name => t.clone(),
+                    _ => {
+                        let mut parser = Parser::new();
+                        if parser.set_language(&sub.language).is_err() {
+                            continue;
+                        }
+                        let Some(t) = parser.parse(slice, None) else {
+                            continue;
+                        };
+                        cache.insert(slice.to_string(), (lang_name.to_string(), t.clone()));
+                        t
+                    }
                 };
 
                 // Sub-tree positions are relative to `slice`. The
@@ -245,6 +291,7 @@ impl InjectionEngine {
                     &sub_tree,
                     slice,
                     host_source,
+                    host_line_starts,
                     host_start_pt.row,
                     host_start_pt.column,
                     start_row,
@@ -253,6 +300,7 @@ impl InjectionEngine {
                 );
             }
         }
+        cache.retain(|k, _| seen.contains(k.as_str()));
         out
     }
 
@@ -274,8 +322,19 @@ impl InjectionEngine {
         };
         let mut out = Vec::new();
         let mut cursor = QueryCursor::new();
+        cursor.set_point_range(
+            Point {
+                row: start_row,
+                column: 0,
+            }..Point {
+                row: end_row.saturating_add(1),
+                column: 0,
+            },
+        );
         let mut matches = cursor.matches(&self.query, tree.root_node(), host_source.as_bytes());
         let host_bytes = host_source.as_bytes();
+        let mut cache = self.sub_tree_cache.borrow_mut();
+        let mut seen: HashSet<&str> = HashSet::new();
         while let Some(m) = matches.next() {
             let Some(lang_name) = self
                 .pattern_lang
@@ -308,12 +367,20 @@ impl InjectionEngine {
                 let Ok(slice) = std::str::from_utf8(&host_bytes[start_byte..end_byte]) else {
                     continue;
                 };
-                let mut parser = Parser::new();
-                if parser.set_language(&sub.language).is_err() {
-                    continue;
-                }
-                let Some(sub_tree) = parser.parse(slice, None) else {
-                    continue;
+                seen.insert(slice);
+                let sub_tree = match cache.get(slice) {
+                    Some((cached_lang, t)) if cached_lang == lang_name => t.clone(),
+                    _ => {
+                        let mut parser = Parser::new();
+                        if parser.set_language(&sub.language).is_err() {
+                            continue;
+                        }
+                        let Some(t) = parser.parse(slice, None) else {
+                            continue;
+                        };
+                        cache.insert(slice.to_string(), (lang_name.to_string(), t.clone()));
+                        t
+                    }
                 };
                 let host_row_offset = node.start_position().row;
                 let mut sub_cursor = QueryCursor::new();
@@ -344,6 +411,7 @@ impl InjectionEngine {
                 }
             }
         }
+        cache.retain(|k, _| seen.contains(k.as_str()));
         out
     }
 
@@ -354,6 +422,7 @@ impl InjectionEngine {
         sub_tree: &Tree,
         sub_source: &str,
         host_source: &str,
+        host_line_starts: &[usize],
         host_row_offset: usize,
         host_col_offset_first_row: usize,
         start_row: usize,
@@ -392,14 +461,16 @@ impl InjectionEngine {
                     .unwrap_or_default();
                 out.push(Capture {
                     start_row: host_start_row,
-                    start_col: super::engine::byte_to_char_col(
+                    start_col: super::engine::byte_to_char_col_indexed(
                         host_source,
+                        host_line_starts,
                         host_start_row,
                         host_start_col,
                     ),
                     end_row: host_end_row,
-                    end_col: super::engine::byte_to_char_col(
+                    end_col: super::engine::byte_to_char_col_indexed(
                         host_source,
+                        host_line_starts,
                         host_end_row,
                         host_end_col,
                     ),

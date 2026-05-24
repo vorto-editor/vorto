@@ -217,7 +217,6 @@ impl Buffer {
         if lines.is_empty() {
             lines.push(String::new());
         }
-        let vcs_base = vcs::head_blob_lines(path);
         let disk_meta = FileMeta::of(path);
         Ok(Self {
             lines,
@@ -236,7 +235,9 @@ impl Buffer {
             indent_anim: Cell::new(None),
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
-            vcs_base,
+            // Filled in by a worker thread after open so git doesn't
+            // block the first paint — see `App::spawn_vcs_worker`.
+            vcs_base: None,
             vcs_diff: RefCell::new(None),
             disk_meta,
         })
@@ -275,6 +276,13 @@ impl Buffer {
         let Some(h) = self.highlighter.as_mut() else {
             return;
         };
+        // Called every frame from the draw loop. Skip the
+        // full-document `lines.join` allocation when the tree already
+        // reflects the current version — the common case once the
+        // buffer is idle and during pure navigation.
+        if h.is_current(self.version) {
+            return;
+        }
         let source = self.lines.join("\n");
         h.refresh(&source, self.version);
     }

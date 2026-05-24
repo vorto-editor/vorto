@@ -7,9 +7,9 @@
 //! name → style resolution downstream.
 
 use anyhow::Result;
-use tree_sitter::{Language, Query, QueryCursor, StreamingIterator, Tree};
+use tree_sitter::{Language, Point, Query, QueryCursor, StreamingIterator, Tree};
 
-use super::engine::byte_to_char_col;
+use super::engine::byte_to_char_col_indexed;
 
 /// Compiled `highlights.scm` query for one language.
 pub struct HighlightQuery {
@@ -41,11 +41,28 @@ impl HighlightQuery {
     pub(super) fn captures_in_rows(
         &self,
         source: &str,
+        line_starts: &[usize],
         tree: &Tree,
         start_row: usize,
         end_row: usize,
     ) -> Vec<Capture> {
         let mut cursor = QueryCursor::new();
+        // Restrict the query to the visible row window. Without this
+        // the cursor walks every match in the whole document on every
+        // frame and the row filter below discards all but ~viewport
+        // rows — so highlight cost scaled with file size, not what's
+        // on screen. `end_row + 1` makes the range cover `end_row`'s
+        // full line; column 0 of the row past the window is the first
+        // byte we no longer care about.
+        cursor.set_point_range(
+            Point {
+                row: start_row,
+                column: 0,
+            }..Point {
+                row: end_row.saturating_add(1),
+                column: 0,
+            },
+        );
         let mut matches = cursor.matches(&self.query, tree.root_node(), source.as_bytes());
         let mut out = Vec::new();
         // `QueryMatches` is a streaming iterator in tree-sitter 0.25+,
@@ -66,9 +83,14 @@ impl HighlightQuery {
                     .unwrap_or_default();
                 out.push(Capture {
                     start_row: start.row,
-                    start_col: byte_to_char_col(source, start.row, start.column),
+                    start_col: byte_to_char_col_indexed(
+                        source,
+                        line_starts,
+                        start.row,
+                        start.column,
+                    ),
                     end_row: end.row,
-                    end_col: byte_to_char_col(source, end.row, end.column),
+                    end_col: byte_to_char_col_indexed(source, line_starts, end.row, end.column),
                     name,
                 });
             }

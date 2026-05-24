@@ -57,4 +57,16 @@ pub enum AppEvent {
     /// late-arriving response just becomes a cheap cache entry for next
     /// time the user navigates back to that file.
     PreviewReady(PreviewEntry),
+    /// A worker thread finished reading the HEAD blob for an opened
+    /// file (two `git` subprocesses). Computed off-thread so the
+    /// initial buffer paint isn't blocked on git — the gutter diff
+    /// fills in a frame later. `base` is `None` when the file isn't in
+    /// a git repo. Reconciled against `open_gen` like the other
+    /// open-time workers so a stale result from a previous file is
+    /// dropped.
+    VcsBaseReady {
+        generation: u64,
+        path: PathBuf,
+        base: Option<Vec<String>>,
+    },
 }

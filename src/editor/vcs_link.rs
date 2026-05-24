@@ -7,18 +7,6 @@ use super::Buffer;
 use crate::vcs::{self, LineStatus};
 
 impl Buffer {
-    /// Re-fetch the HEAD base for this buffer's path. No-op when the
-    /// buffer isn't backed by a file. Used by the sleep/wake path so a
-    /// `<space>b` round-trip picks up any HEAD movement that happened
-    /// while the buffer was inactive.
-    pub fn refresh_vcs_base(&mut self) {
-        let Some(p) = self.path.as_deref() else {
-            return;
-        };
-        self.vcs_base = vcs::head_blob_lines(p);
-        self.vcs_diff.borrow_mut().take();
-    }
-
     /// Per-line VCS statuses, recomputed if the cached version is
     /// stale. Returns an empty slice when this buffer has no base
     /// (not in a git repo, or no path).

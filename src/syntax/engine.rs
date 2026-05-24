@@ -21,6 +21,8 @@
 //! error, ABI mismatch) surface as `anyhow::Error` from
 //! [`Engine::new`] so the caller can fall back to plain text.
 
+use std::cell::RefCell;
+
 use anyhow::{Context, Result};
 use tree_sitter::{InputEdit, Language, Parser, Point, Tree};
 
@@ -39,16 +41,39 @@ pub struct Engine {
     parser: Parser,
     tree: Option<Tree>,
     source: String,
+    /// Byte offset of the start of each line in `source`, plus a
+    /// trailing sentinel of `source.len()`. Rebuilt once per
+    /// [`Self::refresh`] so the per-capture byte→char column conversion
+    /// is an O(1) row lookup instead of an O(row) `lines().nth(row)`
+    /// scan — otherwise highlight cost scales with the cursor's
+    /// absolute row, not the visible window.
+    line_starts: Vec<usize>,
     parsed_version: Option<u64>,
     highlight: HighlightQuery,
     indent: Option<IndentQuery>,
     textobject: Option<TextObjectQuery>,
     injection: Option<InjectionEngine>,
+    /// Memoized result of the last [`Self::captures_in_rows`] call.
+    /// Keyed on `(parsed_version, start_row, end_row)`: the draw loop
+    /// re-queries on every frame, but pure cursor moves, mode changes,
+    /// and toast-TTL redraws leave all three unchanged — so we return
+    /// the cached spans instead of re-walking the tree (and, with an
+    /// injection engine, re-parsing every embedded region). Invalidated
+    /// wholesale whenever [`Self::refresh`] reparses.
+    capture_cache: RefCell<Option<CaptureCache>>,
     /// Non-fatal warnings collected during construction (e.g. an
     /// `indents.scm` that failed to compile). The TUI drains these
     /// into toasts; writing to stderr from a worker thread would
     /// corrupt the alt-screen display.
     pub warnings: Vec<String>,
+}
+
+/// Cached `captures_in_rows` output plus the key it was computed for.
+struct CaptureCache {
+    version: Option<u64>,
+    start_row: usize,
+    end_row: usize,
+    captures: Vec<Capture>,
 }
 
 impl Engine {
@@ -101,13 +126,23 @@ impl Engine {
             parser,
             tree: None,
             source: String::new(),
+            line_starts: vec![0],
             parsed_version: None,
             highlight,
             indent,
             textobject,
             injection,
+            capture_cache: RefCell::new(None),
             warnings,
         })
+    }
+
+    /// True when the cached tree already reflects `version`, so a
+    /// caller can skip rebuilding the source snapshot and calling
+    /// [`Self::refresh`]. Lets the per-frame `refresh_highlights` avoid
+    /// a full-document `lines.join` when nothing changed.
+    pub fn is_current(&self, version: u64) -> bool {
+        self.parsed_version == Some(version)
     }
 
     /// Re-parse `source` if it's newer than the cached tree.
@@ -131,7 +166,10 @@ impl Engine {
         };
         self.tree = self.parser.parse(source, old_tree);
         self.source = source.to_string();
+        self.line_starts = line_start_offsets(&self.source);
         self.parsed_version = Some(version);
+        // The tree changed; any memoized capture window is now stale.
+        self.capture_cache.borrow_mut().take();
     }
 
     /// All highlight captures intersecting rows `[start_row..=end_row]`.
@@ -139,21 +177,44 @@ impl Engine {
     /// injection engine is configured. Columns are returned in
     /// characters (not bytes).
     pub fn captures_in_rows(&self, start_row: usize, end_row: usize) -> Vec<Capture> {
+        if let Some(c) = self.capture_cache.borrow().as_ref()
+            && c.version == self.parsed_version
+            && c.start_row == start_row
+            && c.end_row == end_row
+        {
+            return c.captures.clone();
+        }
         let Some(tree) = &self.tree else {
             return Vec::new();
         };
-        let mut out = self
-            .highlight
-            .captures_in_rows(&self.source, tree, start_row, end_row);
+        let mut out = self.highlight.captures_in_rows(
+            &self.source,
+            &self.line_starts,
+            tree,
+            start_row,
+            end_row,
+        );
         // Layer in sub-language captures *after* the host's so the
         // renderer's patch-merge stacks sub-language fg/bold on top of
         // any host capture covering the same region. The subsequent
         // stable sort keeps everything in document order while
         // preserving intra-row priority.
         if let Some(inj) = self.injection.as_ref() {
-            out.extend(inj.captures_in_rows(&self.source, tree, start_row, end_row));
+            out.extend(inj.captures_in_rows(
+                &self.source,
+                &self.line_starts,
+                tree,
+                start_row,
+                end_row,
+            ));
         }
         out.sort_by_key(|c| (c.start_row, c.start_col));
+        *self.capture_cache.borrow_mut() = Some(CaptureCache {
+            version: self.parsed_version,
+            start_row,
+            end_row,
+            captures: out.clone(),
+        });
         out
     }
 
@@ -231,6 +292,47 @@ pub(super) fn byte_to_char_col(source: &str, row: usize, byte_col: usize) -> usi
     let line = source.lines().nth(row).unwrap_or("");
     let take = byte_col.min(line.len());
     line[..take].chars().count()
+}
+
+/// Byte offset where each line of `source` begins, terminated by a
+/// `source.len()` sentinel so the end of the last line is always
+/// `line_starts[row + 1]`. A single linear pass; cached on the
+/// [`Engine`] and rebuilt only when the source changes.
+fn line_start_offsets(source: &str) -> Vec<usize> {
+    let mut starts = Vec::with_capacity(source.len() / 32 + 2);
+    starts.push(0);
+    for (i, b) in source.bytes().enumerate() {
+        if b == b'\n' {
+            starts.push(i + 1);
+        }
+    }
+    starts.push(source.len());
+    starts
+}
+
+/// [`byte_to_char_col`] using a precomputed [`line_start_offsets`]
+/// table: an O(1) row lookup plus an O(column) char count, instead of
+/// the O(row) `lines().nth(row)` scan. Called once per highlight
+/// capture, so the difference is what keeps per-frame cost tied to the
+/// visible window rather than the cursor's absolute row.
+pub(super) fn byte_to_char_col_indexed(
+    source: &str,
+    line_starts: &[usize],
+    row: usize,
+    byte_col: usize,
+) -> usize {
+    let Some(&start) = line_starts.get(row) else {
+        return 0;
+    };
+    let end = line_starts.get(row + 1).copied().unwrap_or(source.len());
+    let line = &source[start..end.min(source.len())];
+    let take = byte_col.min(line.len());
+    match line.get(..take) {
+        Some(prefix) => prefix.chars().count(),
+        // `take` landed mid-codepoint (shouldn't happen for tree-sitter
+        // node columns, but stay total): fall back to the whole line.
+        None => line.chars().count(),
+    }
 }
 
 /// Inverse of [`byte_to_char_col`]: given a character column, return
@@ -351,5 +453,126 @@ mod tests {
         assert_eq!(edit.start_byte, 0);
         assert_eq!(edit.old_end_byte, 3);
         assert_eq!(edit.new_end_byte, 3);
+    }
+
+    // ───────────────────────────────────────────────────────────────
+    // Ad-hoc performance probes. Ignored by default (they depend on
+    // grammars installed under ~/.config/vorto and are timing-based,
+    // not assertions). Run with:
+    //   cargo test --release perf_ -- --ignored --nocapture
+    // ───────────────────────────────────────────────────────────────
+
+    use crate::config::Config;
+    use crate::syntax::Loader;
+    use std::path::Path;
+    use std::time::Instant;
+
+    // Returns the `Loader` alongside the `Engine` so the caller keeps
+    // it alive: the engine's `Language` is a pointer into a dylib the
+    // loader owns, so dropping the loader early dangles it (SIGSEGV).
+    fn engine_for_path(sample: &str, source: &str) -> Option<(Loader, Engine)> {
+        let cfg = Config::load(None).ok()?;
+        let spec = cfg.languages.by_path(Path::new(sample))?.clone();
+        let mut loader = Loader::new(cfg.grammar_dir.clone(), cfg.query_dir.clone());
+        let mut engine = loader.engine_for(&spec).ok()?;
+        engine.refresh(source, 1);
+        Some((loader, engine))
+    }
+
+    fn median_us(mut samples: Vec<f64>) -> f64 {
+        samples.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        samples[samples.len() / 2]
+    }
+
+    /// Per-frame highlight cost for a 50-row viewport should be roughly
+    /// independent of total file size (the query is range-limited), and
+    /// a repeated identical window should be nearly free (memoized).
+    #[test]
+    #[ignore]
+    fn perf_highlight_scaling() {
+        let unit = "fn compute(x: i32) -> i32 {\n    let y = x * 2 + 1;\n    y - 3\n}\n\n";
+        const WINDOW: usize = 50;
+
+        for lines_target in [2_000usize, 20_000, 100_000] {
+            let reps = lines_target / 5 + 1;
+            let source = unit.repeat(reps);
+            let total_rows = source.lines().count();
+            let Some((_loader, engine)) = engine_for_path("bench.rs", &source) else {
+                eprintln!("skip: rust grammar not installed");
+                return;
+            };
+
+            // Cache MISS each frame: move the window so (start,end) changes,
+            // simulating scrolling / editing through a large file.
+            let mut miss = Vec::new();
+            for i in 0..400 {
+                let scroll = (i * 37) % total_rows.saturating_sub(WINDOW).max(1);
+                let t = Instant::now();
+                let caps = engine.captures_in_rows(scroll, scroll + WINDOW);
+                miss.push(t.elapsed().as_secs_f64() * 1e6);
+                std::hint::black_box(caps);
+            }
+
+            // Cache HIT: same window repeatedly (cursor moving in place,
+            // toast redraws, mode changes).
+            let mut hit = Vec::new();
+            let scroll = total_rows / 2;
+            let _ = engine.captures_in_rows(scroll, scroll + WINDOW); // prime
+            for _ in 0..2_000 {
+                let t = Instant::now();
+                let caps = engine.captures_in_rows(scroll, scroll + WINDOW);
+                hit.push(t.elapsed().as_secs_f64() * 1e6);
+                std::hint::black_box(caps);
+            }
+
+            eprintln!(
+                "rust {:>7} rows | miss(scroll/edit) median {:>7.1} us | hit(repaint) median {:>6.2} us",
+                total_rows,
+                median_us(miss),
+                median_us(hit),
+            );
+        }
+    }
+
+    /// Injection path: a markdown file full of fenced code blocks. With
+    /// the sub-tree cache, re-querying a fixed window across version
+    /// bumps (typing in prose) reuses each visible block's parse.
+    #[test]
+    #[ignore]
+    fn perf_injection_markdown() {
+        const WINDOW: usize = 50;
+        let block = "```rust\nfn demo(n: usize) -> usize {\n    let mut acc = 0;\n    for i in 0..n { acc += i * 2; }\n    acc\n}\n```\n\nSome prose paragraph between code blocks to mimic a real doc.\n\n";
+        let source = block.repeat(400);
+        let total_rows = source.lines().count();
+        let Some((_loader, mut engine)) = engine_for_path("bench.md", &source) else {
+            eprintln!("skip: markdown grammar not installed");
+            return;
+        };
+
+        let scroll = total_rows / 2;
+        // First touch parses the visible blocks (cold injection cache).
+        let t = Instant::now();
+        let _ = engine.captures_in_rows(scroll, scroll + WINDOW);
+        let cold = t.elapsed().as_secs_f64() * 1e6;
+
+        // Simulate typing: bump the version each frame (clears the
+        // capture memo, forcing the injection walk) but leave the
+        // visible code blocks' text unchanged so the sub-tree cache
+        // hits. Median is the steady-state per-keystroke cost.
+        let mut warm = Vec::new();
+        for v in 2..402u64 {
+            engine.refresh(&source, v);
+            let t = Instant::now();
+            let caps = engine.captures_in_rows(scroll, scroll + WINDOW);
+            warm.push(t.elapsed().as_secs_f64() * 1e6);
+            std::hint::black_box(caps);
+        }
+
+        eprintln!(
+            "markdown {} rows | cold(first paint) {:.1} us | warm(typing, sub-tree cache) median {:.1} us",
+            total_rows,
+            cold,
+            median_us(warm),
+        );
     }
 }

@@ -227,13 +227,13 @@ impl SleepingBuffer {
                 dirty: s.dirty,
             })
             .collect();
-        // Engine and viewport_height are intentionally left as
-        // their defaults — the highlighter is rebuilt by a worker on
-        // restore, and the UI re-publishes viewport_height on the
-        // next draw. The VCS base, on the other hand, is re-fetched
-        // here so an external commit while the buffer was sleeping
-        // shows up in the gutter as soon as the user comes back.
-        b.refresh_vcs_base();
+        // Engine, viewport_height, and the VCS base are intentionally
+        // left as their defaults — the highlighter is rebuilt by a
+        // worker on restore, the UI re-publishes viewport_height on the
+        // next draw, and the VCS base is re-fetched off-thread by
+        // `App::spawn_vcs_worker` so a `git show` round-trip can't block
+        // the restore. An external commit while the buffer slept thus
+        // still shows up in the gutter, just a frame later.
         b
     }
 }

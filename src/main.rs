@@ -321,6 +321,11 @@ fn dispatch(app: &mut App, ev: event::AppEvent) -> Result<()> {
             app.handle_lsp_ready(generation, client_key, lang, path, result);
         }
         event::AppEvent::PreviewReady(entry) => app.handle_preview_ready(entry),
+        event::AppEvent::VcsBaseReady {
+            generation,
+            path,
+            base,
+        } => app.handle_vcs_base_ready(generation, path, base),
     }
     Ok(())
 }

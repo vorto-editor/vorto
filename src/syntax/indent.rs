@@ -6,7 +6,7 @@
 //! language's `indents.scm`.
 
 use anyhow::Result;
-use tree_sitter::{Language, Query, QueryCursor, StreamingIterator, Tree};
+use tree_sitter::{Language, Point, Query, QueryCursor, StreamingIterator, Tree};
 
 /// Compiled `indents.scm` query for one language.
 pub struct IndentQuery {
@@ -43,6 +43,12 @@ impl IndentQuery {
     ///   only after-the-fact when there's already body content below.
     pub(super) fn begins_at(&self, source: &str, tree: &Tree, row: usize) -> bool {
         let mut cursor = QueryCursor::new();
+        cursor.set_point_range(
+            Point { row, column: 0 }..Point {
+                row: row.saturating_add(1),
+                column: 0,
+            },
+        );
         let mut matches = cursor.matches(&self.query, tree.root_node(), source.as_bytes());
         while let Some(m) = matches.next() {
             for cap in m.captures {
@@ -91,6 +97,20 @@ impl IndentQuery {
     ) -> Vec<(usize, usize)> {
         let mut out = Vec::new();
         let mut cursor = QueryCursor::new();
+        // A scope intersecting the visible window is kept even when it
+        // opens above `start_row` and closes below `end_row` — its
+        // captured node overlaps the range, so tree-sitter's range
+        // filter retains it, matching the explicit intersection check
+        // below.
+        cursor.set_point_range(
+            Point {
+                row: start_row,
+                column: 0,
+            }..Point {
+                row: end_row.saturating_add(1),
+                column: 0,
+            },
+        );
         let mut matches = cursor.matches(&self.query, tree.root_node(), source.as_bytes());
         while let Some(m) = matches.next() {
             for cap in m.captures {
