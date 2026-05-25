@@ -248,9 +248,11 @@ fn tmp_clone_dir(name: &str) -> PathBuf {
 ///   Caller wipes `dest` and falls back to `git clone`.
 ///
 /// "Usable asset" = a `.tar.gz` whose contents contain `src/parser.c`.
-/// We don't check that ahead of time — we just try the most likely
-/// asset and rely on the subsequent build to fail (and fall through
-/// the `Err` path) when the contents aren't what we expected.
+/// We pick the most likely asset by name, then verify the extracted tree
+/// actually carries a pre-generated `src/parser.c` (subpath-relative);
+/// if it doesn't, [`try_release_tarball`] returns `Ok(false)` so the
+/// caller falls back to a `git clone` that the `tree-sitter generate`
+/// step can run against.
 /// GET a GitHub releases API URL and return the download URL of the
 /// best source-tarball asset, or `None` when the request fails, the
 /// release doesn't exist, or it ships no tarball.
@@ -305,6 +307,21 @@ fn try_release_tarball(recipe: &GrammarRecipe, dest: &Path) -> Result<bool> {
     // (`tree-sitter-sql-v0.3.11/...`). Flatten when we detect that
     // shape so callers can treat `dest` as the build root.
     flatten_single_subdir(dest)?;
+
+    // Confirm the asset actually shipped a pre-generated parser. Some
+    // releases bundle only the JS sources (no `src/parser.c`), which
+    // would silently force the `tree-sitter generate` fallback later;
+    // catch that here and let the caller `git clone` instead. The parser
+    // lives under the recipe's subpath for monorepos.
+    let parser_root = match recipe.subpath {
+        Some(sub) => dest.join(sub),
+        None => dest.to_path_buf(),
+    };
+    if !parser_root.join("src").join("parser.c").exists() {
+        // Wipe so the `git clone` fallback writes into an empty dir.
+        let _ = std::fs::remove_dir_all(dest);
+        return Ok(false);
+    }
     Ok(true)
 }
 
@@ -516,9 +533,14 @@ fn compile_library(src: &Path, out_path: &Path) -> Result<()> {
         .and_then(|e| e.to_str())
         .is_some_and(|e| e != "c");
 
+    // Only ask `cc` for a C++ toolchain when there's actually a C++
+    // scanner to build — otherwise a C-only grammar would fail on a
+    // system that has a C compiler but no C++ one, contradicting the
+    // module's "a C compiler is the one hard requirement" contract. The
+    // parser is always compiled as C (`-xc`) regardless.
     let mut config = cc::Build::new();
     config
-        .cpp(true)
+        .cpp(scanner_is_cpp)
         .opt_level(3)
         .cargo_metadata(false)
         .host(BUILD_TARGET)
