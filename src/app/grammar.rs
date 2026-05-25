@@ -104,23 +104,30 @@ impl App {
     ///   quiet (no modal, no error toast — the buffer is plain text).
     ///
     /// Returns `false` (spawn normally) when the grammar is fully
-    /// installed, or when there's no recipe to install from (preserving
-    /// the prior behavior, including the worker's error toast for a
-    /// genuinely broken/absent grammar the user must supply themselves).
+    /// installed, when there's no recipe to install from (preserving the
+    /// prior behavior, including the worker's error toast for a genuinely
+    /// broken/absent grammar the user must supply themselves), or when
+    /// the language overrides `grammar_dir`/`query_dir` (see below).
     pub(super) fn maybe_prompt_grammar_install(&mut self, spec: &crate::config::Language) -> bool {
         let grammar = &spec.grammar;
-        let fully_installed = {
-            let grammar_dir = spec
-                .grammar_dir
-                .as_deref()
-                .unwrap_or(&self.config.grammar_dir);
-            let query_dir = spec.query_dir.as_deref().unwrap_or(&self.config.query_dir);
-            crate::grammar::build::is_fully_installed(grammar, grammar_dir, query_dir)
-        };
-        if fully_installed {
+        // Auto-install only manages the *global* grammar/query dirs — the
+        // worker always writes there. A language that points at its own
+        // dirs manages its grammars itself; offering would install into
+        // the global dir while the loader keeps reading the override, so
+        // the prompt couldn't actually fix the miss. Leave those to the
+        // normal (possibly error-toasting) worker path.
+        if spec.grammar_dir.is_some() || spec.query_dir.is_some() {
             return false;
         }
-        let has_recipe = crate::grammar::cli::merged_recipes(&self.config.grammars)
+        if crate::grammar::build::is_fully_installed(
+            grammar,
+            &self.config.grammar_dir,
+            &self.config.query_dir,
+        ) {
+            return false;
+        }
+        let has_recipe = self
+            .grammar_recipes
             .iter()
             .any(|r| r.name == grammar.as_str());
         if !has_recipe {
@@ -144,9 +151,9 @@ impl App {
     /// (built-ins overlaid with `[grammars.*]`), tagged with on-disk
     /// install status, sorted by name.
     fn open_grammar_list(&mut self) {
-        let recipes = crate::grammar::cli::merged_recipes(&self.config.grammars);
         let grammar_dir = self.config.grammar_dir.as_path();
-        let mut rows: Vec<GrammarRow> = recipes
+        let mut rows: Vec<GrammarRow> = self
+            .grammar_recipes
             .iter()
             .map(|r| {
                 let installed =
@@ -169,7 +176,10 @@ impl App {
     /// requested grammar, skipping any already on disk. Names with no
     /// recipe are reported and skipped.
     fn grammar_install_cmd(&mut self, rest: &str) {
-        let recipes = crate::grammar::cli::merged_recipes(&self.config.grammars);
+        // Clone out of the cache (cheap — the recipe fields are `&'static
+        // str`, so this copies pointers, not strings) so the loop can
+        // call `&mut self` methods without holding a borrow on the field.
+        let recipes = self.grammar_recipes.clone();
         let names: Vec<String> = if rest == "--all" {
             recipes.iter().map(|r| r.name.to_string()).collect()
         } else {
@@ -230,10 +240,16 @@ impl App {
     /// grammar name. A missing recipe reverts the modal row (since the
     /// row was optimistically flipped to "installing") and toasts.
     pub(super) fn spawn_grammar_install_by_name(&mut self, name: &str) {
-        let recipes = crate::grammar::cli::merged_recipes(&self.config.grammars);
-        match recipes.iter().find(|r| r.name == name) {
+        // `.cloned()` ends the borrow on `grammar_recipes` before the
+        // `&mut self` calls below.
+        let recipe = self
+            .grammar_recipes
+            .iter()
+            .find(|r| r.name == name)
+            .cloned();
+        match recipe {
             Some(recipe) => {
-                self.spawn_grammar_install(recipe.clone());
+                self.spawn_grammar_install(recipe);
                 self.push_toast(Toast::info(format!("installing {name}…")));
             }
             None => {

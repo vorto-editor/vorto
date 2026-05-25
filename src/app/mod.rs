@@ -258,6 +258,13 @@ pub struct App {
     /// install later failed — so opening more files of an uninstalled
     /// language stays quiet instead of nagging on every open.
     pub(super) asked_grammars: std::collections::HashSet<String>,
+    /// Config-aware grammar recipe catalog (built-ins overlaid with
+    /// `[grammars.*]`), resolved once at startup. Cached because
+    /// [`crate::grammar::recipe::GrammarRecipe::from_config`] leaks its
+    /// strings into `&'static`, so re-merging on every file-open / modal
+    /// would leak afresh each time. `config` is frozen at startup, so a
+    /// single resolution stays correct for the whole session.
+    pub(super) grammar_recipes: Vec<crate::grammar::recipe::GrammarRecipe>,
     pub should_quit: bool,
 }
 
@@ -269,6 +276,8 @@ impl App {
         startup_cwd: PathBuf,
     ) -> Self {
         let lsp = LspCoordinator::new(event_tx.clone(), startup_cwd.clone());
+        // Resolve the merged recipe catalog once — see `grammar_recipes`.
+        let grammar_recipes = crate::grammar::cli::merged_recipes(&config.grammars);
         let loader = Arc::new(Mutex::new(loader));
         let (preview_tx, preview_rx) = std::sync::mpsc::channel::<PathBuf>();
         // Spawn the fuzzy-finder preview worker. It owns the receiver,
@@ -332,6 +341,7 @@ impl App {
             next_pane_id: pane::NEXT_PANE_ID_SEED,
             last_pane_rects: RefCell::new(PaneRectMap::default()),
             asked_grammars: std::collections::HashSet::new(),
+            grammar_recipes,
             should_quit: false,
         }
     }
