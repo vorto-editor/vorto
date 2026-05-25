@@ -106,6 +106,57 @@ pub(super) fn draw_grammar_list(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(Paragraph::new(lines), inner);
 }
 
+/// Small centered confirmation box for the open-time "install this
+/// grammar?" prompt ([`Prompt::GrammarInstallConfirm`]). Renders a short
+/// message plus a `[y]es / [n]o` hint; the key handling lives in the
+/// prompt layer.
+pub(super) fn draw_grammar_install_prompt(f: &mut Frame, app: &App, area: Rect) {
+    let Prompt::GrammarInstallConfirm { grammar, language } = &app.prompt.state else {
+        return;
+    };
+    if area.width < 20 || area.height < 6 {
+        return;
+    }
+
+    let msg = format!("No parser/queries for {language} ({grammar}).");
+    let hint = "Install now?   [y] yes   [n] no";
+    let inner_w = (msg.len() as u16)
+        .max(hint.len() as u16)
+        .clamp(24, MAX_WIDTH);
+    let popup_w = (inner_w + 2).min(area.width.saturating_sub(2));
+    // 2 body lines + blank separator + border.
+    let popup_h = 5.min(area.height);
+
+    let x = area.x + (area.width.saturating_sub(popup_w)) / 2;
+    let y = area.y + (area.height.saturating_sub(popup_h)) / 2;
+    let popup = Rect {
+        x,
+        y,
+        width: popup_w,
+        height: popup_h,
+    };
+
+    f.render_widget(Clear, popup);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Yellow))
+        .title(" install grammar ")
+        .style(Style::default().bg(super::PANEL_BG));
+    let inner = block.inner(popup);
+    f.render_widget(block, popup);
+
+    let lines = vec![
+        Line::from(Span::raw(msg)),
+        Line::from(Span::styled(
+            hint,
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )),
+    ];
+    f.render_widget(Paragraph::new(lines), inner);
+}
+
 /// First visible row index that keeps `selected` inside a `window`-tall
 /// viewport. Clamps so the list never scrolls past its end.
 fn scroll_offset(selected: usize, len: usize, window: usize) -> usize {

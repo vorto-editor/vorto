@@ -31,6 +31,12 @@ impl App {
         let Some(spec) = self.config.languages.by_path(path).cloned() else {
             return;
         };
+        // When the grammar/queries aren't installed but a recipe exists,
+        // offer to install rather than spawning a worker that would just
+        // fail with a "highlight failed" toast.
+        if self.maybe_prompt_grammar_install(&spec) {
+            return;
+        }
         let loader = Arc::clone(&self.loader);
         let tx = self.event_tx.clone();
         let generation = self.open_gen;

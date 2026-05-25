@@ -252,6 +252,12 @@ pub struct App {
     /// focus navigation so `Ctrl-W h/j/k/l` resolves against what the
     /// user actually sees.
     pub last_pane_rects: RefCell<PaneRectMap>,
+    /// Grammars we've already offered to install this session (via the
+    /// open-time "install?" modal). Once a grammar is in here we never
+    /// re-prompt for it — whether the user accepted, declined, or the
+    /// install later failed — so opening more files of an uninstalled
+    /// language stays quiet instead of nagging on every open.
+    pub(super) asked_grammars: std::collections::HashSet<String>,
     pub should_quit: bool,
 }
 
@@ -325,6 +331,7 @@ impl App {
             parked_buffers: HashMap::new(),
             next_pane_id: pane::NEXT_PANE_ID_SEED,
             last_pane_rects: RefCell::new(PaneRectMap::default()),
+            asked_grammars: std::collections::HashSet::new(),
             should_quit: false,
         }
     }
