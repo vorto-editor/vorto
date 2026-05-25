@@ -320,6 +320,9 @@ fn dispatch(app: &mut App, ev: event::AppEvent) -> Result<()> {
         } => {
             app.handle_lsp_ready(generation, client_key, lang, path, result);
         }
+        event::AppEvent::GrammarInstalled { name, result } => {
+            app.handle_grammar_installed(name, result);
+        }
         event::AppEvent::PreviewReady(entry) => app.handle_preview_ready(entry),
         event::AppEvent::VcsBaseReady {
             generation,

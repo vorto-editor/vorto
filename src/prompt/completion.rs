@@ -4,7 +4,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::app::COPILOT_SUBCOMMANDS;
+use crate::app::{COPILOT_SUBCOMMANDS, GRAMMAR_SUBCOMMANDS};
 use crate::config::COMMAND_BINDS;
 
 use super::line_input::LineInput;
@@ -90,7 +90,7 @@ fn build_completion(input: &str, root: &Path) -> Option<CompletionState> {
             let matches: Vec<String> = COMMAND_BINDS
                 .iter()
                 .flat_map(|b| b.all_names())
-                .chain(std::iter::once("copilot"))
+                .chain(["copilot", "grammar"])
                 .filter(|n| n.starts_with(&prefix))
                 .map(|n| n.to_string())
                 .collect();
@@ -121,6 +121,34 @@ fn build_completion(input: &str, root: &Path) -> Option<CompletionState> {
                     return None;
                 }
                 let matches: Vec<String> = COPILOT_SUBCOMMANDS
+                    .iter()
+                    .flat_map(|s| std::iter::once(s.name).chain(s.aliases.iter().copied()))
+                    .filter(|n| n.starts_with(partial))
+                    .map(|n| n.to_string())
+                    .collect();
+                if matches.is_empty() {
+                    return None;
+                }
+                return Some(CompletionState {
+                    kind: CompletionKind::CommandName,
+                    prefix: partial.to_string(),
+                    head_chars: sp_byte + 1,
+                    matches,
+                    selected: 0,
+                });
+            }
+            // `grammar` is the same shape as `copilot` — outside
+            // COMMAND_BINDS, but its subcommands (list / install /
+            // remove) should still Tab-cycle. Grammar *names* after
+            // `install`/`remove` aren't completed here (they'd need the
+            // config-merged catalog, which the prompt layer doesn't
+            // carry).
+            if cmd == "grammar" {
+                let partial = &input[sp_byte + 1..];
+                if partial.contains(' ') {
+                    return None;
+                }
+                let matches: Vec<String> = GRAMMAR_SUBCOMMANDS
                     .iter()
                     .flat_map(|s| std::iter::once(s.name).chain(s.aliases.iter().copied()))
                     .filter(|n| n.starts_with(partial))

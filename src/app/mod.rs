@@ -11,6 +11,7 @@ mod comment;
 mod completion;
 mod copilot;
 mod eval;
+mod grammar;
 mod input;
 mod jump;
 mod lsp_apply;
@@ -27,6 +28,7 @@ mod workers;
 
 pub use completion::CompletionState;
 pub use copilot::{COPILOT_SUBCOMMANDS, CopilotAuthState, CopilotPending};
+pub use grammar::GRAMMAR_SUBCOMMANDS;
 
 pub use jump::JumpState;
 pub use lsp_coordinator::{LspCoordinator, LspEventOutcome};

@@ -57,6 +57,18 @@ pub enum AppEvent {
     /// late-arriving response just becomes a cheap cache entry for next
     /// time the user navigates back to that file.
     PreviewReady(PreviewEntry),
+    /// A worker thread finished installing a tree-sitter grammar
+    /// (fetch + in-process compile + query vendoring). Fired by
+    /// [`crate::app::App::spawn_grammar_install`]. On `Ok` the main loop
+    /// updates the `:grammar` modal (if open) and re-highlights every
+    /// open buffer whose language uses the freshly-installed grammar;
+    /// on `Err` it surfaces a toast and reverts the modal row to
+    /// "missing". Not generation-gated — a grammar install is a global
+    /// side effect, not tied to whichever file is active.
+    GrammarInstalled {
+        name: String,
+        result: anyhow::Result<()>,
+    },
     /// A worker thread finished reading the HEAD blob for an opened
     /// file (two `git` subprocesses). Computed off-thread so the
     /// initial buffer paint isn't blocked on git — the gutter diff
