@@ -3,11 +3,15 @@
 //! `query_dir/<name>/` so the editor's highlighter has something to
 //! consume.
 //!
-//! Strategy: shell out to `git` for the fetch and to `tree-sitter` for
-//! the build. Both are required to be on `PATH` — we want the same
-//! toolchain the grammar's own README uses, not a half-baked
-//! reimplementation. We probe for them upfront so the user gets a clear
-//! "install X" error instead of a cryptic "process exited with status 1".
+//! Strategy: fetch the source (a release tarball when the upstream
+//! publishes one, else `git clone`), then compile the generated
+//! `parser.c` (+ optional external scanner) into a shared library
+//! in-process with the `cc` crate. A C compiler is the one hard
+//! requirement. The tree-sitter CLI is only needed as a fallback for the
+//! rare grammar that ships no pre-generated `parser.c` and must be built
+//! from `grammar.js` via `tree-sitter generate` (which itself also needs
+//! a JS runtime). In practice every grammar in our catalog ships
+//! `parser.c` (or a release tarball that does), so the CLI is optional.
 //!
 //! The clone lives in `$TMPDIR/vorto-grammar-<name>-<pid>` and is wiped
 //! after the build (best-effort — leaving turds behind is annoying but
@@ -27,6 +31,11 @@ use std::process::Command;
 use anyhow::{Context, Result, anyhow, bail};
 
 use super::recipe::GrammarRecipe;
+
+/// Host target triple, captured at build time by `build.rs`. Needed to
+/// drive the `cc` crate at runtime (it otherwise reads TARGET from the
+/// build-script env, which the running binary doesn't have).
+const BUILD_TARGET: &str = env!("BUILD_TARGET");
 
 /// Platform-appropriate shared-library extension. The loader accepts
 /// `.so`, `.dylib`, and `.dll` regardless of platform, but we emit the
@@ -65,11 +74,6 @@ pub fn install(
     grammar_dir: &Path,
     query_dir: &Path,
 ) -> Result<InstallReport> {
-    ensure_tool(
-        "tree-sitter",
-        "tree-sitter CLI is required to build grammars (try `cargo install tree-sitter-cli` or `npm i -g tree-sitter-cli`)",
-    )?;
-
     std::fs::create_dir_all(grammar_dir)
         .with_context(|| format!("creating grammar dir {}", grammar_dir.display()))?;
 
@@ -247,6 +251,16 @@ fn tmp_clone_dir(name: &str) -> PathBuf {
 /// We don't check that ahead of time — we just try the most likely
 /// asset and rely on the subsequent build to fail (and fall through
 /// the `Err` path) when the contents aren't what we expected.
+/// GET a GitHub releases API URL and return the download URL of the
+/// best source-tarball asset, or `None` when the request fails, the
+/// release doesn't exist, or it ships no tarball.
+fn fetch_tarball_asset(api_url: &str, repo: &str) -> Option<String> {
+    let json = curl_text(api_url).ok()?;
+    let v: serde_json::Value = serde_json::from_str(&json).ok()?;
+    let assets = v.get("assets")?.as_array()?;
+    pick_source_tarball(assets, repo)
+}
+
 fn try_release_tarball(recipe: &GrammarRecipe, dest: &Path) -> Result<bool> {
     let Some((owner, repo)) = parse_github_url(recipe.repo) else {
         return Ok(false);
@@ -254,28 +268,21 @@ fn try_release_tarball(recipe: &GrammarRecipe, dest: &Path) -> Result<bool> {
     if which("curl").is_none() || which("tar").is_none() {
         return Ok(false);
     }
-    let api_url = match recipe.rev {
-        Some(rev) => format!(
-            "https://api.github.com/repos/{}/{}/releases/tags/{}",
-            owner, repo, rev
-        ),
-        None => format!(
-            "https://api.github.com/repos/{}/{}/releases/latest",
-            owner, repo
-        ),
+    let base = format!("https://api.github.com/repos/{}/{}", owner, repo);
+    let latest_url = format!("{}/releases/latest", base);
+    let asset_url = match recipe.rev {
+        // Try the release tagged with the pinned rev first. When the rev
+        // is a commit SHA (not a release tag) that lookup 404s — fall
+        // back to the latest release so we still get a pre-generated
+        // `parser.c` rather than forcing a `tree-sitter generate`. The
+        // trade-off: a SHA-pinned grammar may then build from a slightly
+        // different *published* version than the pin. Acceptable, since
+        // the alternative is requiring the tree-sitter CLI + a JS runtime.
+        Some(rev) => fetch_tarball_asset(&format!("{}/releases/tags/{}", base, rev), &repo)
+            .or_else(|| fetch_tarball_asset(&latest_url, &repo)),
+        None => fetch_tarball_asset(&latest_url, &repo),
     };
-    let json = match curl_text(&api_url) {
-        Ok(s) => s,
-        Err(_) => return Ok(false),
-    };
-    let v: serde_json::Value = match serde_json::from_str(&json) {
-        Ok(v) => v,
-        Err(_) => return Ok(false),
-    };
-    let Some(assets) = v.get("assets").and_then(|a| a.as_array()) else {
-        return Ok(false);
-    };
-    let Some(asset_url) = pick_source_tarball(assets, &repo) else {
+    let Some(asset_url) = asset_url else {
         return Ok(false);
     };
 
@@ -453,13 +460,24 @@ fn clone(recipe: &GrammarRecipe, dest: &Path) -> Result<()> {
 }
 
 fn build(build_dir: &Path, out_path: &Path) -> Result<()> {
-    // Generate the C parser source only when it's missing. Most
-    // upstreams commit `src/parser.c` + `src/grammar.json` and we
-    // trust those — regenerating from `grammar.js` is the source of
-    // truth in principle but costs seconds-to-tens-of-seconds for
-    // large grammars (e.g. SQL). The handful of repos that skip the
-    // commit (DerekStride/tree-sitter-sql) get caught by this fallback.
-    if !build_dir.join("src/parser.c").exists() && build_dir.join("grammar.js").exists() {
+    let src_path = build_dir.join("src");
+
+    // Generate the C parser source only when it's missing. Nearly every
+    // upstream commits `src/parser.c` (and our release-tarball fetch only
+    // accepts tarballs that ship it), so this branch is rare. When it
+    // does hit, generation needs the tree-sitter CLI *and* a JS runtime
+    // — the only case where the CLI is required.
+    if !src_path.join("parser.c").exists() {
+        if !build_dir.join("grammar.js").exists() {
+            bail!(
+                "no `src/parser.c` and no `grammar.js` in {} — nothing to build",
+                build_dir.display()
+            );
+        }
+        ensure_tool(
+            "tree-sitter",
+            "this grammar ships no pre-generated `src/parser.c`, so it must be generated from `grammar.js` — install the tree-sitter CLI and a JS runtime (`cargo install tree-sitter-cli` or `npm i -g tree-sitter-cli`, plus Node) and retry",
+        )?;
         let status = Command::new("tree-sitter")
             .arg("generate")
             .current_dir(build_dir)
@@ -470,22 +488,143 @@ fn build(build_dir: &Path, out_path: &Path) -> Result<()> {
         }
     }
 
-    // `tree-sitter build -o <path>` compiles the parser + scanner into
-    // a shared library at the given path. It looks at
-    // `tree-sitter.json` / `grammar.js` in the cwd, so we run it from
-    // `build_dir`.
-    let status = Command::new("tree-sitter")
-        .arg("build")
-        .arg("-o")
-        .arg(out_path)
-        .current_dir(build_dir)
-        .status()
-        .context("spawning `tree-sitter build`")?;
-    if !status.success() {
+    compile_library(&src_path, out_path)
+        .with_context(|| format!("compiling grammar in {}", src_path.display()))
+}
+
+/// Compile `<src>/parser.c` (plus an optional external scanner) into a
+/// shared library at `out_path`, using the `cc` crate to locate and
+/// drive the platform C/C++ compiler. This replaces shelling out to
+/// `tree-sitter build`, so a C compiler is the only build requirement
+/// for grammars that ship a generated `parser.c`.
+///
+/// Ported from helix's `helix-loader` grammar build. Scanner objects are
+/// written into `src` (which lives in the throwaway clone dir, so no
+/// explicit cleanup is needed).
+fn compile_library(src: &Path, out_path: &Path) -> Result<()> {
+    let parser = src.join("parser.c");
+    // Tree-sitter external scanners are `scanner.c` (C) or
+    // `scanner.cc`/`scanner.cpp` (C++). C++ scanners must be compiled
+    // separately and linked, since they need a different `-std`.
+    let scanner = ["scanner.c", "scanner.cc", "scanner.cpp"]
+        .into_iter()
+        .map(|f| src.join(f))
+        .find(|p| p.exists());
+    let scanner_is_cpp = scanner
+        .as_ref()
+        .and_then(|p| p.extension())
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e != "c");
+
+    let mut config = cc::Build::new();
+    config
+        .cpp(true)
+        .opt_level(3)
+        .cargo_metadata(false)
+        .host(BUILD_TARGET)
+        .target(BUILD_TARGET);
+    let compiler = config.try_get_compiler().map_err(|e| {
+        anyhow!("no usable C compiler found ({e}) — install one (clang or gcc) to build grammars")
+    })?;
+
+    let mut command = Command::new(compiler.path());
+    command.current_dir(src);
+    for (key, value) in compiler.env() {
+        command.env(key, value);
+    }
+    command.args(compiler.args());
+
+    if compiler.is_like_msvc() {
+        command
+            .args(["/nologo", "/LD", "/I"])
+            .arg(src)
+            .arg("/utf-8")
+            .arg("/std:c11");
+        if let Some(scanner) = &scanner {
+            if scanner_is_cpp {
+                let obj = src.join("vorto_scanner.obj");
+                let mut cpp = base_command(&compiler, src);
+                cpp.args(["/nologo", "/LD", "/I"])
+                    .arg(src)
+                    .arg("/utf-8")
+                    .arg("/std:c++14")
+                    .arg(format!("/Fo{}", obj.display()))
+                    .arg("/c")
+                    .arg(scanner);
+                run_compiler(cpp, "C++ scanner")?;
+                command.arg(&obj);
+            } else {
+                command.arg(scanner);
+            }
+        }
+        command
+            .arg(&parser)
+            .arg("/link")
+            .arg(format!("/out:{}", out_path.display()));
+    } else {
+        #[cfg(not(windows))]
+        command.arg("-fPIC");
+        command
+            .arg("-shared")
+            .arg("-fno-exceptions")
+            .arg("-I")
+            .arg(src)
+            .arg("-o")
+            .arg(out_path);
+        if let Some(scanner) = &scanner {
+            if scanner_is_cpp {
+                let obj = src.join("vorto_scanner.o");
+                let mut cpp = base_command(&compiler, src);
+                #[cfg(not(windows))]
+                cpp.arg("-fPIC");
+                cpp.arg("-fno-exceptions")
+                    .arg("-I")
+                    .arg(src)
+                    .arg("-o")
+                    .arg(&obj)
+                    .arg("-std=c++14")
+                    .arg("-c")
+                    .arg(scanner);
+                run_compiler(cpp, "C++ scanner")?;
+                command.arg(&obj);
+            } else {
+                command.arg("-xc").arg("-std=c11").arg(scanner);
+            }
+        }
+        command.arg("-xc").arg("-std=c11").arg(&parser);
+        if cfg!(all(
+            unix,
+            not(any(target_os = "macos", target_os = "illumos"))
+        )) {
+            command.arg("-Wl,-z,relro,-z,now");
+        }
+    }
+
+    run_compiler(command, "grammar")
+}
+
+/// A fresh compiler invocation seeded with the tool's path, env, and
+/// baseline args — used when a C++ scanner needs its own compile step.
+fn base_command(compiler: &cc::Tool, cwd: &Path) -> Command {
+    let mut cmd = Command::new(compiler.path());
+    cmd.current_dir(cwd);
+    for (key, value) in compiler.env() {
+        cmd.env(key, value);
+    }
+    cmd.args(compiler.args());
+    cmd
+}
+
+fn run_compiler(mut command: Command, what: &str) -> Result<()> {
+    let output = command
+        .output()
+        .with_context(|| format!("spawning C/C++ compiler for {}", what))?;
+    if !output.status.success() {
         bail!(
-            "tree-sitter build failed in {} (output: {})",
-            build_dir.display(),
-            out_path.display()
+            "{} compilation failed:\n{}\n{}",
+            what,
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
         );
     }
     Ok(())
