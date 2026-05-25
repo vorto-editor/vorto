@@ -18,7 +18,7 @@
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, anyhow};
 
 use super::AgentSpec;
 
@@ -233,8 +233,9 @@ fn argv(parts: &[&str]) -> Vec<String> {
 }
 
 /// Spawn `argv` and return its captured stdout, erroring on spawn failure
-/// or a non-zero exit. stderr is silenced so it can't leak onto vorto's
-/// alternate screen.
+/// or a non-zero exit. `output()` captures stderr into a pipe (it never
+/// reaches vorto's alternate screen), so the backend's own error message
+/// is folded into the returned error rather than discarded.
 fn capture(argv: &[String], backend: &str) -> Result<String> {
     let (bin, rest) = argv
         .split_first()
@@ -242,32 +243,44 @@ fn capture(argv: &[String], backend: &str) -> Result<String> {
     let out = Command::new(bin)
         .args(rest)
         .stdin(Stdio::null())
-        .stderr(Stdio::null())
         .output()
         .with_context(|| format!("spawning `{bin}` (is {backend} installed?)"))?;
     if !out.status.success() {
-        bail!("{backend} exited with {}", out.status);
+        return Err(exit_error(backend, out.status, &out.stderr));
     }
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
 /// Spawn `argv` for effect, erroring on spawn failure or non-zero exit.
-/// All standard streams are detached.
+/// stdout is ignored; stderr is captured (not inherited) so a backend
+/// error message reaches the toast instead of the terminal.
 fn run_checked(argv: &[String], backend: &str) -> Result<()> {
     let (bin, rest) = argv
         .split_first()
         .expect("open_argv never returns an empty argv");
-    let status = Command::new(bin)
+    let out = Command::new(bin)
         .args(rest)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
+        .output()
         .with_context(|| format!("spawning `{bin}` (is {backend} installed?)"))?;
-    if !status.success() {
-        bail!("{backend} exited with {status}");
+    if !out.status.success() {
+        return Err(exit_error(backend, out.status, &out.stderr));
     }
     Ok(())
+}
+
+/// Build an error for a non-zero backend exit, preferring the captured
+/// stderr text (the multiplexer's own diagnostic) and falling back to the
+/// exit status when stderr is empty.
+fn exit_error(backend: &str, status: std::process::ExitStatus, stderr: &[u8]) -> anyhow::Error {
+    let msg = String::from_utf8_lossy(stderr);
+    let msg = msg.trim();
+    if msg.is_empty() {
+        anyhow!("{backend} exited with {status}")
+    } else {
+        anyhow!("{backend}: {msg}")
+    }
 }
 
 /// Best-effort spawn for follow-up actions (focus / select) whose failure
