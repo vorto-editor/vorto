@@ -80,21 +80,41 @@ pub enum Prompt {
     /// [`crate::event::AppEvent::GrammarInstalled`]), and `d` removes an
     /// installed one. The modal stays open across installs so the user
     /// can queue several.
+    ///
+    /// `/` opens a live filter — printable keys flow into `query` and the
+    /// list narrows to grammars whose name contains it (case-insensitive,
+    /// order preserved). Enter leaves the filter input *and* installs the
+    /// highlighted grammar (the type-narrow-Enter flow); Esc just leaves
+    /// the input. Either way the query stays in effect — a further Esc
+    /// clears it, and one more closes the modal. While `filtering`, letter
+    /// keys type into the query rather than triggering `j/k/i/d/x`; arrows
+    /// and Ctrl-N/P still move the cursor either way.
     GrammarList {
         rows: Vec<GrammarRow>,
+        /// Index into the *visible* (filtered) rows — see
+        /// [`grammar_visible_indices`] — not into `rows` directly.
         selected: usize,
+        /// Live filter text. Empty shows every row.
+        query: String,
+        /// `/` filter input is live; printable keys edit `query`.
+        filtering: bool,
     },
     /// Shown at file-open time when the active language has an install
     /// recipe (built-in or `[grammars.*]`) but its parser/queries aren't
     /// fully installed yet — offered in place of the old "highlight
-    /// failed" error toast. `y`/Enter installs (async); `n`/Esc/any
-    /// other key dismisses and the buffer stays plain text. We only ask
-    /// once per grammar per session (see [`App::asked_grammars`]).
+    /// failed" error toast. `y` installs (async), `n`/Esc dismisses; the
+    /// arrow keys (or `h`/`l`/Tab) move between the Yes/No buttons and
+    /// Enter confirms the highlighted one. We only ask once per grammar
+    /// per session (see [`App::asked_grammars`]).
     GrammarInstallConfirm {
         /// Recipe/grammar name to install on accept.
         grammar: String,
         /// Language name, for the prompt message.
         language: String,
+        /// Highlighted button: `true` = Yes (install), `false` = No.
+        /// Toggled by the arrow keys; Enter acts on it. Opens on Yes so a
+        /// bare Enter still accepts, matching the old behavior.
+        accept: bool,
     },
 }
 
@@ -115,6 +135,46 @@ pub enum GrammarState {
     Missing,
     /// Install worker is in flight.
     Installing,
+}
+
+/// Indices into `rows` that match `query`, case-insensitive substring,
+/// order preserved (the list stays alphabetically sorted while it
+/// narrows). An empty query matches every row. Shared by the renderer
+/// and the key handler so the visible projection can't drift between
+/// what's drawn and what `selected` acts on.
+pub(crate) fn grammar_visible_indices(rows: &[GrammarRow], query: &str) -> Vec<usize> {
+    if query.is_empty() {
+        return (0..rows.len()).collect();
+    }
+    let needle = query.to_lowercase();
+    rows.iter()
+        .enumerate()
+        .filter(|(_, r)| r.name.to_lowercase().contains(&needle))
+        .map(|(i, _)| i)
+        .collect()
+}
+
+/// Flip the row at `idx` to [`GrammarState::Installing`] and yield its
+/// name to install, if it was [`Missing`](GrammarState::Missing). An
+/// already-installed or in-flight row is a no-op (returns `None`).
+/// Shared by the modal's Enter and `i`.
+fn grammar_install_at(rows: &mut [GrammarRow], idx: usize) -> Option<String> {
+    let row = rows.get_mut(idx)?;
+    (row.state == GrammarState::Missing).then(|| {
+        row.state = GrammarState::Installing;
+        row.name.clone()
+    })
+}
+
+/// Flip the row at `idx` back to [`Missing`](GrammarState::Missing) and
+/// yield its name to remove, if it was
+/// [`Installed`](GrammarState::Installed). No-op otherwise.
+fn grammar_remove_at(rows: &mut [GrammarRow], idx: usize) -> Option<String> {
+    let row = rows.get_mut(idx)?;
+    (row.state == GrammarState::Installed).then(|| {
+        row.state = GrammarState::Missing;
+        row.name.clone()
+    })
 }
 
 impl Prompt {
@@ -336,7 +396,12 @@ impl PromptController {
     /// Open the `:grammar` modal with the given rows. Selection starts
     /// at the top.
     pub fn open_grammar_list(&mut self, rows: Vec<GrammarRow>) {
-        self.state = Prompt::GrammarList { rows, selected: 0 };
+        self.state = Prompt::GrammarList {
+            rows,
+            selected: 0,
+            query: String::new(),
+            filtering: false,
+        };
     }
 
     /// Update a grammar row's state in place when the modal is open and
@@ -353,7 +418,11 @@ impl PromptController {
 
     /// Open the open-time "install this grammar?" confirmation modal.
     pub fn open_grammar_install_prompt(&mut self, grammar: String, language: String) {
-        self.state = Prompt::GrammarInstallConfirm { grammar, language };
+        self.state = Prompt::GrammarInstallConfirm {
+            grammar,
+            language,
+            accept: true,
+        };
     }
 
     /// Open the Copilot signin modal. Any prior modal is replaced.
@@ -396,36 +465,109 @@ impl PromptController {
 
         // `:grammar` modal owns Enter (install) and `d` (remove) ahead
         // of the generic submit/close path, since Enter must *not* close
-        // the modal — the user queues an install and keeps browsing.
-        // Esc/Ctrl-C still close (handled below, after navigation).
-        if let Prompt::GrammarList { rows, selected } = &mut self.state {
+        // the modal — the user queues an install and keeps browsing. It
+        // also owns `/` (filter) and, while filtering, every printable
+        // key (they edit the query rather than firing j/k/i/d/x).
+        if let Prompt::GrammarList {
+            rows,
+            selected,
+            query,
+            filtering,
+        } = &mut self.state
+        {
             let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
-            if key.code == KeyCode::Esc || ctrl_c {
+
+            // Ctrl-C always closes; Esc peels back one layer at a time —
+            // out of filter input, then a non-empty filter, then the modal.
+            if ctrl_c {
                 self.close();
                 return PromptOutcome::Cancelled;
             }
-            let last = rows.len().saturating_sub(1);
+            if key.code == KeyCode::Esc {
+                if *filtering {
+                    *filtering = false;
+                } else if !query.is_empty() {
+                    query.clear();
+                    *selected = 0;
+                } else {
+                    self.close();
+                    return PromptOutcome::Cancelled;
+                }
+                return PromptOutcome::Nothing;
+            }
+
+            // `selected` indexes the visible (filtered) projection.
+            let visible = grammar_visible_indices(rows, query);
+            let last = visible.len().saturating_sub(1);
+
+            // Navigation that works in both modes: arrows + Ctrl-N/P never
+            // collide with query text.
             match key.code {
-                KeyCode::Up | KeyCode::Char('k') => *selected = selected.saturating_sub(1),
-                KeyCode::Char('p') if ctrl => *selected = selected.saturating_sub(1),
-                KeyCode::Down | KeyCode::Char('j') => *selected = (*selected + 1).min(last),
-                KeyCode::Char('n') if ctrl => *selected = (*selected + 1).min(last),
+                KeyCode::Up => {
+                    *selected = selected.saturating_sub(1);
+                    return PromptOutcome::Nothing;
+                }
+                KeyCode::Down => {
+                    *selected = (*selected + 1).min(last);
+                    return PromptOutcome::Nothing;
+                }
+                KeyCode::Char('p') if ctrl => {
+                    *selected = selected.saturating_sub(1);
+                    return PromptOutcome::Nothing;
+                }
+                KeyCode::Char('n') if ctrl => {
+                    *selected = (*selected + 1).min(last);
+                    return PromptOutcome::Nothing;
+                }
+                _ => {}
+            }
+
+            if *filtering {
+                // Filter input: printable keys (no Ctrl) edit the query;
+                // each edit resets the cursor to the top match. Enter
+                // leaves the input (the query stays in effect) *and*
+                // installs the highlighted grammar if it's missing — the
+                // type-narrow-Enter flow installs in one keystroke. Letter
+                // actions (i/d/x) aren't available while typing.
+                match key.code {
+                    KeyCode::Enter => {
+                        *filtering = false;
+                        if let Some(&idx) = visible.get(*selected)
+                            && let Some(name) = grammar_install_at(rows, idx)
+                        {
+                            return PromptOutcome::InstallGrammar(name);
+                        }
+                    }
+                    KeyCode::Backspace => {
+                        query.pop();
+                        *selected = 0;
+                    }
+                    KeyCode::Char(c) if !ctrl => {
+                        query.push(c);
+                        *selected = 0;
+                    }
+                    _ => {}
+                }
+                return PromptOutcome::Nothing;
+            }
+
+            // Selection mode: vim motions + single-key actions.
+            match key.code {
+                KeyCode::Char('k') => *selected = selected.saturating_sub(1),
+                KeyCode::Char('j') => *selected = (*selected + 1).min(last),
+                KeyCode::Char('/') => *filtering = true,
                 KeyCode::Enter | KeyCode::Char('i') => {
-                    // Only missing grammars are installable; an already-
-                    // installed or in-flight row is a no-op.
-                    if let Some(row) = rows.get_mut(*selected)
-                        && row.state == GrammarState::Missing
+                    if let Some(&idx) = visible.get(*selected)
+                        && let Some(name) = grammar_install_at(rows, idx)
                     {
-                        row.state = GrammarState::Installing;
-                        return PromptOutcome::InstallGrammar(row.name.clone());
+                        return PromptOutcome::InstallGrammar(name);
                     }
                 }
                 KeyCode::Char('d') | KeyCode::Char('x') => {
-                    if let Some(row) = rows.get_mut(*selected)
-                        && row.state == GrammarState::Installed
+                    if let Some(&idx) = visible.get(*selected)
+                        && let Some(name) = grammar_remove_at(rows, idx)
                     {
-                        row.state = GrammarState::Missing;
-                        return PromptOutcome::RemoveGrammar(row.name.clone());
+                        return PromptOutcome::RemoveGrammar(name);
                     }
                 }
                 _ => {}
@@ -433,18 +575,51 @@ impl PromptController {
             return PromptOutcome::Nothing;
         }
 
-        // Open-time "install this grammar?" confirmation. `y`/Enter
-        // accepts; anything else (Esc/Ctrl-C/`n`/stray key) declines.
-        // Either way the modal closes — the App has already recorded the
-        // grammar in `asked_grammars`, so it won't re-prompt this session.
-        if let Prompt::GrammarInstallConfirm { grammar, .. } = &self.state {
-            let accept = matches!(
-                key.code,
-                KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Enter
-            ) && !ctrl_c;
+        // Open-time "install this grammar?" confirmation. `y` installs,
+        // `n`/Esc/Ctrl-C decline; the arrow keys (or `h`/`l`/Tab) move
+        // between the Yes/No buttons and Enter acts on the highlighted
+        // one. Stray keys are ignored so the dialog stays put. The App
+        // already recorded the grammar in `asked_grammars`, so dismissing
+        // won't re-prompt this session.
+        if let Prompt::GrammarInstallConfirm {
+            grammar, accept, ..
+        } = &mut self.state
+        {
+            // Arrow / Tab navigation toggles the highlighted button and
+            // keeps the dialog open.
+            match key.code {
+                KeyCode::Left
+                | KeyCode::Right
+                | KeyCode::Up
+                | KeyCode::Down
+                | KeyCode::Char('h')
+                | KeyCode::Char('l')
+                | KeyCode::Tab
+                | KeyCode::BackTab => {
+                    *accept = !*accept;
+                    return PromptOutcome::Nothing;
+                }
+                _ => {}
+            }
+
+            // Decision keys. Copy the choice out before `close()` so the
+            // mutable borrow of `state` is released.
+            let decision = if ctrl_c || key.code == KeyCode::Esc {
+                Some(false)
+            } else {
+                match key.code {
+                    KeyCode::Char('y') | KeyCode::Char('Y') => Some(true),
+                    KeyCode::Char('n') | KeyCode::Char('N') => Some(false),
+                    KeyCode::Enter => Some(*accept),
+                    _ => None,
+                }
+            };
+            let Some(install) = decision else {
+                return PromptOutcome::Nothing;
+            };
             let grammar = grammar.clone();
             self.close();
-            return if accept {
+            return if install {
                 PromptOutcome::InstallGrammar(grammar)
             } else {
                 PromptOutcome::Cancelled
@@ -777,5 +952,240 @@ impl PromptController {
 impl Default for PromptController {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod grammar_filter_tests {
+    use super::*;
+
+    fn rows() -> Vec<GrammarRow> {
+        ["bash", "python", "rust", "toml", "typescript"]
+            .into_iter()
+            .map(|name| GrammarRow {
+                name: name.to_string(),
+                state: GrammarState::Missing,
+            })
+            .collect()
+    }
+
+    fn key(c: char) -> KeyEvent {
+        KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE)
+    }
+
+    fn code(c: KeyCode) -> KeyEvent {
+        KeyEvent::new(c, KeyModifiers::NONE)
+    }
+
+    fn press(pc: &mut PromptController, key: KeyEvent) -> PromptOutcome {
+        pc.handle_key(key, Path::new(""))
+    }
+
+    fn names(rows: &[GrammarRow], query: &str) -> Vec<String> {
+        grammar_visible_indices(rows, query)
+            .into_iter()
+            .map(|i| rows[i].name.clone())
+            .collect()
+    }
+
+    #[test]
+    fn visible_indices_empty_query_keeps_order() {
+        let rows = rows();
+        assert_eq!(
+            names(&rows, ""),
+            ["bash", "python", "rust", "toml", "typescript"]
+        );
+    }
+
+    #[test]
+    fn visible_indices_substring_case_insensitive() {
+        let rows = rows();
+        // Matches anywhere in the name, not just a prefix.
+        assert_eq!(names(&rows, "t"), ["python", "rust", "toml", "typescript"]);
+        assert_eq!(names(&rows, "PY"), ["python"]);
+        assert_eq!(names(&rows, "script"), ["typescript"]);
+        assert!(names(&rows, "zzz").is_empty());
+    }
+
+    #[test]
+    fn slash_enters_filter_and_chars_edit_query() {
+        let mut pc = PromptController::new();
+        pc.open_grammar_list(rows());
+
+        press(&mut pc, key('/'));
+        let Prompt::GrammarList {
+            query, filtering, ..
+        } = &pc.state
+        else {
+            panic!("expected grammar list");
+        };
+        assert!(*filtering);
+        assert!(query.is_empty());
+
+        for c in "ty".chars() {
+            press(&mut pc, key(c));
+        }
+        let Prompt::GrammarList {
+            query,
+            filtering,
+            selected,
+            rows,
+        } = &pc.state
+        else {
+            panic!("expected grammar list");
+        };
+        assert!(*filtering);
+        assert_eq!(query, "ty");
+        // Only typescript matches "ty"; selection resets to the top match.
+        assert_eq!(*selected, 0);
+        assert_eq!(names(rows, query), ["typescript"]);
+    }
+
+    #[test]
+    fn esc_peels_filter_then_query_then_closes() {
+        let mut pc = PromptController::new();
+        pc.open_grammar_list(rows());
+        press(&mut pc, key('/'));
+        press(&mut pc, key('r'));
+
+        // First Esc leaves the input but keeps the query in effect.
+        assert!(matches!(press(&mut pc, code(KeyCode::Esc)), PromptOutcome::Nothing));
+        let Prompt::GrammarList {
+            query, filtering, ..
+        } = &pc.state
+        else {
+            panic!("expected grammar list");
+        };
+        assert!(!*filtering);
+        assert_eq!(query, "r");
+
+        // Second Esc clears the query (list reopens to full).
+        assert!(matches!(press(&mut pc, code(KeyCode::Esc)), PromptOutcome::Nothing));
+        let Prompt::GrammarList { query, .. } = &pc.state else {
+            panic!("expected grammar list");
+        };
+        assert!(query.is_empty());
+
+        // Third Esc closes the modal.
+        assert!(matches!(
+            press(&mut pc, code(KeyCode::Esc)),
+            PromptOutcome::Cancelled
+        ));
+        assert!(matches!(pc.state, Prompt::None));
+    }
+
+    #[test]
+    fn enter_in_filter_installs_and_leaves_input() {
+        let mut pc = PromptController::new();
+        pc.open_grammar_list(rows());
+        press(&mut pc, key('/'));
+        press(&mut pc, key('t'));
+        press(&mut pc, key('o')); // "to" → only "toml"
+
+        // Enter installs the highlighted match and leaves the filter
+        // input, keeping the query in effect.
+        match press(&mut pc, code(KeyCode::Enter)) {
+            PromptOutcome::InstallGrammar(name) => assert_eq!(name, "toml"),
+            _ => panic!("expected InstallGrammar(toml)"),
+        }
+        let Prompt::GrammarList {
+            rows,
+            query,
+            filtering,
+            ..
+        } = &pc.state
+        else {
+            panic!("expected grammar list still open");
+        };
+        assert!(!*filtering);
+        assert_eq!(query, "to");
+        let toml = rows.iter().find(|r| r.name == "toml").unwrap();
+        assert!(matches!(toml.state, GrammarState::Installing));
+    }
+
+    #[test]
+    fn enter_in_selection_mode_installs() {
+        let mut pc = PromptController::new();
+        pc.open_grammar_list(rows());
+        // No filter — Enter on the first row installs it.
+        match press(&mut pc, code(KeyCode::Enter)) {
+            PromptOutcome::InstallGrammar(name) => assert_eq!(name, "bash"),
+            _ => panic!("expected InstallGrammar(bash)"),
+        }
+    }
+
+    #[test]
+    fn confirm_opens_on_yes_and_bare_enter_installs() {
+        let mut pc = PromptController::new();
+        pc.open_grammar_install_prompt("rust".into(), "Rust".into());
+        match press(&mut pc, code(KeyCode::Enter)) {
+            PromptOutcome::InstallGrammar(name) => assert_eq!(name, "rust"),
+            _ => panic!("expected InstallGrammar(rust)"),
+        }
+        assert!(matches!(pc.state, Prompt::None));
+    }
+
+    #[test]
+    fn confirm_arrow_toggles_then_enter_declines() {
+        let mut pc = PromptController::new();
+        pc.open_grammar_install_prompt("rust".into(), "Rust".into());
+        // Move to the No button; the dialog stays open.
+        assert!(matches!(
+            press(&mut pc, code(KeyCode::Right)),
+            PromptOutcome::Nothing
+        ));
+        let Prompt::GrammarInstallConfirm { accept, .. } = &pc.state else {
+            panic!("expected confirm dialog");
+        };
+        assert!(!*accept);
+        // Enter now acts on the highlighted "No".
+        assert!(matches!(
+            press(&mut pc, code(KeyCode::Enter)),
+            PromptOutcome::Cancelled
+        ));
+        assert!(matches!(pc.state, Prompt::None));
+    }
+
+    #[test]
+    fn confirm_y_and_n_pick_directly() {
+        let mut pc = PromptController::new();
+        pc.open_grammar_install_prompt("rust".into(), "Rust".into());
+        // `n` declines even though Yes is highlighted.
+        assert!(matches!(
+            press(&mut pc, key('n')),
+            PromptOutcome::Cancelled
+        ));
+
+        let mut pc = PromptController::new();
+        pc.open_grammar_install_prompt("rust".into(), "Rust".into());
+        // Highlight No, then `y` still installs.
+        press(&mut pc, code(KeyCode::Left));
+        match press(&mut pc, key('y')) {
+            PromptOutcome::InstallGrammar(name) => assert_eq!(name, "rust"),
+            _ => panic!("expected InstallGrammar(rust)"),
+        }
+    }
+
+    #[test]
+    fn confirm_stray_key_keeps_dialog_open() {
+        let mut pc = PromptController::new();
+        pc.open_grammar_install_prompt("rust".into(), "Rust".into());
+        assert!(matches!(press(&mut pc, key('q')), PromptOutcome::Nothing));
+        assert!(matches!(pc.state, Prompt::GrammarInstallConfirm { .. }));
+    }
+
+    #[test]
+    fn letter_keys_type_into_query_not_install() {
+        let mut pc = PromptController::new();
+        pc.open_grammar_list(rows());
+        press(&mut pc, key('/'));
+        // `i` is an install shortcut in selection mode, but here it must
+        // be query text — no install fires.
+        let outcome = press(&mut pc, key('i'));
+        assert!(matches!(outcome, PromptOutcome::Nothing));
+        let Prompt::GrammarList { query, .. } = &pc.state else {
+            panic!("expected grammar list");
+        };
+        assert_eq!(query, "i");
     }
 }
