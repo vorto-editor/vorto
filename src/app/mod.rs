@@ -270,6 +270,17 @@ pub struct App {
     /// alive) instead of opening another. Session-scoped — not persisted,
     /// so a vorto restart starts fresh.
     pub(super) agent_pane: Option<String>,
+    /// Prompt staged by a `:agent <intent> @file` issued while no default
+    /// agent is configured: the picker opens, and [`Self::select_agent`]
+    /// consumes this so the chosen agent still launches seeded. `None`
+    /// outside that window (a bare `:agent` clears it).
+    pub(super) agent_pending_prompt: Option<String>,
+    /// Text of the visual selection captured when `:` opened the command
+    /// prompt from a visual mode — what `:agent <intent> @selection` reads.
+    /// Set by that visual `:`, cleared when the prompt opens from a
+    /// non-visual mode, so it always reflects the selection live at the
+    /// moment the prompt was opened (or `None` when there wasn't one).
+    pub(super) command_selection: Option<String>,
     pub should_quit: bool,
 }
 
@@ -348,6 +359,8 @@ impl App {
             asked_grammars: std::collections::HashSet::new(),
             grammar_recipes,
             agent_pane: None,
+            agent_pending_prompt: None,
+            command_selection: None,
             should_quit: false,
         }
     }
@@ -370,6 +383,21 @@ impl App {
     /// an anchor is set. Returns `None` otherwise.
     pub fn selection(&self) -> Option<Selection> {
         types::selection(self.mode, self.visual_anchor, self.buffer.cursor)
+    }
+
+    /// The text of the current visual selection, read-only (does not touch
+    /// the yank register). `None` outside a visual mode. The end of a
+    /// char-wise selection is inclusive (vim-style), so it's advanced one
+    /// char to match what visual `y` would capture.
+    pub fn selection_text(&self) -> Option<String> {
+        Some(match self.selection()? {
+            Selection::Char { from, to } => {
+                let end = self.buffer.advance_one(to);
+                self.buffer.range_text(from, end)
+            }
+            Selection::Line { from_row, to_row } => self.buffer.lines_text(from_row, to_row),
+            Selection::Block { r0, c0, r1, c1 } => self.buffer.block_text(r0, c0, r1, c1),
+        })
     }
 
     /// Advance the toast queue: drop expired non-fatal toasts and

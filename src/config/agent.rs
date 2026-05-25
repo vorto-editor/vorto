@@ -37,6 +37,12 @@ pub struct AgentToml {
     pub command: String,
     #[serde(default)]
     pub args: Vec<String>,
+    /// How a `:agent <intent>` prompt is passed at launch (see
+    /// [`AgentSpec::prompt_args`]). Omitted → the positional default, which
+    /// suits claude/codex; an agent whose positional arg isn't a prompt
+    /// (e.g. aider) sets this explicitly, and `[]` opts out of seeding.
+    #[serde(default)]
+    pub prompt_args: Option<Vec<String>>,
 }
 
 /// Resolved agent configuration: the merged catalog plus the configured
@@ -64,6 +70,9 @@ impl AgentRegistry {
                     name,
                     command: t.command,
                     args: t.args,
+                    prompt_args: t
+                        .prompt_args
+                        .unwrap_or_else(crate::agent::default_prompt_args),
                 },
             );
         }
@@ -183,6 +192,7 @@ mod tests {
             AgentToml {
                 command: "claude".into(),
                 args: vec!["--model".into(), "opus".into()],
+                prompt_args: None,
             },
         );
         user.insert(
@@ -190,6 +200,7 @@ mod tests {
             AgentToml {
                 command: "/usr/local/bin/mybot".into(),
                 args: vec![],
+                prompt_args: Some(vec!["-m".into(), "{prompt}".into()]),
             },
         );
         let reg = AgentRegistry::build(
@@ -200,7 +211,12 @@ mod tests {
         );
         let claude = reg.find("claude").unwrap();
         assert_eq!(claude.args, vec!["--model", "opus"]);
-        assert_eq!(reg.find("mybot").unwrap().command, "/usr/local/bin/mybot");
+        // No `prompt_args` in the override → positional default.
+        assert_eq!(claude.prompt_args, vec!["{prompt}"]);
+        let mybot = reg.find("mybot").unwrap();
+        assert_eq!(mybot.command, "/usr/local/bin/mybot");
+        // Explicit `prompt_args` carried through verbatim.
+        assert_eq!(mybot.prompt_args, vec!["-m", "{prompt}"]);
         assert_eq!(reg.default.as_deref(), Some("claude"));
     }
 
