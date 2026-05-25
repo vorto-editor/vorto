@@ -77,6 +77,12 @@ more). Override or add to them per-language in `config.toml`.
   vorto grammar install-queries rust
   vorto grammar remove rust
   ```
+- Or from inside the editor with `:grammar` — opens a modal listing
+  every grammar and its install status; `j`/`k` to move, `Enter` to
+  install the selected grammar (asynchronously, in the background),
+  `d` to remove. The buffer re-highlights the moment an install
+  finishes — no restart. `:grammar install <name>…` and
+  `:grammar remove <name>…` work inline too, mirroring the CLI.
 - Uses `highlights.scm` for coloring, `indents.scm` for auto-indent,
   and `textobjects.scm` for tree-sitter text objects.
 - Falls back to plain text when a grammar is unavailable.

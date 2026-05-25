@@ -63,7 +63,10 @@ pub fn run(args: &[String]) -> Result<()> {
 /// A user entry with the same name as a built-in replaces it (so users
 /// can repoint a grammar at a fork or newer revision); new names are
 /// appended.
-fn merged_recipes(user: &[GrammarSource]) -> Vec<GrammarRecipe> {
+///
+/// Public so the in-editor `:grammar` command can build the same
+/// config-aware catalog the CLI uses.
+pub fn merged_recipes(user: &[GrammarSource]) -> Vec<GrammarRecipe> {
     let mut recipes = builtin_recipes();
     for g in user {
         let recipe =

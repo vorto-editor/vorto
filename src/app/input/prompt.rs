@@ -82,6 +82,17 @@ impl App {
                 self.rewrite_buffer_paths(&old, &new);
                 Ok(())
             }
+            PromptOutcome::InstallGrammar(name) => {
+                // The modal already flipped the row to "installing"; just
+                // kick off the worker. Toast so there's feedback even if
+                // the modal is later closed before the install lands.
+                self.spawn_grammar_install_by_name(&name);
+                Ok(())
+            }
+            PromptOutcome::RemoveGrammar(name) => {
+                self.remove_grammar(&name);
+                Ok(())
+            }
         }
     }
 }

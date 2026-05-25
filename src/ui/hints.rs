@@ -8,7 +8,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Padding, Paragraph};
 
 use crate::action::{Operator, Token};
-use crate::app::{App, COPILOT_SUBCOMMANDS};
+use crate::app::{App, COPILOT_SUBCOMMANDS, GRAMMAR_SUBCOMMANDS};
 use crate::config::COMMAND_BINDS;
 use crate::config::{
     BRACKET_NEXT_BINDINGS, BRACKET_PREV_BINDINGS, CTRL_W_BINDINGS, GOTO_BINDINGS, LEADER_DEFAULTS,
@@ -29,7 +29,10 @@ const HINT_PAD_Y: u16 = 1;
 /// included here on purpose: once the user has typed `copilot `, the
 /// separate [`draw_command_subhints`] panel takes over with a focused
 /// menu so the main commands list stays uncluttered.
-const VIRTUAL_COMMANDS: &[(&str, &str)] = &[("copilot", "Copilot status / signin / signout")];
+const VIRTUAL_COMMANDS: &[(&str, &str)] = &[
+    ("copilot", "Copilot status / signin / signout"),
+    ("grammar", "install / remove tree-sitter grammars"),
+];
 
 /// Resolve `<head>` to a (title, entries) pair when there's a known
 /// subcommand menu attached to it. Adding new subcommand-bearing
@@ -41,6 +44,13 @@ fn subcommand_menu(head: &str) -> Option<(&'static str, Vec<(&'static str, &'sta
         "copilot" => Some((
             " copilot ",
             COPILOT_SUBCOMMANDS
+                .iter()
+                .map(|s| (s.name, s.description))
+                .collect(),
+        )),
+        "grammar" => Some((
+            " grammar ",
+            GRAMMAR_SUBCOMMANDS
                 .iter()
                 .map(|s| (s.name, s.description))
                 .collect(),

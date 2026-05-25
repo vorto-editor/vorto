@@ -148,6 +148,7 @@ fn status_label(app: &App) -> (String, Color) {
         Prompt::Hover { .. } => ("HOVER".into(), Color::LightBlue),
         Prompt::LspStatus { .. } => ("LSP".into(), Color::LightBlue),
         Prompt::CopilotSignin { .. } => ("COPILOT".into(), Color::LightBlue),
+        Prompt::GrammarList { .. } => ("GRAMMAR".into(), Color::LightMagenta),
     }
 }
 

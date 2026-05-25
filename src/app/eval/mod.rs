@@ -65,6 +65,19 @@ impl App {
             return Ok(());
         }
 
+        // `:grammar [list|install|remove] …` — same inline-dispatch
+        // rationale as `:copilot`: the subcommand routes to distinct
+        // code paths (a modal vs async installs) that don't fit the
+        // single-`DirectKind` shape the `CommandBind` table assumes.
+        if cmd == "grammar" {
+            self.run_grammar_command("");
+            return Ok(());
+        }
+        if let Some(rest) = cmd.strip_prefix("grammar ") {
+            self.run_grammar_command(rest);
+            return Ok(());
+        }
+
         let (head, rest) = match cmd.split_once(' ') {
             Some((h, r)) => (h, r.trim()),
             None => (cmd, ""),

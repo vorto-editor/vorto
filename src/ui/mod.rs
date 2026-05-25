@@ -24,6 +24,7 @@ mod completion;
 mod copilot_signin;
 mod explorer;
 mod fuzzy;
+mod grammar_list;
 mod hints;
 mod hover;
 mod lsp_status;
@@ -133,6 +134,10 @@ pub fn draw(f: &mut Frame, app: &App) {
     }
     if matches!(app.prompt.state, Prompt::CopilotSignin { .. }) {
         copilot_signin::draw_copilot_signin(f, app, f.area());
+    }
+    // `:grammar` modal — screen-centered like `:lsp`.
+    if matches!(app.prompt.state, Prompt::GrammarList { .. }) {
+        grammar_list::draw_grammar_list(f, app, f.area());
     }
     if app.completion.is_some() {
         completion::draw_completion(f, app, active_rect);

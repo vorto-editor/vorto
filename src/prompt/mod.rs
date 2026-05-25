@@ -72,6 +72,37 @@ pub enum Prompt {
     /// produces `OpenRelativeFile`; submit on a dir toggles its
     /// expand state in-place and stays open.
     Explorer(ExplorerState),
+    /// `:grammar` — interactive list of tree-sitter grammars with their
+    /// install status. Unlike the read-only modals above, this one
+    /// drives actions: `j`/`k` move the selection, Enter installs the
+    /// selected grammar (asynchronously — the row flips to
+    /// [`GrammarState::Installing`] and the worker reports back via
+    /// [`crate::event::AppEvent::GrammarInstalled`]), and `d` removes an
+    /// installed one. The modal stays open across installs so the user
+    /// can queue several.
+    GrammarList {
+        rows: Vec<GrammarRow>,
+        selected: usize,
+    },
+}
+
+/// One grammar entry in the `:grammar` modal.
+#[derive(Clone)]
+pub struct GrammarRow {
+    /// Grammar name — the `.so` stem and the `grammar install <name>`
+    /// handle.
+    pub name: String,
+    pub state: GrammarState,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum GrammarState {
+    /// Library present on disk.
+    Installed,
+    /// No library yet — Enter installs it.
+    Missing,
+    /// Install worker is in flight.
+    Installing,
 }
 
 impl Prompt {
@@ -120,6 +151,14 @@ pub enum PromptOutcome {
         old: PathBuf,
         new: PathBuf,
     },
+    /// `:grammar` modal — Enter on a missing grammar. The caller spawns
+    /// the install worker; the modal stays open with the row already
+    /// flipped to [`GrammarState::Installing`].
+    InstallGrammar(String),
+    /// `:grammar` modal — `d` on an installed grammar. The caller
+    /// deletes the library; the modal stays open with the row flipped
+    /// back to [`GrammarState::Missing`].
+    RemoveGrammar(String),
 }
 
 pub struct PromptController {
@@ -282,6 +321,24 @@ impl PromptController {
         self.state = Prompt::LspStatus { content, scroll: 0 };
     }
 
+    /// Open the `:grammar` modal with the given rows. Selection starts
+    /// at the top.
+    pub fn open_grammar_list(&mut self, rows: Vec<GrammarRow>) {
+        self.state = Prompt::GrammarList { rows, selected: 0 };
+    }
+
+    /// Update a grammar row's state in place when the modal is open and
+    /// still showing this grammar. No-op otherwise (the user may have
+    /// closed the modal before the install worker reported back). Called
+    /// from the `GrammarInstalled` handler.
+    pub fn grammar_set_state(&mut self, name: &str, state: GrammarState) {
+        if let Prompt::GrammarList { rows, .. } = &mut self.state
+            && let Some(row) = rows.iter_mut().find(|r| r.name == name)
+        {
+            row.state = state;
+        }
+    }
+
     /// Open the Copilot signin modal. Any prior modal is replaced.
     pub fn open_copilot_signin(&mut self, code: String, url: String) {
         self.state = Prompt::CopilotSignin { code, url };
@@ -317,6 +374,45 @@ impl PromptController {
                 return self.run_explorer_delete();
             }
             state.apply_key(key);
+            return PromptOutcome::Nothing;
+        }
+
+        // `:grammar` modal owns Enter (install) and `d` (remove) ahead
+        // of the generic submit/close path, since Enter must *not* close
+        // the modal — the user queues an install and keeps browsing.
+        // Esc/Ctrl-C still close (handled below, after navigation).
+        if let Prompt::GrammarList { rows, selected } = &mut self.state {
+            let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+            if key.code == KeyCode::Esc || ctrl_c {
+                self.close();
+                return PromptOutcome::Cancelled;
+            }
+            let last = rows.len().saturating_sub(1);
+            match key.code {
+                KeyCode::Up | KeyCode::Char('k') => *selected = selected.saturating_sub(1),
+                KeyCode::Char('p') if ctrl => *selected = selected.saturating_sub(1),
+                KeyCode::Down | KeyCode::Char('j') => *selected = (*selected + 1).min(last),
+                KeyCode::Char('n') if ctrl => *selected = (*selected + 1).min(last),
+                KeyCode::Enter | KeyCode::Char('i') => {
+                    // Only missing grammars are installable; an already-
+                    // installed or in-flight row is a no-op.
+                    if let Some(row) = rows.get_mut(*selected)
+                        && row.state == GrammarState::Missing
+                    {
+                        row.state = GrammarState::Installing;
+                        return PromptOutcome::InstallGrammar(row.name.clone());
+                    }
+                }
+                KeyCode::Char('d') | KeyCode::Char('x') => {
+                    if let Some(row) = rows.get_mut(*selected)
+                        && row.state == GrammarState::Installed
+                    {
+                        row.state = GrammarState::Missing;
+                        return PromptOutcome::RemoveGrammar(row.name.clone());
+                    }
+                }
+                _ => {}
+            }
             return PromptOutcome::Nothing;
         }
 
@@ -377,9 +473,9 @@ impl PromptController {
                 }
                 PromptOutcome::Nothing
             }
-            Prompt::Explorer(_) => {
-                // Explorer is fully handled by the early intercept above
-                // (it owns Esc/Enter and per-mode dispatch). Reaching
+            Prompt::Explorer(_) | Prompt::GrammarList { .. } => {
+                // Both are fully handled by their early intercepts above
+                // (they own Esc/Enter and per-mode dispatch). Reaching
                 // this arm means the early branch didn't match — i.e.
                 // none, which shouldn't happen — but stay defensive.
                 PromptOutcome::Nothing
@@ -567,11 +663,11 @@ impl PromptController {
             },
             Prompt::Rename(new_name) => PromptOutcome::SubmitRename(new_name.into_string()),
             Prompt::Fuzzy(finder) => self.submit_fuzzy(finder),
-            // Explorer's submit is short-circuited inside `handle_key`
-            // (Enter on a dir toggles, Enter on a file opens) so this
-            // branch is only reached through a future caller that
-            // bypasses the key path — treat it as a no-op.
-            Prompt::Explorer(_) => PromptOutcome::Nothing,
+            // Explorer's and the grammar modal's submits are short-
+            // circuited inside `handle_key` (their early intercepts own
+            // Enter), so these branches are only reached through a
+            // future caller that bypasses the key path — no-op.
+            Prompt::Explorer(_) | Prompt::GrammarList { .. } => PromptOutcome::Nothing,
             Prompt::CodeActionMenu {
                 mut actions,
                 selected,
