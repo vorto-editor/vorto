@@ -26,44 +26,17 @@ use crate::prompt::{GrammarRow, GrammarState};
 
 use super::{App, Toast, root_cause};
 
-/// One `:grammar <sub>` subcommand. Source of truth for the hint panel
-/// ([`crate::ui::hints`]) and the `:` prompt's Tab completion
-/// ([`crate::prompt`]); [`App::run_grammar_command`] resolves an input
-/// token against this list so names/aliases live in exactly one place.
-///
-/// No `handler` field (unlike [`crate::app::COPILOT_SUBCOMMANDS`]):
-/// grammar subcommands take arguments, so dispatch stays a `match` on
-/// the canonical name rather than a nullary fn pointer.
-pub struct GrammarSubcommand {
-    pub name: &'static str,
-    pub aliases: &'static [&'static str],
-    pub description: &'static str,
-}
-
-pub const GRAMMAR_SUBCOMMANDS: &[GrammarSubcommand] = &[
-    GrammarSubcommand {
-        name: "list",
-        aliases: &["ls"],
-        description: "browse, install & remove (modal)",
-    },
-    GrammarSubcommand {
-        name: "install",
-        aliases: &["add"],
-        description: "install <name>... | --all",
-    },
-    GrammarSubcommand {
-        name: "remove",
-        aliases: &["rm", "uninstall"],
-        description: "remove <name>...",
-    },
-];
+// `:grammar` subcommand metadata lives in the unified command table —
+// [`crate::config::GRAMMAR_SUBCOMMANDS`] — so completion and the hint
+// panel read it from one place. Dispatch by canonical name happens in
+// [`App::run_grammar_command`].
 
 impl App {
     /// `:grammar [list|install|remove] …`. Bare `:grammar` opens the
     /// browse modal; the subcommands mirror the CLI so muscle memory
     /// (`:grammar install rust`) carries over. Names/aliases are resolved
-    /// through [`GRAMMAR_SUBCOMMANDS`] so the hint panel and the
-    /// dispatcher never drift.
+    /// through the unified [`crate::config::GRAMMAR_SUBCOMMANDS`] so the
+    /// hint panel and the dispatcher never drift.
     pub(super) fn run_grammar_command(&mut self, sub: &str) {
         let sub = sub.trim();
         let (cmd, rest) = match sub.split_once(char::is_whitespace) {
@@ -74,11 +47,8 @@ impl App {
         let canonical = if cmd.is_empty() {
             "list"
         } else {
-            match GRAMMAR_SUBCOMMANDS
-                .iter()
-                .find(|s| s.name == cmd || s.aliases.contains(&cmd))
-            {
-                Some(s) => s.name,
+            match crate::config::resolve_subcommand(crate::config::GRAMMAR_SUBCOMMANDS, cmd) {
+                Some(c) => c,
                 None => {
                     self.push_toast(Toast::error(format!("unknown grammar subcommand: {cmd}")));
                     return;

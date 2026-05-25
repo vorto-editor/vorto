@@ -8,8 +8,8 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Padding, Paragraph};
 
 use crate::action::{Operator, Token};
-use crate::app::{App, COPILOT_SUBCOMMANDS, GRAMMAR_SUBCOMMANDS};
-use crate::config::COMMAND_BINDS;
+use crate::app::App;
+use crate::config::{Args, COMMANDS, Command};
 use crate::config::{
     BRACKET_NEXT_BINDINGS, BRACKET_PREV_BINDINGS, CTRL_W_BINDINGS, GOTO_BINDINGS, LEADER_DEFAULTS,
     OBJECT_BINDINGS, OP_PENDING_BINDINGS, WINDOW_BINDINGS, Z_BINDINGS,
@@ -22,38 +22,23 @@ const HINT_MAX: usize = HINT_COLS * HINT_ROWS_MAX;
 const HINT_PAD_X: u16 = 1;
 const HINT_PAD_Y: u16 = 1;
 
-/// Virtual `:` commands not represented in [`COMMAND_BINDS`] — used by
-/// the inline `cmd == "copilot"` interception in
-/// [`crate::app::eval`]. Listed here so the hint panel still surfaces
-/// them as completion targets. The subcommand variants are *not*
-/// included here on purpose: once the user has typed `copilot `, the
-/// separate [`draw_command_subhints`] panel takes over with a focused
-/// menu so the main commands list stays uncluttered.
-const VIRTUAL_COMMANDS: &[(&str, &str)] = &[
-    ("copilot", "Copilot status / signin / signout"),
-    ("grammar", "install / remove tree-sitter grammars"),
-    ("agent", "launch an AI agent in a tmux/zellij pane"),
-];
-
-/// Resolve `<head>` to a (title, entries) pair when there's a known
-/// subcommand menu attached to it. Adding new subcommand-bearing
-/// commands means extending this match — the `entries` themselves are
-/// owned by their respective dispatcher modules (e.g.
-/// [`COPILOT_SUBCOMMANDS`]) so this layer never duplicates them.
-fn subcommand_menu(head: &str) -> Option<(&'static str, Vec<(&'static str, &'static str)>)> {
-    match head {
-        "copilot" => Some((
-            " copilot ",
-            COPILOT_SUBCOMMANDS
-                .iter()
-                .map(|s| (s.name, s.description))
-                .collect(),
-        )),
-        "grammar" => Some((
-            " grammar ",
-            GRAMMAR_SUBCOMMANDS
-                .iter()
-                .map(|s| (s.name, s.description))
+/// Resolve `<head>` to a (title, entries) pair when the command takes
+/// subcommands ([`Args::Sub`]). Both the title and entries come straight
+/// from the unified command table, so this layer never duplicates the
+/// subcommand list.
+fn subcommand_menu(head: &str) -> Option<(String, Vec<(&'static str, &'static str)>)> {
+    match &Command::find(head)?.args {
+        Args::Sub(subs) => Some((
+            format!(" {head} "),
+            // Each typeable form (canonical + aliases) is its own row,
+            // sharing the subcommand's description — mirroring how
+            // [`command_items`] lists top-level commands and their aliases.
+            subs.iter()
+                .flat_map(|s| {
+                    std::iter::once(s.name)
+                        .chain(s.aliases.iter().copied())
+                        .map(move |n| (n, s.description))
+                })
                 .collect(),
         )),
         _ => None,
@@ -68,7 +53,7 @@ pub(super) fn draw_command_hints(f: &mut Frame, cp: &CommandPrompt, cmd_area: Re
     // entry (if any) is selected. Tab-cycling pins the panel to the
     // candidate list captured at first Tab; otherwise we filter live
     // from what the user has typed so far.
-    let (title, items, selected_idx): (&str, Vec<(String, String)>, Option<usize>) =
+    let (title, items, selected_idx): (String, Vec<(String, String)>, Option<usize>) =
         match &cp.completion {
             Some(c) if c.kind == CompletionKind::Path => {
                 let items = c
@@ -77,18 +62,30 @@ pub(super) fn draw_command_hints(f: &mut Frame, cp: &CommandPrompt, cmd_area: Re
                     .take(HINT_MAX)
                     .map(|p| (p.clone(), String::new()))
                     .collect();
-                (" files ", items, Some(c.selected))
+                (" files ".to_string(), items, Some(c.selected))
             }
             Some(c) => {
                 // Command-name cycling. The visible input has been
-                // replaced with a candidate, so filter against the
-                // captured prefix instead.
-                let items = command_items(&c.prefix);
+                // replaced with the chosen candidate, but the *menu* is
+                // fixed by the head: a subcommand set once a head + space
+                // is present (`:copilot `), the top-level command list
+                // otherwise. Re-derive it (for descriptions) against the
+                // originally-captured prefix and locate the selection.
+                let input = cp.input.as_str();
+                let (title, items) = match input.find(' ') {
+                    Some(sp) => {
+                        let Some((title, entries)) = subcommand_menu(&input[..sp]) else {
+                            return;
+                        };
+                        (title, filter_subcommand_items(&entries, &c.prefix))
+                    }
+                    None => (" commands ".to_string(), command_items(&c.prefix)),
+                };
                 let sel = c
                     .matches
                     .get(c.selected)
                     .and_then(|name| items.iter().position(|(n, _)| n == name));
-                (" commands ", items, sel)
+                (title, items, sel)
             }
             None => {
                 // No cycle in progress — live filtering against what
@@ -98,7 +95,7 @@ pub(super) fn draw_command_hints(f: &mut Frame, cp: &CommandPrompt, cmd_area: Re
                 //   - anything else (path arg, etc.)       → no panel
                 let input = cp.input.as_str();
                 match input.find([' ', '\t']) {
-                    None => (" commands ", command_items(input), None),
+                    None => (" commands ".to_string(), command_items(input), None),
                     Some(sp) => {
                         let head = &input[..sp];
                         let Some((title, entries)) = subcommand_menu(head) else {
@@ -228,10 +225,9 @@ fn truncate_or_pad(s: &str, width: usize) -> String {
 /// for the hint panel. Each row is one typeable form (primary name or
 /// alias) paired with its description.
 fn command_items(prefix: &str) -> Vec<(String, String)> {
-    COMMAND_BINDS
+    COMMANDS
         .iter()
-        .flat_map(|b| b.all_names().map(move |n| (n, b.description)))
-        .chain(VIRTUAL_COMMANDS.iter().copied())
+        .flat_map(|c| c.all_names().map(move |n| (n, c.description)))
         .filter(|(name, _)| name.starts_with(prefix))
         .take(HINT_MAX)
         .map(|(n, d)| (n.to_string(), d.to_string()))

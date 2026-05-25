@@ -21,7 +21,7 @@ use anyhow::Result;
 
 use super::{App, InsertRecording, Toast};
 use crate::action::{Ctx, DirectKind, Expr, InsertKey, LastChange, MotionExpr, MotionKind};
-use crate::config::CommandBind;
+use crate::config::{Command, Inline, Kind};
 use crate::editor::Cursor;
 use crate::effect::Cmd;
 use crate::mode::Mode;
@@ -40,8 +40,8 @@ impl App {
         }
 
         // `:s/...` / `:%s/...` — substitute. Intercepted before the
-        // `CommandBind` table because the head has no leading-word
-        // boundary to split on (e.g. `s/foo/bar/g` is one token).
+        // command table because the head has no leading-word boundary to
+        // split on (e.g. `s/foo/bar/g` is one token).
         if crate::editor::parse_substitute(cmd).is_some() {
             return self.evaluate(
                 Expr::Direct {
@@ -52,45 +52,6 @@ impl App {
             );
         }
 
-        // `:copilot [status|signin|signout|...]` — handled inline
-        // rather than via CommandBind because the subcommand argument
-        // routes to entirely different code paths and doesn't fit the
-        // single-DirectKind shape the bind table assumes.
-        if cmd == "copilot" {
-            self.run_copilot_command("");
-            return Ok(());
-        }
-        if let Some(rest) = cmd.strip_prefix("copilot ") {
-            self.run_copilot_command(rest);
-            return Ok(());
-        }
-
-        // `:grammar [list|install|remove] …` — same inline-dispatch
-        // rationale as `:copilot`: the subcommand routes to distinct
-        // code paths (a modal vs async installs) that don't fit the
-        // single-`DirectKind` shape the `CommandBind` table assumes.
-        if cmd == "grammar" {
-            self.run_grammar_command("");
-            return Ok(());
-        }
-        if let Some(rest) = cmd.strip_prefix("grammar ") {
-            self.run_grammar_command(rest);
-            return Ok(());
-        }
-
-        // `:agent [..]` — launch an AI agent in a tmux/zellij pane.
-        // Inline-dispatched (not via `CommandBind`) for the same reason
-        // as `:copilot`/`:grammar`: it opens a picker / spawns a process
-        // rather than mapping to a single buffer-mutating `DirectKind`.
-        if cmd == "agent" {
-            self.run_agent_command("");
-            return Ok(());
-        }
-        if let Some(rest) = cmd.strip_prefix("agent ") {
-            self.run_agent_command(rest);
-            return Ok(());
-        }
-
         let (head, rest) = match cmd.split_once(' ') {
             Some((h, r)) => (h, r.trim()),
             None => (cmd, ""),
@@ -98,14 +59,29 @@ impl App {
         if head.is_empty() {
             return Ok(());
         }
-        match CommandBind::find(head) {
-            Some(b) => self.evaluate(
-                Expr::Direct {
-                    kind: b.kind,
-                    count: 1,
-                },
-                Ctx::with_rest(rest),
-            ),
+        // Single dispatch over the unified command table — see
+        // [`crate::config::COMMANDS`]. `Direct` commands map to an
+        // `Expr::Direct`; `Inline` commands route to a dedicated handler
+        // (the `match Inline` is exhaustive, so a new inline command can't
+        // be added to the table without wiring its handler here).
+        match Command::find(head) {
+            Some(c) => match &c.kind {
+                Kind::Direct(kind) => self.evaluate(
+                    Expr::Direct {
+                        kind: *kind,
+                        count: 1,
+                    },
+                    Ctx::with_rest(rest),
+                ),
+                Kind::Inline(inline) => {
+                    match inline {
+                        Inline::Copilot => self.run_copilot_command(rest),
+                        Inline::Grammar => self.run_grammar_command(rest),
+                        Inline::Agent => self.run_agent_command(rest),
+                    }
+                    Ok(())
+                }
+            },
             None => {
                 self.push_toast(Toast::error(format!("unknown command: {}", head)));
                 Ok(())

@@ -4,8 +4,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::app::{COPILOT_SUBCOMMANDS, GRAMMAR_SUBCOMMANDS};
-use crate::config::COMMAND_BINDS;
+use crate::config::{Args, COMMANDS, Command};
 
 use super::line_input::LineInput;
 
@@ -83,14 +82,12 @@ impl CommandPrompt {
 fn build_completion(input: &str, root: &Path) -> Option<CompletionState> {
     match input.find(' ') {
         None => {
-            // Command-name completion: head is empty, prefix is the
-            // whole input, candidates are every typeable name that
-            // starts with it.
+            // Command-name completion: prefix is the whole input,
+            // candidates are every typeable name in the command table.
             let prefix = input.to_string();
-            let matches: Vec<String> = COMMAND_BINDS
+            let matches: Vec<String> = COMMANDS
                 .iter()
-                .flat_map(|b| b.all_names())
-                .chain(["copilot", "grammar", "agent"])
+                .flat_map(|c| c.all_names())
                 .filter(|n| n.starts_with(&prefix))
                 .map(|n| n.to_string())
                 .collect();
@@ -106,92 +103,53 @@ fn build_completion(input: &str, root: &Path) -> Option<CompletionState> {
             })
         }
         Some(sp_byte) => {
-            // Path completion (only after a path-taking command).
-            // Preserve everything up to and including the first space,
-            // and complete the partial path after it.
+            // Argument completion, driven by the command's `Args`: a path
+            // for `:e`/`:w`, a subcommand name for `:copilot`/`:grammar`,
+            // nothing otherwise. Bail past a second space — the user is
+            // beyond the single argument we complete.
             let cmd = &input[..sp_byte];
-            // `copilot` lives outside the COMMAND_BINDS table (the
-            // `cmd == "copilot"` intercept in `eval` routes it to a
-            // dedicated handler) but its subcommands should still cycle
-            // via Tab — synthesize a CommandName completion against
-            // the known subcommand set.
-            if cmd == "copilot" {
-                let partial = &input[sp_byte + 1..];
-                if partial.contains(' ') {
-                    return None;
-                }
-                let matches: Vec<String> = COPILOT_SUBCOMMANDS
-                    .iter()
-                    .flat_map(|s| std::iter::once(s.name).chain(s.aliases.iter().copied()))
-                    .filter(|n| n.starts_with(partial))
-                    .map(|n| n.to_string())
-                    .collect();
-                if matches.is_empty() {
-                    return None;
-                }
-                return Some(CompletionState {
-                    kind: CompletionKind::CommandName,
-                    prefix: partial.to_string(),
-                    head_chars: sp_byte + 1,
-                    matches,
-                    selected: 0,
-                });
-            }
-            // `grammar` is the same shape as `copilot` — outside
-            // COMMAND_BINDS, but its subcommands (list / install /
-            // remove) should still Tab-cycle. Grammar *names* after
-            // `install`/`remove` aren't completed here (they'd need the
-            // config-merged catalog, which the prompt layer doesn't
-            // carry).
-            if cmd == "grammar" {
-                let partial = &input[sp_byte + 1..];
-                if partial.contains(' ') {
-                    return None;
-                }
-                let matches: Vec<String> = GRAMMAR_SUBCOMMANDS
-                    .iter()
-                    .flat_map(|s| std::iter::once(s.name).chain(s.aliases.iter().copied()))
-                    .filter(|n| n.starts_with(partial))
-                    .map(|n| n.to_string())
-                    .collect();
-                if matches.is_empty() {
-                    return None;
-                }
-                return Some(CompletionState {
-                    kind: CompletionKind::CommandName,
-                    prefix: partial.to_string(),
-                    head_chars: sp_byte + 1,
-                    matches,
-                    selected: 0,
-                });
-            }
-            let bind = COMMAND_BINDS
-                .iter()
-                .find(|b| b.name == cmd || b.aliases.contains(&cmd))?;
-            if !bind.takes_path {
-                return None;
-            }
+            let c = Command::find(cmd)?;
             let partial = &input[sp_byte + 1..];
-            // Disallow more args: if the user typed another space,
-            // they're past the path — bail rather than complete the
-            // wrong thing.
             if partial.contains(' ') {
                 return None;
             }
-            let matches = path_candidates(partial, root);
-            if matches.is_empty() {
-                return None;
+            match &c.args {
+                Args::None => None,
+                Args::Sub(subs) => {
+                    let matches: Vec<String> = subs
+                        .iter()
+                        .flat_map(|s| std::iter::once(s.name).chain(s.aliases.iter().copied()))
+                        .filter(|n| n.starts_with(partial))
+                        .map(|n| n.to_string())
+                        .collect();
+                    if matches.is_empty() {
+                        return None;
+                    }
+                    Some(CompletionState {
+                        kind: CompletionKind::CommandName,
+                        prefix: partial.to_string(),
+                        head_chars: sp_byte + 1,
+                        matches,
+                        selected: 0,
+                    })
+                }
+                Args::Path => {
+                    let matches = path_candidates(partial, root);
+                    if matches.is_empty() {
+                        return None;
+                    }
+                    // head = cmd + " " in chars. Command heads are ASCII,
+                    // so byte and char counts agree.
+                    let head_chars = cmd.chars().count() + 1;
+                    Some(CompletionState {
+                        kind: CompletionKind::Path,
+                        prefix: partial.to_string(),
+                        head_chars,
+                        matches,
+                        selected: 0,
+                    })
+                }
             }
-            // head = cmd + " " in chars. cmd is ASCII (commands are
-            // ASCII), so byte and char counts agree there.
-            let head_chars = cmd.chars().count() + 1;
-            Some(CompletionState {
-                kind: CompletionKind::Path,
-                prefix: partial.to_string(),
-                head_chars,
-                matches,
-                selected: 0,
-            })
         }
     }
 }
