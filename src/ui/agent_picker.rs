@@ -63,8 +63,12 @@ pub(super) fn draw_agent_picker(f: &mut Frame, app: &App, area: Rect) {
     let inner = block.inner(popup);
     f.render_widget(block, popup);
 
-    let mut lines: Vec<Line> = Vec::with_capacity(agents.len());
-    for (i, name) in agents.iter().enumerate() {
+    // Window the list so a selection past the visible height stays in
+    // view (the catalog is usually short, but config can add entries).
+    let list_h = inner.height as usize;
+    let scroll = scroll_offset(*selected, agents.len(), list_h);
+    let mut lines: Vec<Line> = Vec::with_capacity(list_h);
+    for (i, name) in agents.iter().enumerate().skip(scroll).take(list_h) {
         let is_sel = i == *selected;
         let marker = if is_sel { "▸ " } else { "  " };
         let mut spans = vec![Span::raw(marker), Span::raw(name.clone())];
@@ -102,5 +106,34 @@ pub(super) fn draw_agent_picker(f: &mut Frame, app: &App, area: Rect) {
             ))),
             hint_rect,
         );
+    }
+}
+
+/// First visible row index that keeps `selected` inside a `window`-tall
+/// viewport, clamped so the list never scrolls past its end. Mirrors the
+/// `:grammar` modal's windowing.
+fn scroll_offset(selected: usize, len: usize, window: usize) -> usize {
+    if window == 0 || len <= window {
+        return 0;
+    }
+    let max_scroll = len - window;
+    selected.saturating_sub(window - 1).min(max_scroll)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::scroll_offset;
+
+    #[test]
+    fn no_scroll_when_list_fits() {
+        assert_eq!(scroll_offset(0, 4, 20), 0);
+        assert_eq!(scroll_offset(3, 4, 20), 0);
+    }
+
+    #[test]
+    fn scrolls_just_enough_and_clamps_to_tail() {
+        // window = 3: row 3 needs one row of scroll; last row clamps.
+        assert_eq!(scroll_offset(3, 10, 3), 1);
+        assert_eq!(scroll_offset(9, 10, 3), 7);
     }
 }

@@ -93,7 +93,14 @@ pub fn persist_default_agent(name: &str) -> Result<PathBuf> {
         std::fs::create_dir_all(parent)
             .with_context(|| format!("creating config dir {}", parent.display()))?;
     }
-    let existing = std::fs::read_to_string(&path).unwrap_or_default();
+    // A missing file is the normal first-time case → start from empty.
+    // Any other read error (permissions, etc.) is propagated rather than
+    // silently treated as empty, which would overwrite the file body.
+    let existing = match std::fs::read_to_string(&path) {
+        Ok(s) => s,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => return Err(e).with_context(|| format!("reading {}", path.display())),
+    };
     let updated = insert_default_agent(&existing, name);
     std::fs::write(&path, updated).with_context(|| format!("writing {}", path.display()))?;
     Ok(path)
@@ -105,7 +112,7 @@ pub fn persist_default_agent(name: &str) -> Result<PathBuf> {
 /// `[agent]` table is appended. The trailing-newline shape of the input
 /// is kept.
 fn insert_default_agent(existing: &str, name: &str) -> String {
-    let line = format!("default = \"{name}\"");
+    let line = format!("default = {}", toml_basic_string(name));
     if let Some(header_idx) = existing.lines().position(|l| l.trim() == "[agent]") {
         let mut out: Vec<String> = existing.lines().map(str::to_string).collect();
         out.insert(header_idx + 1, line);
@@ -126,6 +133,31 @@ fn insert_default_agent(existing: &str, name: &str) -> String {
     s.push_str(&line);
     s.push('\n');
     s
+}
+
+/// Render `s` as a quoted TOML basic string, escaping the characters TOML
+/// requires. Agent names normally come from bare table keys (so they're
+/// already simple), but a quoted key like `[agents."odd\"name"]` could
+/// carry `"`, `\`, or control chars — writing those unescaped would
+/// produce a config file that fails to parse on the next load.
+fn toml_basic_string(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('"');
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\u{08}' => out.push_str("\\b"),
+            '\t' => out.push_str("\\t"),
+            '\n' => out.push_str("\\n"),
+            '\u{0C}' => out.push_str("\\f"),
+            '\r' => out.push_str("\\r"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04X}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
 }
 
 #[cfg(test)]
@@ -188,6 +220,17 @@ mod tests {
             out,
             "[editor]\ntab_width = 4\n\n[agent]\ndefault = \"codex\"\n"
         );
+    }
+
+    #[test]
+    fn insert_escapes_special_chars_in_name() {
+        // A name with a quote/backslash must be written as a valid TOML
+        // basic string, not break the file.
+        let out = insert_default_agent("", "od\"d\\name");
+        assert_eq!(out, "[agent]\ndefault = \"od\\\"d\\\\name\"\n");
+        // And it must round-trip back through the TOML parser.
+        let parsed: toml::Value = toml::from_str(&out).unwrap();
+        assert_eq!(parsed["agent"]["default"].as_str(), Some("od\"d\\name"));
     }
 
     #[test]
