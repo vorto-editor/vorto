@@ -122,7 +122,7 @@ cargo install vorto
 From source:
 
 ```sh
-git clone https://github.com/shka-k/vorto.git
+git clone https://github.com/vorto-editor/vorto.git
 cd vorto
 make install            # installs to ~/.local/bin
 # or
