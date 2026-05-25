@@ -1869,6 +1869,7 @@ version = "0.11.4"
 dependencies = [
  "anyhow",
  "arboard",
+ "cc",
  "crossterm",
  "flate2",
  "include_dir",

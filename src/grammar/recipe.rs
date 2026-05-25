@@ -7,7 +7,10 @@
 //!
 //! Adding a new built-in language is a one-line addition to
 //! [`builtin_recipes`]. Users who want a grammar that's not built in can
-//! still install it manually by dropping the `.so` into `grammar_dir`.
+//! define their own recipe in config under `[grammars.<name>]` (see
+//! [`GrammarRecipe::from_config`]) — that makes `vorto grammar install
+//! <name>` work for it too. Queries for such grammars are user-supplied
+//! (we only bundle queries for built-ins).
 
 /// Static description of how to fetch and build one grammar.
 #[derive(Debug, Clone)]
@@ -290,25 +293,45 @@ pub fn builtin_recipes() -> Vec<GrammarRecipe> {
     ]
 }
 
-/// Look up a recipe by name. Returns `None` when no built-in recipe
-/// matches — callers should report the available names to the user.
-pub fn find_recipe(name: &str) -> Option<GrammarRecipe> {
-    builtin_recipes().into_iter().find(|r| r.name == name)
+impl GrammarRecipe {
+    /// Build a recipe from a user's `[grammars.<name>]` config entry.
+    ///
+    /// The owned strings are leaked to `&'static str`. That's deliberate:
+    /// recipes are resolved once at startup and live for the whole
+    /// process (the `grammar` subcommand is short-lived, and the editor
+    /// keeps its config for its entire run), so a handful of never-freed
+    /// small strings costs nothing and lets user recipes share the exact
+    /// same type as the built-ins.
+    pub fn from_config(name: &str, source: &str, rev: Option<&str>, subpath: Option<&str>) -> Self {
+        fn leak(s: &str) -> &'static str {
+            Box::leak(s.to_owned().into_boxed_str())
+        }
+        GrammarRecipe {
+            name: leak(name),
+            repo: leak(source),
+            subpath: subpath.map(leak),
+            rev: rev.map(leak),
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn find(name: &str) -> Option<GrammarRecipe> {
+        builtin_recipes().into_iter().find(|r| r.name == name)
+    }
+
     #[test]
     fn builtin_catalog_contains_rust() {
-        assert!(find_recipe("rust").is_some());
+        assert!(find("rust").is_some());
     }
 
     #[test]
     fn typescript_and_tsx_share_repo_with_subpaths() {
-        let ts = find_recipe("typescript").unwrap();
-        let tsx = find_recipe("tsx").unwrap();
+        let ts = find("typescript").unwrap();
+        let tsx = find("tsx").unwrap();
         assert_eq!(ts.repo, tsx.repo);
         assert_eq!(ts.subpath, Some("typescript"));
         assert_eq!(tsx.subpath, Some("tsx"));
@@ -316,6 +339,20 @@ mod tests {
 
     #[test]
     fn unknown_recipe_is_none() {
-        assert!(find_recipe("does-not-exist").is_none());
+        assert!(find("does-not-exist").is_none());
+    }
+
+    #[test]
+    fn from_config_builds_owned_recipe() {
+        let r = GrammarRecipe::from_config(
+            "foolang",
+            "https://example.com/tree-sitter-foolang",
+            Some("abc123"),
+            Some("sub"),
+        );
+        assert_eq!(r.name, "foolang");
+        assert_eq!(r.repo, "https://example.com/tree-sitter-foolang");
+        assert_eq!(r.rev, Some("abc123"));
+        assert_eq!(r.subpath, Some("sub"));
     }
 }

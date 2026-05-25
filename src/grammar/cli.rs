@@ -10,16 +10,22 @@
 //! The grammar directory is read from the same `Config::load` path the
 //! editor uses, so anything installed here is immediately picked up next
 //! time the editor starts.
+//!
+//! The recipe catalog is the built-in list plus any user
+//! `[grammars.<name>]` entries from config (a user entry overrides a
+//! built-in of the same name). User-defined grammars install just like
+//! built-ins, except their queries are user-supplied — only built-ins
+//! carry bundled `.scm` files.
 
 use std::path::Path;
 
 use anyhow::{Result, bail};
 
-use crate::config::{self, Config};
+use crate::config::{self, Config, GrammarSource, LanguageRegistry};
 
 use super::assets;
 use super::build;
-use super::recipe::{builtin_recipes, find_recipe};
+use super::recipe::{GrammarRecipe, builtin_recipes};
 
 /// Entry point invoked from `main` when `argv[1] == "grammar"`. `args`
 /// is everything after the `grammar` token.
@@ -27,6 +33,9 @@ pub fn run(args: &[String]) -> Result<()> {
     let cfg = Config::load(config::default_path().as_deref())?;
     let grammar_dir = cfg.grammar_dir.as_path();
     let query_dir = cfg.query_dir.as_path();
+    // Built-in catalog plus any user `[grammars.*]` recipes (a user
+    // entry whose name matches a built-in overrides it).
+    let recipes = merged_recipes(&cfg.grammars);
 
     match args.split_first() {
         None => {
@@ -34,9 +43,9 @@ pub fn run(args: &[String]) -> Result<()> {
             Ok(())
         }
         Some((cmd, rest)) => match cmd.as_str() {
-            "list" | "ls" => list(grammar_dir, query_dir),
-            "install" | "add" => install(rest, grammar_dir, query_dir),
-            "install-queries" | "refresh-queries" => install_queries(rest, query_dir),
+            "list" | "ls" => list(rest, &recipes, &cfg.languages, grammar_dir, query_dir),
+            "install" | "add" => install(rest, &recipes, grammar_dir, query_dir),
+            "install-queries" | "refresh-queries" => install_queries(rest, &recipes, query_dir),
             "remove" | "rm" | "uninstall" => remove(rest, grammar_dir),
             "help" | "-h" | "--help" => {
                 print_usage();
@@ -50,11 +59,32 @@ pub fn run(args: &[String]) -> Result<()> {
     }
 }
 
+/// Built-in recipes overlaid with the user's `[grammars.*]` entries.
+/// A user entry with the same name as a built-in replaces it (so users
+/// can repoint a grammar at a fork or newer revision); new names are
+/// appended.
+fn merged_recipes(user: &[GrammarSource]) -> Vec<GrammarRecipe> {
+    let mut recipes = builtin_recipes();
+    for g in user {
+        let recipe =
+            GrammarRecipe::from_config(&g.name, &g.source, g.rev.as_deref(), g.subpath.as_deref());
+        match recipes.iter_mut().find(|r| r.name == g.name) {
+            Some(slot) => *slot = recipe,
+            None => recipes.push(recipe),
+        }
+    }
+    recipes
+}
+
+fn find<'a>(recipes: &'a [GrammarRecipe], name: &str) -> Option<&'a GrammarRecipe> {
+    recipes.iter().find(|r| r.name == name)
+}
+
 fn print_usage() {
     eprintln!("usage: vorto grammar <command> [args]");
     eprintln!();
     eprintln!("commands:");
-    eprintln!("  list                              show built-in recipes and install status");
+    eprintln!("  list [-v]                         show install status (grouped; -v for detail)");
     eprintln!("  install <name>... | --all         build and install one or more grammars");
     eprintln!("  install-queries <name>... | --all overwrite installed .scm files from the");
     eprintln!("                                    vendored bundle (no library rebuild)");
@@ -65,13 +95,152 @@ fn print_usage() {
     eprintln!("  vorto grammar install --all");
     eprintln!("  vorto grammar install-queries python");
     eprintln!("  vorto grammar list");
+    eprintln!();
+    eprintln!("define non-built-in grammars in config under [grammars.<name>]:");
+    eprintln!("  [grammars.nim]");
+    eprintln!("  source  = \"https://github.com/alaviss/tree-sitter-nim\"");
+    eprintln!("  rev     = \"abc123\"   # optional; omit to build the latest default branch");
+    eprintln!("  subpath = \"sub\"      # optional; for monorepos");
 }
 
-fn list(grammar_dir: &Path, query_dir: &Path) -> Result<()> {
+fn list(
+    args: &[String],
+    recipes: &[GrammarRecipe],
+    languages: &LanguageRegistry,
+    grammar_dir: &Path,
+    query_dir: &Path,
+) -> Result<()> {
+    if args.iter().any(|a| a == "-v" || a == "--verbose") {
+        return list_verbose(recipes, languages, grammar_dir, query_dir);
+    }
+
     println!("grammar dir: {}", grammar_dir.display());
     println!("query dir:   {}", query_dir.display());
     println!();
-    for r in builtin_recipes() {
+
+    // Three states: a grammar is "installed" once its library plus every
+    // bundled query is on disk; "lib only" means the library built but
+    // some queries are missing (rare — usually manual tinkering); the
+    // rest are "missing". Empty groups are skipped so the common case is
+    // just installed/missing.
+    let (mut installed, mut lib_only, mut missing) = (Vec::new(), Vec::new(), Vec::new());
+    for r in recipes {
+        if build::installed_path(r.name, grammar_dir).is_none() {
+            missing.push(r.name);
+        } else if build::is_fully_installed(r.name, grammar_dir, query_dir) {
+            installed.push(r.name);
+        } else {
+            lib_only.push(r.name);
+        }
+    }
+    let total = installed.len() + lib_only.len() + missing.len();
+
+    print_group("installed", &installed);
+    print_group("lib only, queries missing", &lib_only);
+    print_group("missing", &missing);
+
+    println!(
+        "{} total · {} installed · {} missing",
+        total,
+        installed.len() + lib_only.len(),
+        missing.len()
+    );
+
+    // Grammars referenced by `[languages.*]` config that have no recipe
+    // at all (built-in or user `[grammars.*]`). These can't be installed
+    // via `grammar install` — the user supplies the `.so` — so they get
+    // their own section with per-entry status.
+    let custom = custom_grammars(recipes, languages, grammar_dir);
+    if !custom.is_empty() {
+        println!();
+        println!("custom (from config) ({}):", custom.len());
+        for c in &custom {
+            let glyph = if c.installed { "✓" } else { "✗" };
+            println!("  {} {}", glyph, c.grammar);
+        }
+        if custom.iter().any(|c| !c.installed) {
+            println!(
+                "  (✗ = no library found and no recipe — add a `[grammars.<name>]` entry to install it, or drop the compiled `.so` in yourself)"
+            );
+        }
+    }
+
+    println!("(-v for repo URLs and per-grammar query detail)");
+    Ok(())
+}
+
+/// A grammar referenced by a `[languages.*]` config entry that has no
+/// recipe at all — the user is responsible for supplying its library.
+struct CustomGrammar {
+    grammar: String,
+    installed: bool,
+}
+
+/// Collect grammars referenced by config languages that have no recipe
+/// (neither built-in nor user `[grammars.*]`), deduped by grammar stem
+/// and sorted by name. Each language may override the global grammar
+/// dir, so install status is checked against the language's effective
+/// dir.
+fn custom_grammars(
+    recipes: &[GrammarRecipe],
+    languages: &LanguageRegistry,
+    grammar_dir: &Path,
+) -> Vec<CustomGrammar> {
+    use std::collections::HashSet;
+    let has_recipe: HashSet<&str> = recipes.iter().map(|r| r.name).collect();
+    let mut seen = HashSet::new();
+    let mut out = Vec::new();
+    for lang in languages.iter() {
+        if has_recipe.contains(lang.grammar.as_str()) || !seen.insert(lang.grammar.clone()) {
+            continue;
+        }
+        let dir = lang.grammar_dir.as_deref().unwrap_or(grammar_dir);
+        out.push(CustomGrammar {
+            grammar: lang.grammar.clone(),
+            installed: build::installed_path(&lang.grammar, dir).is_some(),
+        });
+    }
+    out.sort_by(|a, b| a.grammar.cmp(&b.grammar));
+    out
+}
+
+/// Print `<label> (<n>):` followed by the names laid out in aligned,
+/// terminal-width-aware columns. No-op for an empty group.
+fn print_group(label: &str, names: &[&str]) {
+    if names.is_empty() {
+        return;
+    }
+    println!("{} ({}):", label, names.len());
+
+    const INDENT: usize = 2;
+    let term_w = crossterm::terminal::size()
+        .map(|(c, _)| c as usize)
+        .unwrap_or(80);
+    let col_w = names.iter().map(|n| n.len()).max().unwrap_or(1) + 2;
+    let cols = (term_w.saturating_sub(INDENT) / col_w).max(1);
+
+    for row in names.chunks(cols) {
+        let mut line = " ".repeat(INDENT);
+        for name in row {
+            line.push_str(&format!("{:<width$}", name, width = col_w));
+        }
+        println!("{}", line.trim_end());
+    }
+    println!();
+}
+
+/// The detailed, one-block-per-grammar view (repo URL, subpath, library
+/// and query status). Reachable via `list -v`.
+fn list_verbose(
+    recipes: &[GrammarRecipe],
+    languages: &LanguageRegistry,
+    grammar_dir: &Path,
+    query_dir: &Path,
+) -> Result<()> {
+    println!("grammar dir: {}", grammar_dir.display());
+    println!("query dir:   {}", query_dir.display());
+    println!();
+    for r in recipes {
         let lib_status = match build::installed_path(r.name, grammar_dir) {
             Some(_) => "lib ✓",
             None => "lib ✗",
@@ -89,22 +258,41 @@ fn list(grammar_dir: &Path, query_dir: &Path) -> Result<()> {
             r.name, r.repo, subpath, lib_status, query_status
         );
     }
+
+    let custom = custom_grammars(recipes, languages, grammar_dir);
+    if !custom.is_empty() {
+        println!();
+        println!("custom (from config):");
+        for c in &custom {
+            let lib_status = if c.installed { "lib ✓" } else { "lib ✗" };
+            println!(
+                "  {:<12} (no recipe — user-supplied)\n               {}",
+                c.grammar, lib_status
+            );
+        }
+    }
     Ok(())
 }
 
-fn install(args: &[String], grammar_dir: &Path, query_dir: &Path) -> Result<()> {
+fn install(
+    args: &[String],
+    recipes: &[GrammarRecipe],
+    grammar_dir: &Path,
+    query_dir: &Path,
+) -> Result<()> {
     let recipes = match args.first().map(String::as_str) {
         None => {
             bail!("install: need at least one grammar name (or `--all`)");
         }
-        Some("--all") => builtin_recipes(),
+        Some("--all") => recipes.to_vec(),
         _ => {
             let mut out = Vec::new();
             for name in args {
-                match find_recipe(name) {
-                    Some(r) => out.push(r),
+                match find(recipes, name) {
+                    Some(r) => out.push(r.clone()),
                     None => bail!(
-                        "unknown grammar `{}`. Try `vorto grammar list` to see built-ins.",
+                        "unknown grammar `{}`. Run `vorto grammar list` for the catalog, or define it under `[grammars.{}]` in your config.",
+                        name,
                         name
                     ),
                 }
@@ -158,8 +346,13 @@ fn install(args: &[String], grammar_dir: &Path, query_dir: &Path) -> Result<()> 
                         Ok(report) => {
                             writeln!(buf, "    lib: {}", report.library.display()).ok();
                             if report.queries.is_empty() {
-                                writeln!(buf, "    queries: none shipped in upstream `queries/`")
-                                    .ok();
+                                writeln!(
+                                    buf,
+                                    "    queries: none bundled — drop your own .scm into {}/{}/",
+                                    query_dir.display(),
+                                    r.name
+                                )
+                                .ok();
                             } else {
                                 let names: Vec<String> = report
                                     .queries
@@ -202,19 +395,19 @@ fn install(args: &[String], grammar_dir: &Path, query_dir: &Path) -> Result<()> 
 /// `install` skips when a grammar is already fully installed, so this
 /// is the way to pick up an in-repo edit to `assets/queries/*.scm`
 /// without uninstalling and rebuilding the grammar.
-fn install_queries(args: &[String], query_dir: &Path) -> Result<()> {
+fn install_queries(args: &[String], recipes: &[GrammarRecipe], query_dir: &Path) -> Result<()> {
     let recipes = match args.first().map(String::as_str) {
         None => {
             bail!("install-queries: need at least one grammar name (or `--all`)");
         }
-        Some("--all") => builtin_recipes(),
+        Some("--all") => recipes.to_vec(),
         _ => {
             let mut out = Vec::new();
             for name in args {
-                match find_recipe(name) {
-                    Some(r) => out.push(r),
+                match find(recipes, name) {
+                    Some(r) => out.push(r.clone()),
                     None => bail!(
-                        "unknown grammar `{}`. Try `vorto grammar list` to see built-ins.",
+                        "unknown grammar `{}`. Run `vorto grammar list` for the catalog.",
                         name
                     ),
                 }

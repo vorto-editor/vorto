@@ -65,10 +65,37 @@ pub struct Config {
     /// File picker / tree explorer behavior — currently just the
     /// `hidden_patterns` glob list.
     pub finder: FinderConfig,
+    /// User-defined grammar recipes from `[grammars.<name>]`. Augments
+    /// the built-in catalog; an entry whose name matches a built-in
+    /// overrides it. Sorted by name for stable output.
+    pub grammars: Vec<GrammarSource>,
     /// Absolute path to the grammar directory (`<grammar>.{so,dylib,dll}`).
     pub grammar_dir: PathBuf,
     /// Absolute path to the query directory (`<lang>/highlights.scm`).
     pub query_dir: PathBuf,
+}
+
+/// Raw `[grammars.<name>]` entry: where to fetch a grammar's source.
+/// Mirrors the built-in recipe shape. The git URL is `source` (alias
+/// `src`); `rev` pins a tag/branch/commit (omit it to build the latest
+/// default branch); `subpath` selects a grammar inside a monorepo.
+#[derive(Debug, Deserialize, Clone)]
+struct GrammarToml {
+    #[serde(alias = "src")]
+    source: String,
+    #[serde(default)]
+    rev: Option<String>,
+    #[serde(default)]
+    subpath: Option<String>,
+}
+
+/// A resolved user grammar recipe, with the table-key name folded in.
+#[derive(Debug, Clone)]
+pub struct GrammarSource {
+    pub name: String,
+    pub source: String,
+    pub rev: Option<String>,
+    pub subpath: Option<String>,
 }
 
 impl Config {
@@ -91,6 +118,17 @@ impl Config {
         let editor = EditorConfig::default().overlay(&toml.editor);
         let finder = FinderConfig::default().overlay(&toml.finder);
         let languages = LanguageRegistry::build(toml.languages, toml.lsp)?;
+        let mut grammars: Vec<GrammarSource> = toml
+            .grammars
+            .into_iter()
+            .map(|(name, g)| GrammarSource {
+                name,
+                source: g.source,
+                rev: g.rev,
+                subpath: g.subpath,
+            })
+            .collect();
+        grammars.sort_by(|a, b| a.name.cmp(&b.name));
         let grammar_dir = toml
             .grammar_dir
             .map(PathBuf::from)
@@ -106,6 +144,7 @@ impl Config {
             languages,
             editor,
             finder,
+            grammars,
             grammar_dir,
             query_dir,
         })
@@ -138,6 +177,11 @@ struct Toml {
     /// `command`. Referenced from `[languages.<lang>].lsp = ["<name>"]`.
     #[serde(default)]
     lsp: std::collections::HashMap<String, LspToml>,
+    /// `[grammars.<name>]` blocks — user-defined grammar recipes that
+    /// make `vorto grammar install <name>` work for grammars not in the
+    /// built-in catalog. Resolved into [`Config::grammars`].
+    #[serde(default)]
+    grammars: std::collections::HashMap<String, GrammarToml>,
     /// Directory holding `<grammar>.{so,dylib,dll}`. Defaults to
     /// `<config>/grammars`.
     grammar_dir: Option<String>,
