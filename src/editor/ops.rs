@@ -62,18 +62,20 @@ impl Buffer {
         self.touch();
     }
 
-    /// Copy text between two cursors into the yank register.
-    pub fn yank_range(&mut self, from: Cursor, to: Cursor) {
+    /// The text between two cursors `[from, to)` (exclusive `to`), exactly
+    /// as [`Self::yank_range`] would capture it. Read-only — callers that
+    /// need the text without clobbering the yank register (e.g. building an
+    /// agent prompt) use this.
+    pub fn range_text(&self, from: Cursor, to: Cursor) -> String {
         let (from, to) = order(from, to);
         if from == to {
-            self.yank.clear();
-            return;
+            return String::new();
         }
         if from.row == to.row {
             let line = &self.lines[from.row];
             let fb = char_to_byte(line, from.col);
             let tb = char_to_byte(line, to.col);
-            self.yank = line[fb..tb].to_string();
+            line[fb..tb].to_string()
         } else {
             let mut text = String::new();
             let from_byte = char_to_byte(&self.lines[from.row], from.col);
@@ -85,15 +87,26 @@ impl Buffer {
             }
             let to_byte = char_to_byte(&self.lines[to.row], to.col);
             text.push_str(&self.lines[to.row][..to_byte]);
-            self.yank = text;
+            text
         }
+    }
+
+    /// Copy text between two cursors into the yank register.
+    pub fn yank_range(&mut self, from: Cursor, to: Cursor) {
+        self.yank = self.range_text(from, to);
+    }
+
+    /// The text of a run of whole lines (inclusive of both endpoints).
+    /// Read-only counterpart to [`Self::yank_lines`].
+    pub fn lines_text(&self, from_row: usize, to_row: usize) -> String {
+        let (a, b) = (from_row.min(to_row), from_row.max(to_row));
+        let b = b.min(self.lines.len().saturating_sub(1));
+        self.lines[a..=b].join("\n")
     }
 
     /// Yank a run of whole lines (inclusive of both endpoints).
     pub fn yank_lines(&mut self, from_row: usize, to_row: usize) {
-        let (a, b) = (from_row.min(to_row), from_row.max(to_row));
-        let b = b.min(self.lines.len().saturating_sub(1));
-        self.yank = self.lines[a..=b].join("\n");
+        self.yank = self.lines_text(from_row, to_row);
     }
 
     /// Delete a run of whole lines (inclusive). Also stashes them in
@@ -115,10 +128,10 @@ impl Buffer {
         self.touch();
     }
 
-    /// Yank a column rectangle `[r0..=r1] × [c0..=c1]` into the yank
-    /// register, rows joined by `\n`. Lines shorter than `c1` simply
-    /// contribute their truncated slice.
-    pub fn yank_block(&mut self, r0: usize, c0: usize, r1: usize, c1: usize) {
+    /// The text of a column rectangle `[r0..=r1] × [c0..=c1]`, rows joined
+    /// by `\n`. Lines shorter than `c1` contribute their truncated slice.
+    /// Read-only counterpart to [`Self::yank_block`].
+    pub fn block_text(&self, r0: usize, c0: usize, r1: usize, c1: usize) -> String {
         let (r0, r1) = (r0.min(r1), r0.max(r1));
         let (c0, c1) = (c0.min(c1), c0.max(c1));
         let r1 = r1.min(self.lines.len().saturating_sub(1));
@@ -135,7 +148,13 @@ impl Buffer {
                 text.extend(&chars[lo..hi]);
             }
         }
-        self.yank = text;
+        text
+    }
+
+    /// Yank a column rectangle `[r0..=r1] × [c0..=c1]` into the yank
+    /// register, rows joined by `\n`.
+    pub fn yank_block(&mut self, r0: usize, c0: usize, r1: usize, c1: usize) {
+        self.yank = self.block_text(r0, c0, r1, c1);
     }
 
     /// Delete a column rectangle, stashing into yank. Shorter lines are

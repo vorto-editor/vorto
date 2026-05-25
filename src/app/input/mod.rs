@@ -151,7 +151,12 @@ impl App {
 
     pub fn open_prompt(&mut self, kind: PromptKind) {
         match kind {
-            PromptKind::Command => self.prompt.open_command(),
+            PromptKind::Command => {
+                // Opened from a non-visual mode: there's no selection to
+                // carry, so clear any captured by an earlier visual `:`.
+                self.command_selection = None;
+                self.prompt.open_command();
+            }
             PromptKind::Search { forward } => self.prompt.open_search(forward),
             PromptKind::Fuzzy(FuzzyKind::Files { ignore }) => self.prompt.open_files(
                 &self.startup_cwd,
@@ -177,6 +182,16 @@ impl App {
                 self.config.editor.compact_folders,
             ),
         }
+    }
+
+    /// `:` from a visual mode. Captures the selection text (so
+    /// `:agent <intent> @selection` can read it) before dropping to Normal
+    /// and opening the command prompt — entering Normal would otherwise
+    /// clear the anchor and lose the selection.
+    pub(in crate::app) fn open_command_from_visual(&mut self) {
+        self.command_selection = self.selection_text();
+        self.enter_mode(Mode::Normal);
+        self.prompt.open_command();
     }
 
     /// `<space>d` / `<space>D` — build the diagnostics picker.

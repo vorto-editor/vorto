@@ -39,8 +39,8 @@ use serde::Deserialize;
 
 pub use agent::{AgentRegistry, persist_default_agent};
 pub use command::{
-    Args, COMMANDS, COPILOT_SUBCOMMANDS, Command, GRAMMAR_SUBCOMMANDS, Inline, Kind,
-    resolve_subcommand,
+    AGENT_SUBCOMMANDS, Args, COMMANDS, COPILOT_SUBCOMMANDS, Command, GRAMMAR_SUBCOMMANDS, Inline,
+    Kind, resolve_subcommand,
 };
 pub use cursor::{CursorShape, CursorShapes};
 pub use editor::{EditorConfig, EditorToml, IndentGuideStyle};

@@ -106,6 +106,9 @@ impl App {
             KeyCode::Char('J') => self.join_selection_lines(),
             KeyCode::Char('>') => self.indent_selection(true),
             KeyCode::Char('<') => self.indent_selection(false),
+            // `:` — open the command prompt, keeping the selection alive
+            // for `:agent <intent> @selection`.
+            KeyCode::Char(':') => self.open_command_from_visual(),
             _ => {}
         }
         Ok(())

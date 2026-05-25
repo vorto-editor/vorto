@@ -95,6 +95,23 @@ pub const COPILOT_SUBCOMMANDS: &[Subcommand] = &[
     },
 ];
 
+/// `:agent` subcommands — intents that build a prompt from editor context
+/// and forward it to the agent. Bare `:agent` (no subcommand) still just
+/// launches the default agent. `App::run_agent_command` resolves a token
+/// against this list.
+pub const AGENT_SUBCOMMANDS: &[Subcommand] = &[
+    Subcommand {
+        name: "explain",
+        aliases: &[],
+        description: "explain @file / @selection with the agent",
+    },
+    Subcommand {
+        name: "chat",
+        aliases: &[],
+        description: "discuss @file / @selection with the agent",
+    },
+];
+
 /// `:grammar` subcommands. Mirrors the `vorto grammar` CLI so muscle
 /// memory carries over.
 pub const GRAMMAR_SUBCOMMANDS: &[Subcommand] = &[
@@ -317,8 +334,8 @@ pub const COMMANDS: &[Command] = &[
     Command {
         name: "agent",
         aliases: &[],
-        description: "launch an AI agent in a tmux/zellij pane",
-        args: Args::None,
+        description: "launch an AI agent (or :agent explain/chat @file)",
+        args: Args::Sub(AGENT_SUBCOMMANDS),
         kind: Kind::Inline(Inline::Agent),
     },
 ];

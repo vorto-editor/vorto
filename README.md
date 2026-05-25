@@ -118,8 +118,17 @@ more). Override or add to them per-language in `config.toml`.
   there; with neither running it's a no-op with a hint. A bare `:agent`
   launches the configured default, or opens a picker the first time and
   remembers your choice. Re-running `:agent` focuses the existing pane
-  instead of spawning another. Built-in catalog: **claude, codex,
-  gemini, aider** — override commands/args or set the default in
+  instead of spawning another. `:agent explain @file` / `:agent chat
+  @file` go further: they build a prompt about the active buffer and hand
+  it to the agent — seeded as a launch argument for a fresh pane, or
+  pasted into an already-open one. Use `@selection` instead of `@file` to
+  scope it to the visually-selected text: select in visual mode, press
+  `:`, and the selection is captured for `:agent explain @selection` and
+  embedded in the prompt as a code block. An unsaved or scratch buffer
+  used as `@file` is snapshotted to a temp file first so the agent has
+  something on disk to read. Built-in
+  catalog: **claude, codex, gemini, aider** — override commands/args, the
+  prompt-passing convention (`prompt_args`), or the default in
   `config.toml` (see below).
 
 ### Git
@@ -175,6 +184,11 @@ Configuration lives under `$XDG_CONFIG_HOME/vorto/` (typically
   [agents.claude]         # override a built-in or add a new agent
   command = "claude"
   args = ["--model", "opus"]
+  # How `:agent explain @file` passes its prompt at launch. `{prompt}` is
+  # substituted with the text. Defaults to ["{prompt}"] (positional, as
+  # claude/codex accept); aider needs ["--message", "{prompt}"]; set [] to
+  # opt an agent out of launch-time seeding.
+  prompt_args = ["{prompt}"]
   ```
 
   A workspace-local `.vorto/config.toml` takes precedence over the
