@@ -18,6 +18,7 @@
 //!   which-key panel that appears while an operator is pending.
 //! - [`fuzzy`] — the fuzzy picker popup with its source-preview pane.
 
+mod agent_picker;
 mod buffer;
 mod code_action;
 mod completion;
@@ -142,6 +143,10 @@ pub fn draw(f: &mut Frame, app: &App) {
     // Open-time "install this grammar?" confirmation.
     if matches!(app.prompt.state, Prompt::GrammarInstallConfirm { .. }) {
         grammar_list::draw_grammar_install_prompt(f, app, f.area());
+    }
+    // `:agent` picker — screen-centered selection list.
+    if matches!(app.prompt.state, Prompt::AgentPicker { .. }) {
+        agent_picker::draw_agent_picker(f, app, f.area());
     }
     if app.completion.is_some() {
         completion::draw_completion(f, app, active_rect);

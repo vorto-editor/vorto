@@ -78,6 +78,19 @@ impl App {
             return Ok(());
         }
 
+        // `:agent [..]` — launch an AI agent in a tmux/zellij pane.
+        // Inline-dispatched (not via `CommandBind`) for the same reason
+        // as `:copilot`/`:grammar`: it opens a picker / spawns a process
+        // rather than mapping to a single buffer-mutating `DirectKind`.
+        if cmd == "agent" {
+            self.run_agent_command("");
+            return Ok(());
+        }
+        if let Some(rest) = cmd.strip_prefix("agent ") {
+            self.run_agent_command(rest);
+            return Ok(());
+        }
+
         let (head, rest) = match cmd.split_once(' ') {
             Some((h, r)) => (h, r.trim()),
             None => (cmd, ""),

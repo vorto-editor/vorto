@@ -1,4 +1,5 @@
 mod action;
+mod agent;
 mod app;
 mod buffer_ref;
 mod config;

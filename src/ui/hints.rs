@@ -32,6 +32,7 @@ const HINT_PAD_Y: u16 = 1;
 const VIRTUAL_COMMANDS: &[(&str, &str)] = &[
     ("copilot", "Copilot status / signin / signout"),
     ("grammar", "install / remove tree-sitter grammars"),
+    ("agent", "launch an AI agent in a tmux/zellij pane"),
 ];
 
 /// Resolve `<head>` to a (title, entries) pair when there's a known

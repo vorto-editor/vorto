@@ -6,6 +6,7 @@
 //! orchestration, Normal-mode evaluation) is split across sibling
 //! `impl App { ... }` blocks in the submodules below.
 
+mod agent;
 mod buffer_list;
 mod comment;
 mod completion;
@@ -265,6 +266,11 @@ pub struct App {
     /// would leak afresh each time. `config` is frozen at startup, so a
     /// single resolution stays correct for the whole session.
     pub(super) grammar_recipes: Vec<crate::grammar::recipe::GrammarRecipe>,
+    /// Multiplexer pane id of the agent launched by `:agent` this
+    /// session, if any. A second `:agent` focuses this pane (when still
+    /// alive) instead of opening another. Session-scoped — not persisted,
+    /// so a vorto restart starts fresh.
+    pub(super) agent_pane: Option<String>,
     pub should_quit: bool,
 }
 
@@ -342,6 +348,7 @@ impl App {
             last_pane_rects: RefCell::new(PaneRectMap::default()),
             asked_grammars: std::collections::HashSet::new(),
             grammar_recipes,
+            agent_pane: None,
             should_quit: false,
         }
     }
