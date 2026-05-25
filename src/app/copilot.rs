@@ -107,49 +107,10 @@ pub enum CopilotRequestKind {
     SignOut,
 }
 
-/// One `:copilot <sub>` subcommand. The source of truth — the hint
-/// panel ([`crate::ui::hints`]) and the prompt's tab completion
-/// ([`crate::prompt`]) both read this list so a new subcommand only
-/// needs to be added in one place to surface everywhere.
-pub struct CopilotSubcommand {
-    pub name: &'static str,
-    /// Alternative spellings (`login` for `signin`, etc.). Matched by
-    /// the dispatcher and the hint panel; the canonical `name` is
-    /// what gets shown in the menu.
-    pub aliases: &'static [&'static str],
-    pub description: &'static str,
-    /// Handler invoked when the user submits this subcommand. Takes
-    /// `&mut App` so it can update auth state, push toasts, open the
-    /// signin modal, etc.
-    pub handler: fn(&mut App),
-}
-
-pub const COPILOT_SUBCOMMANDS: &[CopilotSubcommand] = &[
-    CopilotSubcommand {
-        name: "status",
-        aliases: &[],
-        description: "show Copilot auth state",
-        handler: App::copilot_status_toast,
-    },
-    CopilotSubcommand {
-        name: "signin",
-        aliases: &["login"],
-        description: "start device-flow sign-in",
-        handler: App::copilot_signin,
-    },
-    CopilotSubcommand {
-        name: "signout",
-        aliases: &["logout"],
-        description: "sign out of Copilot",
-        handler: App::copilot_signout,
-    },
-    CopilotSubcommand {
-        name: "code",
-        aliases: &[],
-        description: "re-show signin modal + re-copy code",
-        handler: App::copilot_recopy_code,
-    },
-];
+// `:copilot` subcommand metadata (names / aliases / descriptions) lives
+// in the unified command table — [`crate::config::COPILOT_SUBCOMMANDS`] —
+// so completion and the hint panel read it from one place. Dispatch by
+// canonical name happens in [`App::run_copilot_command`].
 
 /// Known auth state for the Copilot client. `Unknown` is the initial
 /// value between spawn and the first `checkStatus` reply; until we
@@ -384,19 +345,20 @@ impl App {
     /// "succeeded" from "told the user something" because both end up
     /// as a status message anyway.
     ///
-    /// Subcommand lookup goes through [`COPILOT_SUBCOMMANDS`] so the
-    /// hint panel and tab-completion read the same source of truth —
-    /// adding a new subcommand here automatically surfaces it in the
-    /// UI without touching `hints.rs` / `prompt.rs`.
+    /// Subcommand names/aliases come from the unified command table
+    /// ([`crate::config::COPILOT_SUBCOMMANDS`]); this resolves the token
+    /// to its canonical name and routes to the matching handler. The
+    /// canonical arm is exhaustive against that table.
     pub(super) fn run_copilot_command(&mut self, sub: &str) {
         let sub = sub.trim();
         // Bare `:copilot` defaults to `status`, matching `:git`/etc.
         let name = if sub.is_empty() { "status" } else { sub };
-        match COPILOT_SUBCOMMANDS
-            .iter()
-            .find(|s| s.name == name || s.aliases.contains(&name))
-        {
-            Some(cmd) => (cmd.handler)(self),
+        match crate::config::resolve_subcommand(crate::config::COPILOT_SUBCOMMANDS, name) {
+            Some("status") => self.copilot_status_toast(),
+            Some("signin") => self.copilot_signin(),
+            Some("signout") => self.copilot_signout(),
+            Some("code") => self.copilot_recopy_code(),
+            Some(other) => unreachable!("copilot subcommand `{other}` has no handler"),
             None => {
                 self.push_toast(Toast::error(format!("unknown copilot subcommand: {name}")));
             }

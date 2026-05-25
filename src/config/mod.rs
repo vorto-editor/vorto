@@ -38,7 +38,10 @@ use crossterm::event::KeyCode;
 use serde::Deserialize;
 
 pub use agent::{AgentRegistry, persist_default_agent};
-pub use command::{COMMAND_BINDS, CommandBind};
+pub use command::{
+    Args, COMMANDS, COPILOT_SUBCOMMANDS, Command, GRAMMAR_SUBCOMMANDS, Inline, Kind,
+    resolve_subcommand,
+};
 pub use cursor::{CursorShape, CursorShapes};
 pub use editor::{EditorConfig, EditorToml, IndentGuideStyle};
 pub use finder::{FinderConfig, FinderToml};

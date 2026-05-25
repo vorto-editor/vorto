@@ -28,8 +28,7 @@ mod types;
 mod workers;
 
 pub use completion::CompletionState;
-pub use copilot::{COPILOT_SUBCOMMANDS, CopilotAuthState, CopilotPending};
-pub use grammar::GRAMMAR_SUBCOMMANDS;
+pub use copilot::{CopilotAuthState, CopilotPending};
 
 pub use jump::JumpState;
 pub use lsp_coordinator::{LspCoordinator, LspEventOutcome};
