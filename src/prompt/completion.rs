@@ -90,7 +90,7 @@ fn build_completion(input: &str, root: &Path) -> Option<CompletionState> {
             let matches: Vec<String> = COMMAND_BINDS
                 .iter()
                 .flat_map(|b| b.all_names())
-                .chain(["copilot", "grammar"])
+                .chain(["copilot", "grammar", "agent"])
                 .filter(|n| n.starts_with(&prefix))
                 .map(|n| n.to_string())
                 .collect();

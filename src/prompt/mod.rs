@@ -116,6 +116,15 @@ pub enum Prompt {
         /// bare Enter still accepts, matching the old behavior.
         accept: bool,
     },
+    /// `:agent` with no configured default — pick which AI agent to
+    /// launch. A plain selection list: `j`/`k` (or arrows / Ctrl-N/P)
+    /// move, Enter launches the highlighted agent (and persists it as the
+    /// default), Esc cancels. No filter — the catalog is short.
+    AgentPicker {
+        /// Agent names, in catalog order.
+        agents: Vec<String>,
+        selected: usize,
+    },
 }
 
 /// One grammar entry in the `:grammar` modal.
@@ -231,6 +240,9 @@ pub enum PromptOutcome {
     /// deletes the library; the modal stays open with the row flipped
     /// back to [`GrammarState::Missing`].
     RemoveGrammar(String),
+    /// `:agent` picker — Enter on the highlighted agent. The caller
+    /// launches it and persists it as the default (first time only).
+    SelectAgent(String),
 }
 
 pub struct PromptController {
@@ -428,6 +440,15 @@ impl PromptController {
     /// Open the Copilot signin modal. Any prior modal is replaced.
     pub fn open_copilot_signin(&mut self, code: String, url: String) {
         self.state = Prompt::CopilotSignin { code, url };
+    }
+
+    /// Open the `:agent` picker with `agents` (catalog order). Selection
+    /// starts at the top.
+    pub fn open_agent_picker(&mut self, agents: Vec<String>) {
+        self.state = Prompt::AgentPicker {
+            agents,
+            selected: 0,
+        };
     }
 
     pub fn handle_key(&mut self, key: KeyEvent, root: &Path) -> PromptOutcome {
@@ -683,6 +704,21 @@ impl PromptController {
                 }
                 PromptOutcome::Nothing
             }
+            Prompt::AgentPicker { agents, selected } => {
+                // Selection list like CodeActionMenu: navigate here, Enter
+                // submits via `submit()` (intercepted at the top of
+                // `handle_key`), Esc closes generically.
+                let last = agents.len().saturating_sub(1);
+                let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+                match key.code {
+                    KeyCode::Up | KeyCode::Char('k') => *selected = selected.saturating_sub(1),
+                    KeyCode::Char('p') if ctrl => *selected = selected.saturating_sub(1),
+                    KeyCode::Down | KeyCode::Char('j') => *selected = (*selected + 1).min(last),
+                    KeyCode::Char('n') if ctrl => *selected = (*selected + 1).min(last),
+                    _ => {}
+                }
+                PromptOutcome::Nothing
+            }
             Prompt::Explorer(_)
             | Prompt::GrammarList { .. }
             | Prompt::GrammarInstallConfirm { .. } => {
@@ -892,6 +928,11 @@ impl PromptController {
                     PromptOutcome::Nothing
                 }
             }
+            Prompt::AgentPicker { agents, selected } => agents
+                .into_iter()
+                .nth(selected)
+                .map(PromptOutcome::SelectAgent)
+                .unwrap_or(PromptOutcome::Nothing),
             // Read-only popups — Enter just dismisses them.
             Prompt::Hover { .. } | Prompt::LspStatus { .. } | Prompt::CopilotSignin { .. } => {
                 PromptOutcome::Cancelled

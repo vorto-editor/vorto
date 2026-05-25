@@ -22,6 +22,7 @@
 //! or **add** new ones. Only single keys (Initial context) and
 //! `<space>X` two-key sequences (Leader context) are supported in v1.
 
+mod agent;
 mod command;
 mod cursor;
 mod editor;
@@ -36,6 +37,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use crossterm::event::KeyCode;
 use serde::Deserialize;
 
+pub use agent::{AgentRegistry, persist_default_agent};
 pub use command::{COMMAND_BINDS, CommandBind};
 pub use cursor::{CursorShape, CursorShapes};
 pub use editor::{EditorConfig, EditorToml, IndentGuideStyle};
@@ -65,6 +67,10 @@ pub struct Config {
     /// File picker / tree explorer behavior — currently just the
     /// `hidden_patterns` glob list.
     pub finder: FinderConfig,
+    /// AI-agent catalog + default, driving the `:agent` command. The
+    /// catalog is built-ins overlaid with `[agents.*]`; `default` names
+    /// the agent a bare `:agent` launches.
+    pub agents: AgentRegistry,
     /// User-defined grammar recipes from `[grammars.<name>]`. Augments
     /// the built-in catalog; an entry whose name matches a built-in
     /// overrides it. Sorted by name for stable output.
@@ -117,6 +123,7 @@ impl Config {
         let cursor_shapes = resolve_cursor_shapes(&toml.cursor)?;
         let editor = EditorConfig::default().overlay(&toml.editor);
         let finder = FinderConfig::default().overlay(&toml.finder);
+        let agents = AgentRegistry::build(toml.agents, toml.agent);
         let languages = LanguageRegistry::build(toml.languages, toml.lsp)?;
         let mut grammars: Vec<GrammarSource> = toml
             .grammars
@@ -144,6 +151,7 @@ impl Config {
             languages,
             editor,
             finder,
+            agents,
             grammars,
             grammar_dir,
             query_dir,
@@ -168,6 +176,13 @@ struct Toml {
     /// `[finder]` table — file picker / explorer behavior.
     #[serde(default)]
     finder: FinderToml,
+    /// `[agent]` settings table (currently just `default`).
+    #[serde(default)]
+    agent: agent::AgentSettingsToml,
+    /// `[agents.<name>]` blocks — per-agent command lines that overlay
+    /// the built-in catalog.
+    #[serde(default)]
+    agents: std::collections::HashMap<String, agent::AgentToml>,
     /// `[languages.<name>]` blocks. Resolved against built-in defaults
     /// by [`LanguageRegistry::build`].
     #[serde(default)]

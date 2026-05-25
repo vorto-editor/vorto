@@ -93,6 +93,10 @@ impl App {
                 self.remove_grammar(&name);
                 Ok(())
             }
+            PromptOutcome::SelectAgent(name) => {
+                self.select_agent(name);
+                Ok(())
+            }
         }
     }
 }
