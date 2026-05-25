@@ -1049,7 +1049,10 @@ mod grammar_filter_tests {
         press(&mut pc, key('r'));
 
         // First Esc leaves the input but keeps the query in effect.
-        assert!(matches!(press(&mut pc, code(KeyCode::Esc)), PromptOutcome::Nothing));
+        assert!(matches!(
+            press(&mut pc, code(KeyCode::Esc)),
+            PromptOutcome::Nothing
+        ));
         let Prompt::GrammarList {
             query, filtering, ..
         } = &pc.state
@@ -1060,7 +1063,10 @@ mod grammar_filter_tests {
         assert_eq!(query, "r");
 
         // Second Esc clears the query (list reopens to full).
-        assert!(matches!(press(&mut pc, code(KeyCode::Esc)), PromptOutcome::Nothing));
+        assert!(matches!(
+            press(&mut pc, code(KeyCode::Esc)),
+            PromptOutcome::Nothing
+        ));
         let Prompt::GrammarList { query, .. } = &pc.state else {
             panic!("expected grammar list");
         };
@@ -1151,10 +1157,7 @@ mod grammar_filter_tests {
         let mut pc = PromptController::new();
         pc.open_grammar_install_prompt("rust".into(), "Rust".into());
         // `n` declines even though Yes is highlighted.
-        assert!(matches!(
-            press(&mut pc, key('n')),
-            PromptOutcome::Cancelled
-        ));
+        assert!(matches!(press(&mut pc, key('n')), PromptOutcome::Cancelled));
 
         let mut pc = PromptController::new();
         pc.open_grammar_install_prompt("rust".into(), "Rust".into());
