@@ -13,8 +13,9 @@ optional GitHub Copilot — all in a single, dependency-light binary.
 - **First-class LSP**: diagnostics, hover, completion, signature help,
   code actions, goto definition / declaration / implementation,
   references, rename, format-on-save.
-- **Optional Copilot** via `copilot-language-server` — ghost-text inline
-  completions when present, silent when not.
+- **Optional AI**: ghost-text inline completions via
+  `copilot-language-server` (silent when absent), plus `:agent` to launch
+  an AI coding agent in an adjacent tmux/zellij pane.
 - **Async architecture** keeps the UI responsive while language servers
   index and grammars parse in the background.
 - **Git-aware** out of the box: diff gutter, picker respects
@@ -107,9 +108,19 @@ more). Override or add to them per-language in `config.toml`.
 
 ### AI (optional)
 
-If `copilot-language-server` is on your `PATH`, vorto enables inline
-ghost-text completions: accept with `<Tab>`, dismiss with `<Esc>`.
-Missing the binary is a no-op — no errors, no prompts.
+- **Inline completions** — if `copilot-language-server` is on your
+  `PATH`, vorto enables ghost-text inline completions: accept with
+  `<Tab>`, dismiss with `<Esc>`. Missing the binary is a no-op — no
+  errors, no prompts.
+- **Agent launcher** — `:agent` opens an AI coding agent in a new
+  terminal pane next to vorto. It detects the multiplexer hosting
+  vorto (tmux via `$TMUX`, zellij via `$ZELLIJ`) and opens the pane
+  there; with neither running it's a no-op with a hint. A bare `:agent`
+  launches the configured default, or opens a picker the first time and
+  remembers your choice. Re-running `:agent` focuses the existing pane
+  instead of spawning another. Built-in catalog: **claude, codex,
+  gemini, aider** — override commands/args or set the default in
+  `config.toml` (see below).
 
 ### Git
 
@@ -152,9 +163,22 @@ Configuration lives under `$XDG_CONFIG_HOME/vorto/` (typically
 `~/.config/vorto/`):
 
 - `config.toml` — editor settings, keymap, theme, per-language LSP /
-  formatter / indent overrides, and a `[finder]` table
-  (`hidden_patterns`, `max_items`) controlling what the file picker
-  and explorer treat as hidden
+  formatter / indent overrides, a `[finder]` table (`hidden_patterns`,
+  `max_items`) controlling what the file picker and explorer treat as
+  hidden, and an `[agent]` / `[agents.*]` section for the `:agent`
+  launcher:
+
+  ```toml
+  [agent]
+  default = "claude"      # bare :agent launches this; unset → picker
+
+  [agents.claude]         # override a built-in or add a new agent
+  command = "claude"
+  args = ["--model", "opus"]
+  ```
+
+  A workspace-local `.vorto/config.toml` takes precedence over the
+  global file when present.
 - `grammars/` — installed tree-sitter `.so` libraries
 - `queries/<lang>/` — installed `highlights.scm`, `indents.scm`,
   `textobjects.scm`
