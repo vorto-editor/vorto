@@ -139,6 +139,10 @@ pub fn draw(f: &mut Frame, app: &App) {
     if matches!(app.prompt.state, Prompt::GrammarList { .. }) {
         grammar_list::draw_grammar_list(f, app, f.area());
     }
+    // Open-time "install this grammar?" confirmation.
+    if matches!(app.prompt.state, Prompt::GrammarInstallConfirm { .. }) {
+        grammar_list::draw_grammar_install_prompt(f, app, f.area());
+    }
     if app.completion.is_some() {
         completion::draw_completion(f, app, active_rect);
     }

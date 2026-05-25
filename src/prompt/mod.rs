@@ -84,6 +84,18 @@ pub enum Prompt {
         rows: Vec<GrammarRow>,
         selected: usize,
     },
+    /// Shown at file-open time when the active language has an install
+    /// recipe (built-in or `[grammars.*]`) but its parser/queries aren't
+    /// fully installed yet — offered in place of the old "highlight
+    /// failed" error toast. `y`/Enter installs (async); `n`/Esc/any
+    /// other key dismisses and the buffer stays plain text. We only ask
+    /// once per grammar per session (see [`App::asked_grammars`]).
+    GrammarInstallConfirm {
+        /// Recipe/grammar name to install on accept.
+        grammar: String,
+        /// Language name, for the prompt message.
+        language: String,
+    },
 }
 
 /// One grammar entry in the `:grammar` modal.
@@ -339,6 +351,11 @@ impl PromptController {
         }
     }
 
+    /// Open the open-time "install this grammar?" confirmation modal.
+    pub fn open_grammar_install_prompt(&mut self, grammar: String, language: String) {
+        self.state = Prompt::GrammarInstallConfirm { grammar, language };
+    }
+
     /// Open the Copilot signin modal. Any prior modal is replaced.
     pub fn open_copilot_signin(&mut self, code: String, url: String) {
         self.state = Prompt::CopilotSignin { code, url };
@@ -416,6 +433,24 @@ impl PromptController {
             return PromptOutcome::Nothing;
         }
 
+        // Open-time "install this grammar?" confirmation. `y`/Enter
+        // accepts; anything else (Esc/Ctrl-C/`n`/stray key) declines.
+        // Either way the modal closes — the App has already recorded the
+        // grammar in `asked_grammars`, so it won't re-prompt this session.
+        if let Prompt::GrammarInstallConfirm { grammar, .. } = &self.state {
+            let accept = matches!(
+                key.code,
+                KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Enter
+            ) && !ctrl_c;
+            let grammar = grammar.clone();
+            self.close();
+            return if accept {
+                PromptOutcome::InstallGrammar(grammar)
+            } else {
+                PromptOutcome::Cancelled
+            };
+        }
+
         if key.code == KeyCode::Esc || ctrl_c {
             self.close();
             return PromptOutcome::Cancelled;
@@ -473,11 +508,13 @@ impl PromptController {
                 }
                 PromptOutcome::Nothing
             }
-            Prompt::Explorer(_) | Prompt::GrammarList { .. } => {
-                // Both are fully handled by their early intercepts above
-                // (they own Esc/Enter and per-mode dispatch). Reaching
-                // this arm means the early branch didn't match — i.e.
-                // none, which shouldn't happen — but stay defensive.
+            Prompt::Explorer(_)
+            | Prompt::GrammarList { .. }
+            | Prompt::GrammarInstallConfirm { .. } => {
+                // All three are fully handled by their early intercepts
+                // above (they own Esc/Enter and per-key dispatch).
+                // Reaching this arm means the early branch didn't match —
+                // which shouldn't happen — but stay defensive.
                 PromptOutcome::Nothing
             }
             Prompt::Hover { scroll, .. } | Prompt::LspStatus { scroll, .. } => {
@@ -667,7 +704,9 @@ impl PromptController {
             // circuited inside `handle_key` (their early intercepts own
             // Enter), so these branches are only reached through a
             // future caller that bypasses the key path — no-op.
-            Prompt::Explorer(_) | Prompt::GrammarList { .. } => PromptOutcome::Nothing,
+            Prompt::Explorer(_)
+            | Prompt::GrammarList { .. }
+            | Prompt::GrammarInstallConfirm { .. } => PromptOutcome::Nothing,
             Prompt::CodeActionMenu {
                 mut actions,
                 selected,

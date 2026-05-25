@@ -93,6 +93,53 @@ impl App {
         }
     }
 
+    /// Decide whether opening a file with language `spec` should pause
+    /// to offer a grammar install instead of building a highlighter.
+    ///
+    /// Returns `true` when the caller should **skip** spawning the engine
+    /// worker:
+    /// * the grammar/queries aren't fully on disk, a recipe exists, and
+    ///   we haven't asked this session → open the confirm modal;
+    /// * we already asked this session and it's still missing → stay
+    ///   quiet (no modal, no error toast — the buffer is plain text).
+    ///
+    /// Returns `false` (spawn normally) when the grammar is fully
+    /// installed, or when there's no recipe to install from (preserving
+    /// the prior behavior, including the worker's error toast for a
+    /// genuinely broken/absent grammar the user must supply themselves).
+    pub(super) fn maybe_prompt_grammar_install(&mut self, spec: &crate::config::Language) -> bool {
+        let grammar = &spec.grammar;
+        let fully_installed = {
+            let grammar_dir = spec
+                .grammar_dir
+                .as_deref()
+                .unwrap_or(&self.config.grammar_dir);
+            let query_dir = spec.query_dir.as_deref().unwrap_or(&self.config.query_dir);
+            crate::grammar::build::is_fully_installed(grammar, grammar_dir, query_dir)
+        };
+        if fully_installed {
+            return false;
+        }
+        let has_recipe = crate::grammar::cli::merged_recipes(&self.config.grammars)
+            .iter()
+            .any(|r| r.name == grammar.as_str());
+        if !has_recipe {
+            return false;
+        }
+        if self.asked_grammars.contains(grammar) {
+            return true;
+        }
+        // Don't paint over a modal/picker the user is already in — leave
+        // `asked_grammars` untouched so a later open re-evaluates.
+        if self.prompt.is_open() {
+            return true;
+        }
+        self.asked_grammars.insert(grammar.clone());
+        self.prompt
+            .open_grammar_install_prompt(grammar.clone(), spec.name.clone());
+        true
+    }
+
     /// Build the modal rows from the config-aware recipe catalog
     /// (built-ins overlaid with `[grammars.*]`), tagged with on-disk
     /// install status, sorted by name.
