@@ -56,9 +56,9 @@ impl App {
                 if s.is_empty() {
                     return;
                 }
-                self.editor.snapshot();
-                self.editor.insert_text_raw(&s);
-                self.editor.clamp_col(false);
+                ed_op!(self, snapshot());
+                ed_op!(self, insert_text_raw(&s));
+                ed_op_ref!(self, clamp_col(false));
             }
             Mode::Visual | Mode::VisualLine | Mode::VisualBlock => {}
         }
@@ -135,7 +135,7 @@ impl App {
             self.visual_anchor = None;
         }
         if mode == Mode::Normal {
-            self.editor.clamp_col(false);
+            ed_op_ref!(self, clamp_col(false));
         }
         // Insert-mode entry should immediately queue a debounced
         // inline-completion request so the ghost can surface without
@@ -164,7 +164,13 @@ impl App {
                 &self.config.finder.hidden_patterns,
                 self.config.finder.max_items,
             ),
-            PromptKind::Fuzzy(FuzzyKind::Lines) => self.prompt.open_lines(&self.editor.buffer.lines),
+            PromptKind::Fuzzy(FuzzyKind::Lines) => {
+                let doc = self
+                    .documents
+                    .get(&self.editor.doc)
+                    .expect("active doc present");
+                self.prompt.open_lines(&doc.lines)
+            }
             PromptKind::Fuzzy(FuzzyKind::Buffers) => self.open_buffer_picker(),
             // `Locations` pickers are built from server results, not opened
             // from a keymap — fall through to a no-op rather than a fresh
@@ -224,7 +230,7 @@ impl App {
                 }
             }
         } else {
-            let uri = match self.editor.buffer.path.as_ref().map(|p| path_to_uri(p)) {
+            let uri = match self.active_doc().path.as_ref().map(|p| path_to_uri(p)) {
                 Some(u) => u,
                 None => {
                     self.push_toast(crate::app::Toast::info("no diagnostics"));
@@ -270,13 +276,13 @@ impl App {
     fn open_buffer_picker(&mut self) {
         let cwd = &self.startup_cwd;
         let current_path = self
-            .editor.buffer
+            .active_doc()
             .path
             .as_ref()
             .and_then(|p| p.canonicalize().ok());
-        let on_scratch = self.editor.buffer.path.is_none();
-        let active_dirty = self.editor.buffer.dirty;
-        let active_vcs_changed = self.editor.buffer.has_vcs_changes();
+        let on_scratch = self.active_doc().path.is_none();
+        let active_dirty = self.active_doc().dirty;
+        let active_vcs_changed = self.active_doc().has_vcs_changes();
         // One `git status` invocation feeds the VCS marker for every
         // non-active File entry in the list — cheaper than diffing
         // each sleeping buffer individually.

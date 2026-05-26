@@ -150,24 +150,24 @@ impl Buffer {
 }
 
 impl Editor {
-    pub fn move_word_forward(&mut self) {
-        self.cursor = self.buffer.peek_word_forward(self.cursor);
+    pub fn move_word_forward(&mut self, buf: &Buffer) {
+        self.cursor = buf.peek_word_forward(self.cursor);
     }
 
-    pub fn move_word_backward(&mut self) {
-        self.cursor = self.buffer.peek_word_back(self.cursor);
+    pub fn move_word_backward(&mut self, buf: &Buffer) {
+        self.cursor = buf.peek_word_back(self.cursor);
     }
 
-    pub fn move_paragraph_forward(&mut self) {
-        self.cursor.row = paragraph_forward_row(&self.buffer.lines, self.cursor.row);
+    pub fn move_paragraph_forward(&mut self, buf: &Buffer) {
+        self.cursor.row = paragraph_forward_row(&buf.lines, self.cursor.row);
         self.cursor.col = 0;
-        self.clamp_col(false);
+        self.clamp_col(buf, false);
     }
 
-    pub fn move_paragraph_backward(&mut self) {
-        self.cursor.row = paragraph_back_row(&self.buffer.lines, self.cursor.row);
+    pub fn move_paragraph_backward(&mut self, buf: &Buffer) {
+        self.cursor.row = paragraph_back_row(&buf.lines, self.cursor.row);
         self.cursor.col = 0;
-        self.clamp_col(false);
+        self.clamp_col(buf, false);
     }
 }
 

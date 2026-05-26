@@ -23,38 +23,31 @@ impl App {
     pub fn switch_to_buffer(&mut self, r: BufferRef) -> Result<()> {
         match r {
             BufferRef::Scratch(id) => {
-                if self.editor.buffer.path.is_none() && self.current_scratch_id == Some(id) {
+                if self.active_doc().path.is_none() && self.current_scratch_id == Some(id) {
                     return Ok(());
                 }
                 self.lsp.detach_current();
-                // Look in `parked_buffers` first — another pane may
-                // already be displaying this scratch live. Otherwise
-                // thaw from `sleeping`, or mint a fresh empty buffer.
+                let key = BufferRef::Scratch(id);
+                // Ensure the target document is in the pool — another
+                // pane may already show it live; otherwise thaw from
+                // `sleeping`, or mint a fresh empty buffer.
                 // `Buffer::new` (one empty line) ≠ `Buffer::default`
                 // (zero lines), so we can't use `unwrap_or_default`
                 // here — the wrong default would leave the buffer
                 // with an empty `lines` Vec and crash motions.
-                let next = if let Some(parked) = self.parked_buffers.remove(&BufferRef::Scratch(id))
-                {
-                    parked
-                } else {
-                    match self.sleeping.remove(&BufferRef::Scratch(id)) {
-                        Some(b) => b.thaw(),
-                        None => Editor::new(),
-                    }
-                };
-                self.stash_and_install(next);
+                self.ensure_doc_pooled(&key, Buffer::new);
+                self.stash_and_install(Editor::for_doc(key.clone()));
                 self.current_scratch_id = Some(id);
                 self.open_gen = self.open_gen.wrapping_add(1);
-                self.lsp.set_last_synced_version(self.editor.buffer.version);
-                self.record_opened(BufferRef::Scratch(id));
+                self.lsp.set_last_synced_version(self.active_doc().version);
+                self.record_opened(key);
                 self.push_toast(Toast::info(BufferRef::scratch_label(id)));
                 Ok(())
             }
             BufferRef::File(path) => {
                 // Already on this file? Leave cursor/unsaved state alone.
                 let current = self
-                    .editor.buffer
+                    .active_doc()
                     .path
                     .as_ref()
                     .and_then(|p| p.canonicalize().ok());
@@ -66,81 +59,99 @@ impl App {
         }
     }
 
-    /// Move the currently-active buffer out of `App.buffer` and
-    /// install `next` in its place. Two destinations for the outgoing
-    /// buffer, depending on whether any inactive pane still needs it:
+    /// Ensure the document named by `key` lives in the pool. If it's
+    /// already present (e.g. another pane shows it live) nothing
+    /// happens; if it's sleeping it's thawed back; otherwise `build`
+    /// mints a fresh document. The document's session (cursor/mode) is
+    /// NOT part of the pool — callers wrap it in a fresh [`Editor`].
+    pub(super) fn ensure_doc_pooled(&mut self, key: &BufferRef, build: impl FnOnce() -> Buffer) {
+        if self.documents.contains_key(key) {
+            return;
+        }
+        let doc = match self.sleeping.remove(key) {
+            Some(s) => s.thaw(),
+            None => build(),
+        };
+        self.documents.insert(key.clone(), doc);
+    }
+
+    /// Swap the active session for `next` (which must reference a
+    /// document already present in the pool), then retire the document
+    /// the previous session was editing if nothing else references it.
     ///
-    /// - **In use by another pane:** park it into
-    ///   `App.parked_buffers[ref]`, alive and uncompressed. Dropping
-    ///   it to `sleeping` would freeze it (and lose the highlighter),
-    ///   breaking the other pane's render.
-    /// - **Not in use anywhere:** stash it into `sleeping`
-    ///   (compressed; highlighter dropped, rebuilt on restore). The
-    ///   version counter is preserved so LSP `didChange` sequencing
-    ///   re-anchors cleanly when the buffer wakes up again.
+    /// The outgoing document goes to `sleeping` (compressed; highlighter
+    /// dropped, rebuilt on restore) when no remaining session — the new
+    /// active one or any inactive pane — names its ref. The version
+    /// counter is preserved so LSP `didChange` sequencing re-anchors
+    /// cleanly when the document wakes up again. When some pane still
+    /// shows it, it stays live in the pool untouched.
     pub(super) fn stash_and_install(&mut self, next: Editor) {
-        let key = self.active_ref();
-        let prev = std::mem::replace(&mut self.editor, next);
-        if self.ref_used_by_inactive_pane(&key) {
-            self.parked_buffers.insert(key, prev);
-        } else {
-            let mut prev = prev;
-            prev.buffer.highlighter = None;
-            self.sleeping.insert(key, SleepingBuffer::freeze(prev));
+        let prev_ref = self.editor.doc.clone();
+        self.editor = next;
+        self.retire_doc_if_unreferenced(prev_ref);
+    }
+
+    /// Move `r`'s document to `sleeping` when no live session (the
+    /// active editor or any inactive pane) references it. A no-op when
+    /// the document is still shown somewhere — it stays live in the
+    /// pool so that pane keeps rendering.
+    pub(super) fn retire_doc_if_unreferenced(&mut self, r: BufferRef) {
+        if self.editor.doc == r || self.ref_used_by_inactive_pane(&r) {
+            return;
+        }
+        if let Some(mut doc) = self.documents.remove(&r) {
+            doc.highlighter = None;
+            self.sleeping.insert(r, SleepingBuffer::freeze(doc));
         }
     }
 
-    /// Install `next` as the active buffer without stashing the
-    /// previous one. Used by `:bd` where the deleted buffer is
-    /// supposed to vanish entirely. Callers must have already cleaned
-    /// up any MRU / sleeping entries that refer to the outgoing
-    /// buffer.
+    /// Install `next` as the active session without retiring the
+    /// previous document. Used by `:bd` where the deleted buffer is
+    /// supposed to vanish entirely. Callers must have already removed
+    /// the outgoing document from the pool and cleaned up any MRU /
+    /// sleeping entries that refer to it.
     pub(super) fn install_buffer(&mut self, next: Editor) {
-        let _ = std::mem::replace(&mut self.editor, next);
+        self.editor = next;
     }
 
-    /// [`BufferRef`] for the currently-active buffer. Unnamed buffers
-    /// carry the scratch id tracked on `App` so multiple scratches
-    /// stay distinguishable; falls back to `Scratch(0)` if the id is
-    /// somehow missing (shouldn't happen — the field is always set
-    /// in sync with `buffer.path`).
+    /// [`BufferRef`] for the currently-active document — simply the
+    /// active session's `doc`, the authoritative pool key.
     pub(super) fn active_ref(&self) -> BufferRef {
-        match &self.editor.buffer.path {
-            Some(p) => BufferRef::File(p.canonicalize().unwrap_or_else(|_| p.clone())),
-            None => BufferRef::Scratch(self.current_scratch_id.unwrap_or(0)),
-        }
+        self.editor.doc.clone()
     }
 
     /// Open `path`. Lookup order:
     ///
-    /// 1. **Parked** (`App.parked_buffers`): another pane already
-    ///    shows this buffer. Pull it out, the active pane now shares
-    ///    that live buffer.
+    /// 1. **Already pooled** (`App.documents`): another pane already
+    ///    shows this document. The active session re-points at the same
+    ///    live ref, sharing it.
     /// 2. **Sleeping**: the user previously visited and switched
-    ///    away. Wake the compressed snapshot.
+    ///    away. Wake the compressed snapshot into the pool.
     /// 3. **Fresh disk read** as fallback.
     pub fn open_path(&mut self, path: &Path) -> Result<()> {
         let path = self.absolutize(path);
         let canon = path.canonicalize().unwrap_or_else(|_| path.clone());
         let key = BufferRef::File(canon);
-        if let Some(parked) = self.parked_buffers.remove(&key) {
+        if self.documents.contains_key(&key) {
+            // Another pane already shows this document live — share it.
             self.lsp.detach_current();
-            self.stash_and_install(parked);
+            self.stash_and_install(Editor::for_doc(key.clone()));
             self.current_scratch_id = None;
             self.record_opened(key);
-            self.lsp.set_last_synced_version(self.editor.buffer.version);
+            self.lsp.set_last_synced_version(self.active_doc().version);
             self.push_toast(Toast::info(format!("opened {} (shared)", path.display())));
             // Buffer was live — highlighter survives; LSP resync only.
             self.spawn_lsp_worker(&path);
             return Ok(());
         }
-        if let Some(restored) = self.sleeping.remove(&key) {
+        if self.sleeping.contains_key(&key) {
             self.lsp.detach_current();
-            self.stash_and_install(restored.thaw());
+            self.ensure_doc_pooled(&key, Buffer::new);
+            self.stash_and_install(Editor::for_doc(key.clone()));
             self.current_scratch_id = None;
             self.record_opened(key);
             self.open_gen = self.open_gen.wrapping_add(1);
-            self.lsp.set_last_synced_version(self.editor.buffer.version);
+            self.lsp.set_last_synced_version(self.active_doc().version);
             self.push_toast(Toast::info(format!("restored {}", path.display())));
             self.spawn_engine_worker(&path);
             self.spawn_vcs_worker();
@@ -185,22 +196,26 @@ impl App {
             Err(e) => return Err(e),
         };
         let canon = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+        let key = BufferRef::File(canon.clone());
         // Tell the previous LSP client we're done with that document so
         // it can drop diagnostics and stop watching it.
         self.lsp.detach_current();
-        self.stash_and_install(Editor::from_buffer(loaded));
-        self.current_scratch_id = None;
         // Re-loading a path drops any previously-sleeping copy of it
         // — the user explicitly asked for the disk version.
-        self.sleeping.remove(&BufferRef::File(canon.clone()));
-        self.record_opened(BufferRef::File(canon));
+        self.sleeping.remove(&key);
+        // Pool the freshly-loaded document under its ref, then point a
+        // new active session at it.
+        self.documents.insert(key.clone(), loaded);
+        self.stash_and_install(Editor::for_doc(key.clone()));
+        self.current_scratch_id = None;
+        self.record_opened(key);
         // Bump the generation: any in-flight worker thread from a
         // previous `open_path` is now stale. Its result will be dropped
         // when it lands instead of clobbering this buffer.
         self.open_gen = self.open_gen.wrapping_add(1);
         // Pre-seed the LSP sync version so the first `didChange` after
         // open is a no-op when nothing has changed since load.
-        self.lsp.set_last_synced_version(self.editor.buffer.version);
+        self.lsp.set_last_synced_version(self.active_doc().version);
         self.push_toast(if is_new {
             Toast::info(format!("{} [new file]", path.display()))
         } else {
@@ -213,12 +228,14 @@ impl App {
         // buffer's source/version so the cached tree's incremental diff
         // re-anchors on whatever `Buffer::load` just read (usually a
         // no-op because the file hasn't changed since the preview ran).
-        if let Some(entry) = self.preview_lru.borrow_mut().take(path) {
-            self.editor.buffer.highlighter = None;
+        let preview_entry = self.preview_lru.borrow_mut().take(path);
+        if let Some(entry) = preview_entry {
+            let doc = self.active_doc_mut();
+            doc.highlighter = None;
             let mut h = entry.highlighter;
-            let source = self.editor.buffer.lines.join("\n");
-            h.refresh(&source, self.editor.buffer.version);
-            self.editor.buffer.highlighter = Some(h);
+            let source = doc.lines.join("\n");
+            h.refresh(&source, doc.version);
+            doc.highlighter = Some(h);
         } else {
             self.spawn_engine_worker(path);
         }
@@ -232,36 +249,41 @@ impl App {
     /// rename/move so an open buffer's next save lands at the moved
     /// file's new location instead of resurrecting the source.
     ///
-    /// Touches: the active buffer's path, each parked buffer's path
-    /// and its hashmap key, every sleeping buffer's stored path and
-    /// hashmap key, the MRU list, and the per-pane buffer-ref map.
-    /// The order matters only in that we collect remap targets first
-    /// and apply them in a second pass — mutating a hashmap while
-    /// iterating it is otherwise rejected by the borrow checker.
+    /// Touches: every pooled document's path and its hashmap key, the
+    /// active session's `doc` ref and every inactive pane session's
+    /// `doc` ref, every sleeping buffer's stored path and hashmap key,
+    /// and the MRU list. The order matters only in that we collect
+    /// remap targets first and apply them in a second pass — mutating a
+    /// hashmap while iterating it is otherwise rejected by the borrow
+    /// checker.
     pub fn rewrite_buffer_paths(&mut self, old: &Path, new: &Path) {
-        if let Some(p) = self.editor.buffer.path.as_ref()
-            && let Some(updated) = remap_path(p, old, new)
-        {
-            self.editor.buffer.path = Some(updated);
-        }
-
-        // Parked buffers — rekey + update each buffer's own `path`.
-        let parked_remap: Vec<(BufferRef, PathBuf)> = self
-            .parked_buffers
+        // Pooled documents — rekey + update each document's own `path`.
+        let doc_remap: Vec<(BufferRef, PathBuf)> = self
+            .documents
             .keys()
             .filter_map(|k| match k {
                 BufferRef::File(p) => remap_path(p, old, new).map(|np| (k.clone(), np)),
                 _ => None,
             })
             .collect();
-        for (old_ref, new_path) in parked_remap {
-            if let Some(mut buf) = self.parked_buffers.remove(&old_ref) {
-                buf.buffer.path = Some(new_path.clone());
-                self.parked_buffers.insert(BufferRef::File(new_path), buf);
+        for (old_ref, new_path) in doc_remap {
+            let new_ref = BufferRef::File(new_path.clone());
+            if let Some(mut doc) = self.documents.remove(&old_ref) {
+                doc.path = Some(new_path);
+                self.documents.insert(new_ref.clone(), doc);
+            }
+            // Re-point any session naming the old ref at the new one.
+            if self.editor.doc == old_ref {
+                self.editor.doc = new_ref.clone();
+            }
+            for ed in self.pane_editors.values_mut() {
+                if ed.doc == old_ref {
+                    ed.doc = new_ref.clone();
+                }
             }
         }
 
-        // Sleeping buffers — same shape as parked, but the path lives
+        // Sleeping buffers — the path lives
         // behind setter/getter so we can keep the freeze-compressed
         // payload untouched.
         let sleep_remap: Vec<(BufferRef, PathBuf)> = self
@@ -283,15 +305,6 @@ impl App {
 
         // MRU list — keep order, just rewrite the path inside each ref.
         for r in &mut self.opened_paths {
-            if let BufferRef::File(p) = r
-                && let Some(np) = remap_path(p, old, new)
-            {
-                *r = BufferRef::File(np);
-            }
-        }
-
-        // Inactive pane refs.
-        for r in self.pane_refs.values_mut() {
             if let BufferRef::File(p) = r
                 && let Some(np) = remap_path(p, old, new)
             {

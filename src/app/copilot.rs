@@ -213,7 +213,7 @@ impl App {
         let Some(uri) = self.copilot_active_uri() else {
             return false;
         };
-        copilot.needs_sync(&uri, self.editor.buffer.version)
+        copilot.needs_sync(&uri, self.active_doc().version)
     }
 
     /// Push the active buffer to Copilot — `didOpen` on first sight,
@@ -224,7 +224,7 @@ impl App {
             return;
         };
         let language_id = self.copilot_active_language_id();
-        let version = self.editor.buffer.version;
+        let version = self.active_doc().version;
         let Some(copilot) = self.copilot.as_mut() else {
             return;
         };
@@ -257,7 +257,7 @@ impl App {
         }
         let cursor = self.editor.cursor;
         let row_len = self
-            .editor.buffer
+            .active_doc()
             .lines
             .get(cursor.row)
             .map(|l| l.chars().count())
@@ -274,7 +274,7 @@ impl App {
         // request we're about to fire.
         self.inline_suggestion.dismiss();
         if self.copilot_needs_sync() {
-            let text = self.editor.buffer.lines.join("\n");
+            let text = self.active_doc().lines.join("\n");
             self.sync_buffer_to_copilot(&text);
         }
         let indent = self.indent_settings();
@@ -678,7 +678,7 @@ impl App {
         // prefix so the ghost text shows only what *would* be added,
         // and a future accept just appends — no buffer-side replace
         // needed for the single-line case.
-        let suffix = strip_already_typed(&raw, anchor, &self.editor.buffer.lines);
+        let suffix = strip_already_typed(&raw, anchor, &self.active_doc().lines);
         let Some(suffix) = suffix else {
             self.inline_suggestion.dismiss();
             return;
@@ -708,7 +708,7 @@ impl App {
     }
 
     fn copilot_active_uri(&self) -> Option<String> {
-        self.editor.buffer.path.as_ref().map(|p| path_to_uri(p))
+        self.active_doc().path.as_ref().map(|p| path_to_uri(p))
     }
 
     /// Language id Copilot expects in `didOpen`. Falls back to
@@ -716,7 +716,7 @@ impl App {
     /// configured language — Copilot still produces sensible
     /// completions there.
     fn copilot_active_language_id(&self) -> String {
-        self.editor.buffer
+        self.active_doc()
             .path
             .as_deref()
             .and_then(|p| self.config.languages.by_path(p))

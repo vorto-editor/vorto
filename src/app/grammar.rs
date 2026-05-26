@@ -274,7 +274,7 @@ impl App {
     /// thaw anyway.
     fn rehighlight_for_grammar(&mut self, grammar: &str) {
         // Active buffer.
-        if let Some(path) = self.editor.buffer.path.clone() {
+        if let Some(path) = self.active_doc().path.clone() {
             let uses = self
                 .config
                 .languages
@@ -285,13 +285,18 @@ impl App {
             }
         }
 
-        // Parked pane buffers. Bind the disjoint fields to locals so the
-        // mutable `parked_buffers` borrow doesn't collide with the
-        // immutable `config` / `loader` borrows.
+        // Other pooled documents (those shown only by inactive panes;
+        // the active one already went through `spawn_engine_worker`).
+        // Bind the disjoint fields to locals so the mutable `documents`
+        // borrow doesn't collide with the immutable `config` / `loader`
+        // borrows.
+        let active_ref = self.editor.doc.clone();
         let languages = &self.config.languages;
         let loader = &self.loader;
-        for ed in self.parked_buffers.values_mut() {
-            let buf = &mut ed.buffer;
+        for (key, buf) in self.documents.iter_mut() {
+            if *key == active_ref {
+                continue;
+            }
             let Some(path) = buf.path.clone() else {
                 continue;
             };

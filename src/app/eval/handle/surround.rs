@@ -29,18 +29,19 @@ pub(super) fn handle_add(app: &mut App, target: Target, ch: char) -> Vec<Cmd> {
                 return cmds;
             };
             let start = app.editor.cursor;
-            let end_raw = app.editor.buffer.motion_target(start, resolved, m.count);
+            let doc = app.active_doc();
+            let end_raw = doc.motion_target(start, resolved, m.count);
             let end = if is_inclusive_motion(resolved) {
-                app.editor.buffer.advance_one(end_raw)
+                doc.advance_one(end_raw)
             } else {
                 end_raw
             };
             Some(order(start, end))
         }
-        Target::TextObject { scope, object } => app.editor.text_object_range(scope, object),
+        Target::TextObject { scope, object } => ed_op_ref!(app, text_object_range(scope, object)),
         Target::LineWise => {
             let row = app.editor.cursor.row;
-            let line_len = app.editor.buffer.lines[row].chars().count();
+            let line_len = app.active_doc().lines[row].chars().count();
             Some((Cursor { row, col: 0 }, Cursor { row, col: line_len }))
         }
         Target::SearchMatch { .. } => {
@@ -55,7 +56,7 @@ pub(super) fn handle_add(app: &mut App, target: Target, ch: char) -> Vec<Cmd> {
         cmds.push(Cmd::ToastError("no matching object".into()));
         return cmds;
     };
-    app.editor.surround_wrap(&open, &close, lo, hi);
+    ed_op!(app, surround_wrap(&open, &close, lo, hi));
     cmds
 }
 
@@ -65,11 +66,11 @@ pub(super) fn handle_delete(app: &mut App, ch: char) -> Vec<Cmd> {
         cmds.push(Cmd::ToastError(format!("no surround pair for `{}`", ch)));
         return cmds;
     };
-    let Some((lo, hi)) = app.editor.text_object_range(Scope::Around, object) else {
+    let Some((lo, hi)) = ed_op_ref!(app, text_object_range(Scope::Around, object)) else {
         cmds.push(Cmd::ToastError("no surrounding pair".into()));
         return cmds;
     };
-    app.editor.surround_strip(lo, hi);
+    ed_op!(app, surround_strip(lo, hi));
     cmds
 }
 
@@ -83,11 +84,11 @@ pub(super) fn handle_change(app: &mut App, from: char, to: char) -> Vec<Cmd> {
         cmds.push(Cmd::ToastError(format!("no surround pair for `{}`", to)));
         return cmds;
     };
-    let Some((lo, hi)) = app.editor.text_object_range(Scope::Around, object) else {
+    let Some((lo, hi)) = ed_op_ref!(app, text_object_range(Scope::Around, object)) else {
         cmds.push(Cmd::ToastError("no surrounding pair".into()));
         return cmds;
     };
-    app.editor.surround_replace(lo, hi, &new_open, &new_close);
+    ed_op!(app, surround_replace(lo, hi, &new_open, &new_close));
     cmds
 }
 

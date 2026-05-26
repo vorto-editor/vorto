@@ -50,11 +50,19 @@ impl App {
         match key.code {
             KeyCode::Esc => self.enter_mode(Mode::Normal),
             KeyCode::Char('h') | KeyCode::Left => self.editor.move_left(),
-            KeyCode::Char('l') | KeyCode::Right => self.editor.move_right(false),
-            KeyCode::Char('j') | KeyCode::Down => self.editor.move_down(),
-            KeyCode::Char('k') | KeyCode::Up => self.editor.move_up(),
+            KeyCode::Char('l') | KeyCode::Right => {
+                ed_op_ref!(self, move_right(false));
+            }
+            KeyCode::Char('j') | KeyCode::Down => {
+                ed_op_ref!(self, move_down());
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                ed_op_ref!(self, move_up());
+            }
             KeyCode::Char('0') | KeyCode::Home => self.editor.move_line_start(),
-            KeyCode::Char('G') => self.editor.move_file_end(),
+            KeyCode::Char('G') => {
+                ed_op_ref!(self, move_file_end());
+            }
             // `g` prefix — defer to the next key (see top of fn).
             KeyCode::Char('g') => self.visual_g_pending = true,
             // `*` / `#` reuse the Normal-mode helper to seed search state.
@@ -73,12 +81,12 @@ impl App {
                 self.enter_mode(Mode::Normal);
             }
             KeyCode::Char('d') | KeyCode::Char('x') => {
-                self.editor.snapshot();
+                ed_op!(self, snapshot());
                 self.apply_visual_op(Operator::Delete);
                 self.enter_mode(Mode::Normal);
             }
             KeyCode::Char('c') | KeyCode::Char('s') => {
-                self.editor.snapshot();
+                ed_op!(self, snapshot());
                 self.apply_visual_op(Operator::Change);
             }
             // `I` / `A` — enter Insert at the start / end of the selection.
@@ -117,7 +125,7 @@ impl App {
     /// Resolve a motion against the current cursor and assign — the
     /// selection follows because the anchor is fixed.
     fn apply_visual_motion(&mut self, motion: MotionKind) {
-        let target = self.editor.buffer.motion_target(self.editor.cursor, motion, 1);
+        let target = self.active_doc().motion_target(self.editor.cursor, motion, 1);
         self.editor.cursor = target;
     }
 
@@ -139,17 +147,18 @@ impl App {
     /// rows, block covers the rectangle. Exits visual when finished.
     fn transform_case_selection(&mut self, f: fn(char) -> char) {
         let Some(sel) = self.selection() else { return };
-        self.editor.snapshot();
+        ed_op!(self, snapshot());
+        let doc = self.active_doc_mut();
         match sel {
             Selection::Char { from, to } => {
-                let end = self.editor.buffer.advance_one(to);
-                self.editor.buffer.transform_case_range(from, end, f);
+                let end = doc.advance_one(to);
+                doc.transform_case_range(from, end, f);
             }
             Selection::Line { from_row, to_row } => {
-                self.editor.buffer.transform_case_lines(from_row, to_row, f);
+                doc.transform_case_lines(from_row, to_row, f);
             }
             Selection::Block { r0, c0, r1, c1 } => {
-                self.editor.buffer.transform_case_block(r0, c0, r1, c1, f);
+                doc.transform_case_block(r0, c0, r1, c1, f);
             }
         }
         self.enter_mode(Mode::Normal);
@@ -168,11 +177,13 @@ impl App {
         if from_row == to_row {
             return;
         }
-        self.editor.snapshot();
+        ed_op!(self, snapshot());
         self.editor.cursor.row = from_row;
         self.editor.cursor.col = 0;
+        let doc_ref = self.editor.doc.clone();
+        let doc = self.documents.get_mut(&doc_ref).expect("active doc present");
         for _ in 0..(to_row - from_row) {
-            self.editor.join_next_line();
+            self.editor.join_next_line(doc);
         }
         self.enter_mode(Mode::Normal);
     }
@@ -189,18 +200,22 @@ impl App {
             Selection::Line { from_row, to_row } => (from_row, to_row),
             Selection::Block { r0, r1, .. } => (r0, r1),
         };
-        self.editor.snapshot();
+        ed_op!(self, snapshot());
         let indent_settings = self.indent_settings();
+        let doc_ref = self.editor.doc.clone();
+        let doc = self.documents.get_mut(&doc_ref).expect("active doc present");
         for r in from_row..=to_row {
             if indent {
-                self.editor.indent_line(r, indent_settings);
+                self.editor.indent_line(doc, r, indent_settings);
             } else {
-                self.editor.dedent_line(r, indent_settings);
+                self.editor.dedent_line(doc, r, indent_settings);
             }
         }
         self.editor.cursor.row = from_row;
-        let line = self.editor.current_line();
-        let col = line.chars().position(|c| !c.is_whitespace()).unwrap_or(0);
+        let col = {
+            let line = self.editor.current_line(doc);
+            line.chars().position(|c| !c.is_whitespace()).unwrap_or(0)
+        };
         self.editor.cursor.col = col;
         self.enter_mode(Mode::Normal);
     }
@@ -210,7 +225,7 @@ impl App {
     /// inserted text mirrors down the left edge of the block.
     fn visual_insert_at_start(&mut self) {
         let Some(sel) = self.selection() else { return };
-        self.editor.snapshot();
+        ed_op!(self, snapshot());
         self.editor.extra_cursors.clear();
         match sel {
             Selection::Char { from, .. } => {
@@ -221,19 +236,19 @@ impl App {
                 // non-blank, so typed text replicates down the indent.
                 self.editor.cursor = Cursor {
                     row: from_row,
-                    col: first_non_blank(&self.editor.buffer.lines[from_row]),
+                    col: first_non_blank(&self.active_doc().lines[from_row]),
                 };
                 for r in (from_row + 1)..=to_row {
                     self.editor.extra_cursors.push(Cursor {
                         row: r,
-                        col: first_non_blank(&self.editor.buffer.lines[r]),
+                        col: first_non_blank(&self.active_doc().lines[r]),
                     });
                 }
             }
             Selection::Block { r0, c0, r1, .. } => {
                 self.editor.cursor = Cursor { row: r0, col: c0 };
                 for r in (r0 + 1)..=r1 {
-                    let len = self.editor.buffer.lines[r].chars().count();
+                    let len = self.active_doc().lines[r].chars().count();
                     self.editor.extra_cursors.push(Cursor {
                         row: r,
                         col: c0.min(len),
@@ -249,11 +264,11 @@ impl App {
     /// each selected row at `c1 + 1` (clamped to that row's length).
     fn visual_append_at_end(&mut self) {
         let Some(sel) = self.selection() else { return };
-        self.editor.snapshot();
+        ed_op!(self, snapshot());
         self.editor.extra_cursors.clear();
         match sel {
             Selection::Char { to, .. } => {
-                let len = self.editor.buffer.lines[to.row].chars().count();
+                let len = self.active_doc().lines[to.row].chars().count();
                 self.editor.cursor = Cursor {
                     row: to.row,
                     col: (to.col + 1).min(len),
@@ -263,23 +278,23 @@ impl App {
                 // Fan out: each row's cursor lands at its own EOL.
                 self.editor.cursor = Cursor {
                     row: from_row,
-                    col: self.editor.buffer.lines[from_row].chars().count(),
+                    col: self.active_doc().lines[from_row].chars().count(),
                 };
                 for r in (from_row + 1)..=to_row {
                     self.editor.extra_cursors.push(Cursor {
                         row: r,
-                        col: self.editor.buffer.lines[r].chars().count(),
+                        col: self.active_doc().lines[r].chars().count(),
                     });
                 }
             }
             Selection::Block { r0, r1, c1, .. } => {
-                let primary_len = self.editor.buffer.lines[r0].chars().count();
+                let primary_len = self.active_doc().lines[r0].chars().count();
                 self.editor.cursor = Cursor {
                     row: r0,
                     col: (c1 + 1).min(primary_len),
                 };
                 for r in (r0 + 1)..=r1 {
-                    let len = self.editor.buffer.lines[r].chars().count();
+                    let len = self.active_doc().lines[r].chars().count();
                     self.editor.extra_cursors.push(Cursor {
                         row: r,
                         col: (c1 + 1).min(len),
@@ -296,9 +311,9 @@ impl App {
         let Some((from_row, to_row)) = self.selection_row_span() else {
             return;
         };
-        self.editor.snapshot();
+        ed_op!(self, snapshot());
         self.editor.extra_cursors.clear();
-        self.editor.delete_lines(from_row, to_row);
+        ed_op!(self, delete_lines(from_row, to_row));
         self.editor.cursor.col = 0;
         self.enter_mode(Mode::Insert);
     }
@@ -310,12 +325,12 @@ impl App {
         let Some(sel) = self.selection() else { return };
         match sel {
             Selection::Block { r0, c0, r1, .. } => {
-                self.editor.snapshot();
+                ed_op!(self, snapshot());
                 self.editor.extra_cursors.clear();
                 truncate_block_to_eol(self, r0, c0, r1);
                 self.editor.cursor = Cursor { row: r0, col: c0 };
                 for r in (r0 + 1)..=r1 {
-                    let len = self.editor.buffer.lines[r].chars().count();
+                    let len = self.active_doc().lines[r].chars().count();
                     self.editor.extra_cursors.push(Cursor {
                         row: r,
                         col: c0.min(len),
@@ -333,10 +348,10 @@ impl App {
         let Some(sel) = self.selection() else { return };
         match sel {
             Selection::Block { r0, c0, r1, .. } => {
-                self.editor.snapshot();
+                ed_op!(self, snapshot());
                 truncate_block_to_eol(self, r0, c0, r1);
                 self.editor.cursor = Cursor { row: r0, col: c0 };
-                self.editor.clamp_col(false);
+                ed_op_ref!(self, clamp_col(false));
                 self.enter_mode(Mode::Normal);
             }
             _ => self.visual_delete_lines(),
@@ -348,8 +363,8 @@ impl App {
         let Some((from_row, to_row)) = self.selection_row_span() else {
             return;
         };
-        self.editor.snapshot();
-        self.editor.delete_lines(from_row, to_row);
+        ed_op!(self, snapshot());
+        ed_op!(self, delete_lines(from_row, to_row));
         self.enter_mode(Mode::Normal);
     }
 
@@ -358,7 +373,7 @@ impl App {
         let Some((from_row, to_row)) = self.selection_row_span() else {
             return;
         };
-        self.editor.buffer.yank_lines(from_row, to_row);
+        self.active_doc_mut().yank_lines(from_row, to_row);
         self.sync_yank_to_clipboard();
         self.push_toast(Toast::info("yanked"));
         self.editor.cursor.row = from_row;
@@ -390,17 +405,17 @@ impl App {
         let Some(sel) = self.selection() else { return };
         match sel {
             Selection::Char { from, to } => {
-                let end = self.editor.buffer.advance_one(to);
+                let end = self.active_doc().advance_one(to);
                 match op {
                     Operator::Yank => {
-                        self.editor.buffer.yank_range(from, end);
+                        self.active_doc_mut().yank_range(from, end);
                         self.sync_yank_to_clipboard();
                         self.push_toast(Toast::info("yanked"));
                         self.editor.cursor = from;
                     }
-                    Operator::Delete => self.editor.delete_range(from, end),
+                    Operator::Delete => ed_op!(self, delete_range(from, end)),
                     Operator::Change => {
-                        self.editor.delete_range(from, end);
+                        ed_op!(self, delete_range(from, end));
                         self.enter_mode(Mode::Insert);
                     }
                     Operator::Indent | Operator::Dedent => {
@@ -414,15 +429,15 @@ impl App {
             }
             Selection::Line { from_row, to_row } => match op {
                 Operator::Yank => {
-                    self.editor.buffer.yank_lines(from_row, to_row);
+                    self.active_doc_mut().yank_lines(from_row, to_row);
                     self.sync_yank_to_clipboard();
                     self.push_toast(Toast::info("yanked"));
                     self.editor.cursor.row = from_row;
                     self.editor.cursor.col = 0;
                 }
-                Operator::Delete => self.editor.delete_lines(from_row, to_row),
+                Operator::Delete => ed_op!(self, delete_lines(from_row, to_row)),
                 Operator::Change => {
-                    self.editor.delete_lines(from_row, to_row);
+                    ed_op!(self, delete_lines(from_row, to_row));
                     self.enter_mode(Mode::Insert);
                 }
                 Operator::Indent | Operator::Dedent => {
@@ -433,7 +448,7 @@ impl App {
                     // Line-visual wrap spans whole lines: col 0 of the
                     // first to end-of-last.
                     let (lo_row, hi_row) = (from_row.min(to_row), from_row.max(to_row));
-                    let hi_col = self.editor.buffer.lines[hi_row].chars().count();
+                    let hi_col = self.active_doc().lines[hi_row].chars().count();
                     self.apply_visual_block_comment(
                         Cursor {
                             row: lo_row,
@@ -450,21 +465,21 @@ impl App {
             },
             Selection::Block { r0, c0, r1, c1 } => match op {
                 Operator::Yank => {
-                    self.editor.buffer.yank_block(r0, c0, r1, c1);
+                    self.active_doc_mut().yank_block(r0, c0, r1, c1);
                     self.sync_yank_to_clipboard();
                     self.push_toast(Toast::info("yanked"));
                     self.editor.cursor = Cursor { row: r0, col: c0 };
                 }
-                Operator::Delete => self.editor.delete_block(r0, c0, r1, c1),
+                Operator::Delete => ed_op!(self, delete_block(r0, c0, r1, c1)),
                 Operator::Change => {
                     // Fan-out: after the block delete, each row gets its
                     // own cursor at the left edge so typed text repeats
                     // down the column when Insert mode finishes.
                     self.editor.extra_cursors.clear();
-                    self.editor.delete_block(r0, c0, r1, c1);
+                    ed_op!(self, delete_block(r0, c0, r1, c1));
                     self.editor.cursor = Cursor { row: r0, col: c0 };
                     for r in (r0 + 1)..=r1 {
-                        let len = self.editor.buffer.lines[r].chars().count();
+                        let len = self.active_doc().lines[r].chars().count();
                         self.editor.extra_cursors.push(Cursor {
                             row: r,
                             col: c0.min(len),
@@ -514,9 +529,9 @@ fn first_non_blank(line: &str) -> usize {
 /// a finite `c1`, and the longest row may not match the visual `c1`).
 /// Cursor/yank are left to the caller.
 fn truncate_block_to_eol(app: &mut App, r0: usize, c0: usize, r1: usize) {
-    let r1 = r1.min(app.editor.buffer.lines.len().saturating_sub(1));
+    let r1 = r1.min(app.active_doc().lines.len().saturating_sub(1));
     let max_len = (r0..=r1)
-        .map(|r| app.editor.buffer.lines[r].chars().count())
+        .map(|r| app.active_doc().lines[r].chars().count())
         .max()
         .unwrap_or(0);
     if max_len <= c0 {
@@ -524,8 +539,7 @@ fn truncate_block_to_eol(app: &mut App, r0: usize, c0: usize, r1: usize) {
     }
     // delete_block computes `hi = (c1 + 1).min(line_len)`, so passing
     // `max_len.saturating_sub(1)` covers every row to its own EOL.
-    app.editor
-        .delete_block(r0, c0, r1, max_len.saturating_sub(1));
+    ed_op!(app, delete_block(r0, c0, r1, max_len.saturating_sub(1)));
 }
 
 /// Map a visual-mode key event to the motion it triggers, if any.

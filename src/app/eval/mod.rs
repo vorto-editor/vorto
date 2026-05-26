@@ -110,7 +110,7 @@ impl App {
             // path either). The fan-out then applies the expr at
             // every cursor with diff-based bookkeeping.
             if modifies {
-                self.editor.snapshot();
+                ed_op!(self, snapshot());
             }
             self.fan_out_op(expr, ctx)
         } else {
@@ -158,11 +158,21 @@ impl App {
                 let indent = self.indent_settings();
                 for k in keys {
                     match k {
-                        InsertKey::Char(c) => self.editor.insert_char_smart(c, indent),
-                        InsertKey::Newline => self.editor.insert_newline(indent),
-                        InsertKey::Backspace => self.editor.delete_char_before(),
-                        InsertKey::Dedent => self.editor.dedent_current_line(indent),
-                        InsertKey::Paste(s) => self.editor.insert_text_raw(&s),
+                        InsertKey::Char(c) => {
+                            ed_op!(self, insert_char_smart(c, indent));
+                        }
+                        InsertKey::Newline => {
+                            ed_op!(self, insert_newline(indent));
+                        }
+                        InsertKey::Backspace => {
+                            ed_op!(self, delete_char_before());
+                        }
+                        InsertKey::Dedent => {
+                            ed_op!(self, dedent_current_line(indent));
+                        }
+                        InsertKey::Paste(s) => {
+                            ed_op!(self, insert_text_raw(&s));
+                        }
                     }
                 }
                 self.enter_mode(Mode::Normal);
@@ -370,7 +380,7 @@ impl App {
 /// Per-row char-count snapshot, used to spot what a single fan-out
 /// step did to the buffer.
 fn line_chars(app: &App) -> Vec<usize> {
-    app.editor.buffer.lines.iter().map(|l| l.chars().count()).collect()
+    app.active_doc().lines.iter().map(|l| l.chars().count()).collect()
 }
 
 /// Apply the buffer diff between `before` and `after` to the cursors
@@ -463,8 +473,11 @@ fn first_diverging_row(before: &[usize], after: &[usize]) -> usize {
 /// Extract the word under the cursor (char-class `Word`) as a plain
 /// string. Returns `None` when the cursor is on whitespace or the
 /// line is empty.
-pub(super) fn word_under_cursor(ed: &crate::editor::Editor) -> Option<String> {
-    let line: Vec<char> = ed.buffer.lines[ed.cursor.row].chars().collect();
+pub(super) fn word_under_cursor(
+    ed: &crate::editor::Editor,
+    buf: &crate::editor::Buffer,
+) -> Option<String> {
+    let line: Vec<char> = buf.lines[ed.cursor.row].chars().collect();
     if ed.cursor.col >= line.len() {
         return None;
     }

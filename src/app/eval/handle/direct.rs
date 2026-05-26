@@ -23,69 +23,71 @@ pub(super) fn handle_direct(app: &mut App, kind: DirectKind, count: u32, ctx: Ct
         D::OpenPrompt(k) => cmds.push(Cmd::OpenPrompt(k)),
         D::OpenLineBelow => {
             let indent = app.indent_settings();
-            app.editor.insert_line_below(indent);
+            ed_op!(app, insert_line_below(indent));
             cmds.push(Cmd::EnterMode(Mode::Insert));
         }
         D::OpenLineAbove => {
             let indent = app.indent_settings();
-            app.editor.insert_line_above(indent);
+            ed_op!(app, insert_line_above(indent));
             cmds.push(Cmd::EnterMode(Mode::Insert));
         }
         D::AppendAfterCursor => {
             // Past-the-end is allowed in Insert, so step right with
             // that permission rather than the Normal-mode clamp.
-            app.editor.move_right(true);
+            ed_op_ref!(app, move_right(true));
             cmds.push(Cmd::EnterMode(Mode::Insert));
         }
         D::AppendAtLineEnd => {
-            app.editor.cursor.col = app.editor.current_line_len();
+            app.editor.cursor.col = ed_op_ref!(app, current_line_len());
             cmds.push(Cmd::EnterMode(Mode::Insert));
         }
         D::InsertAtLineStart => {
-            let line = app.editor.current_line();
-            let col = line.chars().position(|c| !c.is_whitespace()).unwrap_or(0);
+            let col = {
+                let line = ed_op_ref!(app, current_line());
+                line.chars().position(|c| !c.is_whitespace()).unwrap_or(0)
+            };
             app.editor.cursor.col = col;
             cmds.push(Cmd::EnterMode(Mode::Insert));
         }
         D::ChangeToEol => {
-            app.editor.delete_to_eol();
+            ed_op!(app, delete_to_eol());
             cmds.push(Cmd::EnterMode(Mode::Insert));
         }
-        D::DeleteToEol => app.editor.delete_to_eol(),
+        D::DeleteToEol => ed_op!(app, delete_to_eol()),
         D::YankLine => {
             for _ in 0..count {
-                app.editor.yank_line();
+                ed_op!(app, yank_line());
             }
             cmds.push(Cmd::SyncYank);
             cmds.push(Cmd::ToastInfo("yanked".into()));
         }
         D::JoinLines => {
             for _ in 0..count {
-                app.editor.join_next_line();
+                ed_op!(app, join_next_line());
             }
         }
         D::ToggleCase => {
             for _ in 0..count {
-                app.editor.toggle_case_under_cursor();
+                ed_op!(app, toggle_case_under_cursor());
             }
         }
         D::SubstituteChar => {
             for _ in 0..count {
-                app.editor.delete_char_under_cursor();
+                ed_op!(app, delete_char_under_cursor());
             }
             cmds.push(Cmd::EnterMode(Mode::Insert));
         }
         D::SubstituteLine => {
-            app.editor.clear_current_line();
+            ed_op!(app, clear_current_line());
             cmds.push(Cmd::EnterMode(Mode::Insert));
         }
         D::ReplaceChar { ch } => {
             for _ in 0..count {
-                app.editor.replace_char(ch);
+                ed_op!(app, replace_char(ch));
                 // After each replacement, vim leaves the cursor on
                 // the replaced char; a count > 1 walks forward one
                 // step per replacement.
-                app.editor.move_right(false);
+                ed_op_ref!(app, move_right(false));
             }
             // Final cursor: vim leaves it on the LAST replaced
             // char, not past it.
@@ -96,22 +98,22 @@ pub(super) fn handle_direct(app: &mut App, kind: DirectKind, count: u32, ctx: Ct
         D::ViewportBottomAtCursor => cmds.push(Cmd::Scroll(ScrollAnchor::Bottom)),
         D::Paste => {
             for _ in 0..count {
-                app.editor.paste_after();
+                ed_op!(app, paste_after());
             }
         }
         D::Undo => {
-            if !app.editor.undo() {
+            if !ed_op!(app, undo()) {
                 cmds.push(Cmd::ToastError("already at oldest change".into()));
             }
         }
         D::Redo => {
-            if !app.editor.redo() {
+            if !ed_op!(app, redo()) {
                 cmds.push(Cmd::ToastError("already at newest change".into()));
             }
         }
         D::DeleteCharUnderCursor => {
             for _ in 0..count {
-                app.editor.delete_char_under_cursor();
+                ed_op!(app, delete_char_under_cursor());
             }
         }
         D::Quit => cmds.push(plan_quit(app)),
@@ -238,7 +240,7 @@ pub(super) fn handle_direct(app: &mut App, kind: DirectKind, count: u32, ctx: Ct
 /// while there are unsaved edits in the active or any sleeping
 /// buffer; otherwise emits the actual quit command.
 fn plan_quit(app: &App) -> Cmd {
-    if app.editor.buffer.dirty {
+    if app.active_doc().dirty {
         return Cmd::ToastError("unsaved changes (use :q!)".into());
     }
     let sleeping_dirty: Vec<&BufferRef> = app
@@ -267,7 +269,7 @@ fn plan_quit(app: &App) -> Cmd {
 /// on the highlighted char. No-ops with a status message when the
 /// next match would land on a cursor that's already tracked.
 fn add_next_cursor(app: &mut App, cmds: &mut Vec<Cmd>) {
-    let Some(word) = crate::app::eval::word_under_cursor(&app.editor) else {
+    let Some(word) = crate::app::eval::word_under_cursor(&app.editor, app.active_doc()) else {
         app.enter_mode(Mode::Visual);
         return;
     };
@@ -277,7 +279,7 @@ fn add_next_cursor(app: &mut App, cmds: &mut Vec<Cmd>) {
     // the pre-Ctrl-N pattern.
     let mut tmp = crate::editor::SearchState::default();
     tmp.set(word.clone(), true);
-    let Some(next) = tmp.find_next(&app.editor, true) else {
+    let Some(next) = tmp.find_next(&app.editor, app.active_doc(), true) else {
         cmds.push(Cmd::ToastError("no further match".into()));
         return;
     };
@@ -302,12 +304,12 @@ fn add_next_cursor(app: &mut App, cmds: &mut Vec<Cmd>) {
 /// landing cursor would collide with primary or an existing extra.
 fn add_cursor_below(app: &mut App, cmds: &mut Vec<Cmd>) {
     let primary = app.editor.cursor;
-    if primary.row + 1 >= app.editor.buffer.lines.len() {
+    if primary.row + 1 >= app.active_doc().lines.len() {
         cmds.push(Cmd::ToastError("no line below".into()));
         return;
     }
     let next_row = primary.row + 1;
-    let next_line_len = app.editor.buffer.lines[next_row].chars().count();
+    let next_line_len = app.active_doc().lines[next_row].chars().count();
     let next_col = primary.col.min(next_line_len.saturating_sub(1));
     let next = Cursor {
         row: next_row,
@@ -370,7 +372,7 @@ fn run_substitute(app: &mut App, raw: &str, cmds: &mut Vec<Cmd>) {
         replacement: args.replacement,
         global: args.global,
     };
-    let outcome = app.editor.substitute(&resolved);
+    let outcome = ed_op!(app, substitute(&resolved));
 
     if outcome.matches == 0 {
         cmds.push(Cmd::ToastError(format!("pattern not found: {}", pattern)));

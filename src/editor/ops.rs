@@ -7,44 +7,44 @@
 use super::{Buffer, Cursor, Editor, char_to_byte};
 
 impl Editor {
-    pub fn delete_line(&mut self) {
-        if self.buffer.lines.len() == 1 {
-            self.buffer.yank = self.buffer.lines[0].clone();
-            self.buffer.lines[0].clear();
+    pub fn delete_line(&mut self, buf: &mut Buffer) {
+        if buf.lines.len() == 1 {
+            buf.yank = buf.lines[0].clone();
+            buf.lines[0].clear();
         } else {
-            self.buffer.yank = self.buffer.lines.remove(self.cursor.row);
-            if self.cursor.row >= self.buffer.lines.len() {
-                self.cursor.row = self.buffer.lines.len() - 1;
+            buf.yank = buf.lines.remove(self.cursor.row);
+            if self.cursor.row >= buf.lines.len() {
+                self.cursor.row = buf.lines.len() - 1;
             }
         }
-        self.clamp_col(false);
-        self.buffer.touch();
+        self.clamp_col(buf, false);
+        buf.touch();
     }
 
-    pub fn yank_line(&mut self) {
-        self.buffer.yank = self.buffer.lines[self.cursor.row].clone();
+    pub fn yank_line(&mut self, buf: &mut Buffer) {
+        buf.yank = buf.lines[self.cursor.row].clone();
     }
 
-    pub fn paste_after(&mut self) {
-        if self.buffer.yank.is_empty() {
+    pub fn paste_after(&mut self, buf: &mut Buffer) {
+        if buf.yank.is_empty() {
             return;
         }
-        let yanked = self.buffer.yank.clone();
-        self.buffer.lines.insert(self.cursor.row + 1, yanked);
+        let yanked = buf.yank.clone();
+        buf.lines.insert(self.cursor.row + 1, yanked);
         self.cursor.row += 1;
         self.cursor.col = 0;
-        self.buffer.touch();
+        buf.touch();
     }
 
     /// Remove text between two cursors (inclusive of `from`, exclusive of
     /// `to`). The order of `from`/`to` doesn't matter — they're sorted
     /// internally. After deletion the cursor lands at the lower endpoint.
-    pub fn delete_range(&mut self, from: Cursor, to: Cursor) {
+    pub fn delete_range(&mut self, buf: &mut Buffer, from: Cursor, to: Cursor) {
         let (from, to) = order(from, to);
         if from == to {
             return;
         }
-        let lines = &mut self.buffer.lines;
+        let lines = &mut buf.lines;
         if from.row == to.row {
             let line = &mut lines[from.row];
             let fb = char_to_byte(line, from.col);
@@ -60,8 +60,8 @@ impl Editor {
             lines.drain((from.row + 1)..drain_end);
         }
         self.cursor = from;
-        self.clamp_col(false);
-        self.buffer.touch();
+        self.clamp_col(buf, false);
+        buf.touch();
     }
 }
 
@@ -146,32 +146,32 @@ impl Buffer {
 impl Editor {
     /// Delete a run of whole lines (inclusive). Also stashes them in
     /// the yank register, matching vim's `dd` / visual-line `d`.
-    pub fn delete_lines(&mut self, from_row: usize, to_row: usize) {
+    pub fn delete_lines(&mut self, buf: &mut Buffer, from_row: usize, to_row: usize) {
         let (a, b) = (from_row.min(to_row), from_row.max(to_row));
-        let b = b.min(self.buffer.lines.len().saturating_sub(1));
-        self.buffer.yank = self.buffer.lines[a..=b].join("\n");
-        if a == 0 && b + 1 >= self.buffer.lines.len() {
-            self.buffer.lines.clear();
-            self.buffer.lines.push(String::new());
+        let b = b.min(buf.lines.len().saturating_sub(1));
+        buf.yank = buf.lines[a..=b].join("\n");
+        if a == 0 && b + 1 >= buf.lines.len() {
+            buf.lines.clear();
+            buf.lines.push(String::new());
             self.cursor.row = 0;
         } else {
-            self.buffer.lines.drain(a..=b);
-            self.cursor.row = a.min(self.buffer.lines.len().saturating_sub(1));
+            buf.lines.drain(a..=b);
+            self.cursor.row = a.min(buf.lines.len().saturating_sub(1));
         }
         self.cursor.col = 0;
-        self.clamp_col(false);
-        self.buffer.touch();
+        self.clamp_col(buf, false);
+        buf.touch();
     }
 
     /// Delete a column rectangle, stashing into yank. Shorter lines are
     /// trimmed at their end rather than padded.
-    pub fn delete_block(&mut self, r0: usize, c0: usize, r1: usize, c1: usize) {
+    pub fn delete_block(&mut self, buf: &mut Buffer, r0: usize, c0: usize, r1: usize, c1: usize) {
         let (r0, r1) = (r0.min(r1), r0.max(r1));
         let (c0, c1) = (c0.min(c1), c0.max(c1));
-        let r1 = r1.min(self.buffer.lines.len().saturating_sub(1));
-        self.buffer.yank_block(r0, c0, r1, c1);
+        let r1 = r1.min(buf.lines.len().saturating_sub(1));
+        buf.yank_block(r0, c0, r1, c1);
         for r in r0..=r1 {
-            let line = self.buffer.lines[r].clone();
+            let line = buf.lines[r].clone();
             let nchars = line.chars().count();
             let lo = c0.min(nchars);
             let hi = (c1 + 1).min(nchars);
@@ -180,12 +180,12 @@ impl Editor {
             }
             let lo_b = char_to_byte(&line, lo);
             let hi_b = char_to_byte(&line, hi);
-            self.buffer.lines[r].replace_range(lo_b..hi_b, "");
+            buf.lines[r].replace_range(lo_b..hi_b, "");
         }
         self.cursor.row = r0;
         self.cursor.col = c0;
-        self.clamp_col(false);
-        self.buffer.touch();
+        self.clamp_col(buf, false);
+        buf.touch();
     }
 }
 
@@ -312,13 +312,13 @@ impl Editor {
     /// separator (vim's `J`). Strips leading whitespace on the joined
     /// line; if the current line ends in whitespace or is empty, no
     /// space is inserted. Cursor lands on the join boundary.
-    pub fn join_next_line(&mut self) {
-        if self.cursor.row + 1 >= self.buffer.lines.len() {
+    pub fn join_next_line(&mut self, buf: &mut Buffer) {
+        if self.cursor.row + 1 >= buf.lines.len() {
             return;
         }
-        let next = self.buffer.lines.remove(self.cursor.row + 1);
+        let next = buf.lines.remove(self.cursor.row + 1);
         let next_trimmed = next.trim_start();
-        let cur = &mut self.buffer.lines[self.cursor.row];
+        let cur = &mut buf.lines[self.cursor.row];
         let needs_space = !cur.is_empty()
             && !cur
                 .chars()
@@ -332,13 +332,13 @@ impl Editor {
         }
         cur.push_str(next_trimmed);
         self.cursor.col = join_col;
-        self.buffer.touch();
+        buf.touch();
     }
 
     /// Toggle the case of the character under the cursor, then advance
     /// one column (vim's `~`). No-op on an empty line.
-    pub fn toggle_case_under_cursor(&mut self) {
-        let line = &mut self.buffer.lines[self.cursor.row];
+    pub fn toggle_case_under_cursor(&mut self, buf: &mut Buffer) {
+        let line = &mut buf.lines[self.cursor.row];
         if self.cursor.col >= line.chars().count() {
             return;
         }
@@ -352,10 +352,10 @@ impl Editor {
             return; // not a cased letter — leave it and don't advance
         };
         line.replace_range(byte_idx..byte_idx + ch.len_utf8(), &replacement);
-        self.buffer.touch();
+        buf.touch();
         // Advance, allowing past-end only inside Insert (we're in Normal
         // here, so clamp to last col).
-        let max = self.current_line_len().saturating_sub(1);
+        let max = self.current_line_len(buf).saturating_sub(1);
         if self.cursor.col < max {
             self.cursor.col += 1;
         }
@@ -363,22 +363,22 @@ impl Editor {
 
     /// Delete from `cursor` to the end of the current line (vim's `D`).
     /// The deleted text goes into the yank register.
-    pub fn delete_to_eol(&mut self) {
-        let line = self.buffer.lines[self.cursor.row].clone();
+    pub fn delete_to_eol(&mut self, buf: &mut Buffer) {
+        let line = buf.lines[self.cursor.row].clone();
         let byte_idx = char_to_byte(&line, self.cursor.col);
-        self.buffer.yank = line[byte_idx..].to_string();
-        self.buffer.lines[self.cursor.row].truncate(byte_idx);
-        self.buffer.touch();
-        self.clamp_col(false);
+        buf.yank = line[byte_idx..].to_string();
+        buf.lines[self.cursor.row].truncate(byte_idx);
+        buf.touch();
+        self.clamp_col(buf, false);
     }
 
     /// Replace the entire current line with an empty string (vim's
     /// `S`). The full line content goes into the yank register.
-    pub fn clear_current_line(&mut self) {
-        self.buffer.yank = self.buffer.lines[self.cursor.row].clone();
-        self.buffer.lines[self.cursor.row].clear();
+    pub fn clear_current_line(&mut self, buf: &mut Buffer) {
+        buf.yank = buf.lines[self.cursor.row].clone();
+        buf.lines[self.cursor.row].clear();
         self.cursor.col = 0;
-        self.buffer.touch();
+        buf.touch();
     }
 
     /// Toggle a block-aligned line comment across `rows` using `token`
@@ -402,11 +402,11 @@ impl Editor {
     /// on a mutated row gets shifted by the column delta. Cursors that
     /// land inside a deleted range collapse to the anchor column.
     /// Single-row callers can just pass `&[row]`.
-    pub fn toggle_block_comment(&mut self, token: &str, rows: &[usize]) {
+    pub fn toggle_block_comment(&mut self, buf: &mut Buffer, token: &str, rows: &[usize]) {
         let mut rows: Vec<usize> = rows
             .iter()
             .copied()
-            .filter(|&r| r < self.buffer.lines.len())
+            .filter(|&r| r < buf.lines.len())
             .collect();
         rows.sort_unstable();
         rows.dedup();
@@ -415,7 +415,7 @@ impl Editor {
         let non_blank: Vec<(usize, usize)> = rows
             .iter()
             .filter_map(|&row| {
-                let line = &self.buffer.lines[row];
+                let line = &buf.lines[row];
                 let indent_chars = line.chars().take_while(|c| c.is_whitespace()).count();
                 if indent_chars == line.chars().count() {
                     None
@@ -436,7 +436,7 @@ impl Editor {
         // the byte at column `anchor` is always whitespace or the first
         // non-blank char — never the middle of a multi-byte cluster.
         let all_commented = non_blank.iter().all(|&(row, _)| {
-            let line = &self.buffer.lines[row];
+            let line = &buf.lines[row];
             let byte = char_to_byte(line, anchor);
             line[byte..].starts_with(token)
         });
@@ -445,7 +445,7 @@ impl Editor {
         let mut deltas: Vec<(usize, i32)> = Vec::with_capacity(non_blank.len());
         if all_commented {
             for &(row, _) in &non_blank {
-                let line = &mut self.buffer.lines[row];
+                let line = &mut buf.lines[row];
                 let byte = char_to_byte(line, anchor);
                 let after_token = &line[byte + token_bytes..];
                 let trim_bytes = if after_token.starts_with(' ') {
@@ -461,7 +461,7 @@ impl Editor {
             let insert = format!("{} ", token);
             let added_chars = insert.chars().count();
             for &(row, _) in &non_blank {
-                let line = &mut self.buffer.lines[row];
+                let line = &mut buf.lines[row];
                 let byte = char_to_byte(line, anchor);
                 line.insert_str(byte, &insert);
                 deltas.push((row, added_chars as i32));
@@ -469,8 +469,8 @@ impl Editor {
         }
 
         self.for_each_cursor(|c| shift_cursor_for_block_comment(c, &deltas, anchor));
-        self.clamp_col(false);
-        self.buffer.touch();
+        self.clamp_col(buf, false);
+        buf.touch();
     }
 
     /// Apply `f` to the primary cursor first, then every extra cursor
@@ -524,7 +524,14 @@ impl Editor {
     /// row and column adjusted per edit. Same-row column shifts go
     /// through `shift_cursor_for_edit`; whole-row insertions and
     /// removals go through `shift_cursor_for_row_delta`.
-    pub fn toggle_block_wrap(&mut self, open: &str, close: &str, from: Cursor, to: Cursor) {
+    pub fn toggle_block_wrap(
+        &mut self,
+        buf: &mut Buffer,
+        open: &str,
+        close: &str,
+        from: Cursor,
+        to: Cursor,
+    ) {
         let (lo, hi) = order(from, to);
         if lo == hi {
             return;
@@ -549,16 +556,16 @@ impl Editor {
         // means a user edited the wrap or it isn't ours to strip.
         let own_line_wrapped = lo.col == 0
             && own_close_row > lo.row
-            && self.buffer.lines[lo.row] == open
-            && self.buffer.lines[own_close_row] == close;
+            && buf.lines[lo.row] == open
+            && buf.lines[own_close_row] == close;
 
         let starts_open = !own_line_wrapped && {
-            let line = &self.buffer.lines[lo.row];
+            let line = &buf.lines[lo.row];
             let byte = char_to_byte(line, lo.col);
             line[byte..].starts_with(open)
         };
         let ends_close = !own_line_wrapped && hi.col >= close_chars && {
-            let line = &self.buffer.lines[hi.row];
+            let line = &buf.lines[hi.row];
             let a = char_to_byte(line, hi.col - close_chars);
             let b = char_to_byte(line, hi.col);
             &line[a..b] == close
@@ -567,46 +574,46 @@ impl Editor {
         if own_line_wrapped {
             // Remove the close row first (higher index, doesn't
             // invalidate lo.row), then the open row.
-            self.buffer.lines.remove(own_close_row);
+            buf.lines.remove(own_close_row);
             self.for_each_cursor(|c| shift_cursor_for_row_delta(c, own_close_row, -1));
-            self.buffer.lines.remove(lo.row);
+            buf.lines.remove(lo.row);
             self.for_each_cursor(|c| shift_cursor_for_row_delta(c, lo.row, -1));
         } else if starts_open && ends_close {
             // Inline strip — close first so the open's coords stay
             // valid for the second edit.
             let close_start = hi.col - close_chars;
-            let a = char_to_byte(&self.buffer.lines[hi.row], close_start);
-            let b = char_to_byte(&self.buffer.lines[hi.row], hi.col);
-            self.buffer.lines[hi.row].replace_range(a..b, "");
+            let a = char_to_byte(&buf.lines[hi.row], close_start);
+            let b = char_to_byte(&buf.lines[hi.row], hi.col);
+            buf.lines[hi.row].replace_range(a..b, "");
             self.for_each_cursor(|c| shift_cursor_for_edit(c, hi.row, close_start, close_chars, 0));
 
-            let a = char_to_byte(&self.buffer.lines[lo.row], lo.col);
-            let b = char_to_byte(&self.buffer.lines[lo.row], lo.col + open_chars);
-            self.buffer.lines[lo.row].replace_range(a..b, "");
+            let a = char_to_byte(&buf.lines[lo.row], lo.col);
+            let b = char_to_byte(&buf.lines[lo.row], lo.col + open_chars);
+            buf.lines[lo.row].replace_range(a..b, "");
             self.for_each_cursor(|c| shift_cursor_for_edit(c, lo.row, lo.col, open_chars, 0));
-        } else if should_use_own_line(&self.buffer.lines, lo, hi) {
+        } else if should_use_own_line(&buf.lines, lo, hi) {
             // Insert close row first (higher index keeps lo coords
             // valid). `own_close_row` here points at the row *after*
             // the last content row, where we want the close to land.
             let close_insert_row = own_close_row + 1;
-            self.buffer.lines.insert(close_insert_row, close.to_string());
+            buf.lines.insert(close_insert_row, close.to_string());
             self.for_each_cursor(|c| shift_cursor_for_row_delta(c, close_insert_row, 1));
-            self.buffer.lines.insert(lo.row, open.to_string());
+            buf.lines.insert(lo.row, open.to_string());
             self.for_each_cursor(|c| shift_cursor_for_row_delta(c, lo.row, 1));
         } else {
             // Inline wrap — close first so open's coords aren't shifted
             // (same-row case: lo.col < hi.col, close insert at hi.col
             // leaves lo.col untouched).
-            let hi_byte = char_to_byte(&self.buffer.lines[hi.row], hi.col);
-            self.buffer.lines[hi.row].insert_str(hi_byte, close);
+            let hi_byte = char_to_byte(&buf.lines[hi.row], hi.col);
+            buf.lines[hi.row].insert_str(hi_byte, close);
             self.for_each_cursor(|c| shift_cursor_for_edit(c, hi.row, hi.col, 0, close_chars));
 
-            let lo_byte = char_to_byte(&self.buffer.lines[lo.row], lo.col);
-            self.buffer.lines[lo.row].insert_str(lo_byte, open);
+            let lo_byte = char_to_byte(&buf.lines[lo.row], lo.col);
+            buf.lines[lo.row].insert_str(lo_byte, open);
             self.for_each_cursor(|c| shift_cursor_for_edit(c, lo.row, lo.col, 0, open_chars));
         }
-        self.clamp_col(false);
-        self.buffer.touch();
+        self.clamp_col(buf, false);
+        buf.touch();
     }
 }
 

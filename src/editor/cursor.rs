@@ -6,16 +6,16 @@
 use super::{Buffer, Cursor, Editor};
 
 impl Editor {
-    pub fn current_line(&self) -> &str {
-        &self.buffer.lines[self.cursor.row]
+    pub fn current_line<'a>(&self, buf: &'a Buffer) -> &'a str {
+        &buf.lines[self.cursor.row]
     }
 
-    pub fn current_line_len(&self) -> usize {
-        self.current_line().chars().count()
+    pub fn current_line_len(&self, buf: &Buffer) -> usize {
+        self.current_line(buf).chars().count()
     }
 
-    pub fn clamp_col(&mut self, allow_after_end: bool) {
-        let max = self.current_line_len();
+    pub fn clamp_col(&mut self, buf: &Buffer, allow_after_end: bool) {
+        let max = self.current_line_len(buf);
         let limit = if allow_after_end {
             max
         } else {
@@ -30,8 +30,8 @@ impl Editor {
         }
     }
 
-    pub fn move_right(&mut self, allow_after_end: bool) {
-        let max = self.current_line_len();
+    pub fn move_right(&mut self, buf: &Buffer, allow_after_end: bool) {
+        let max = self.current_line_len(buf);
         let limit = if allow_after_end {
             max
         } else {
@@ -42,17 +42,17 @@ impl Editor {
         }
     }
 
-    pub fn move_up(&mut self) {
+    pub fn move_up(&mut self, buf: &Buffer) {
         if self.cursor.row > 0 {
             self.cursor.row -= 1;
-            self.clamp_col(false);
+            self.clamp_col(buf, false);
         }
     }
 
-    pub fn move_down(&mut self) {
-        if self.cursor.row + 1 < self.buffer.lines.len() {
+    pub fn move_down(&mut self, buf: &Buffer) {
+        if self.cursor.row + 1 < buf.lines.len() {
             self.cursor.row += 1;
-            self.clamp_col(false);
+            self.clamp_col(buf, false);
         }
     }
 
@@ -60,8 +60,8 @@ impl Editor {
         self.cursor.col = 0;
     }
 
-    pub fn move_line_end(&mut self) {
-        self.cursor.col = self.current_line_len().saturating_sub(1);
+    pub fn move_line_end(&mut self, buf: &Buffer) {
+        self.cursor.col = self.current_line_len(buf).saturating_sub(1);
     }
 
     pub fn move_file_start(&mut self) {
@@ -69,10 +69,10 @@ impl Editor {
         self.cursor.col = 0;
     }
 
-    pub fn move_file_end(&mut self) {
-        self.cursor.row = self.buffer.lines.len().saturating_sub(1);
+    pub fn move_file_end(&mut self, buf: &Buffer) {
+        self.cursor.row = buf.lines.len().saturating_sub(1);
         self.cursor.col = 0;
-        self.clamp_col(false);
+        self.clamp_col(buf, false);
     }
 }
 

@@ -93,13 +93,13 @@ pub(super) fn draw_status(f: &mut Frame, app: &App, area: Rect) {
 }
 
 fn file_label(app: &App) -> String {
-    match &app.editor.buffer.path {
+    match &app.active_doc().path {
         Some(p) => {
             let name = p
                 .file_name()
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_else(|| p.display().to_string());
-            if app.editor.buffer.dirty {
+            if app.active_doc().dirty {
                 format!("{} [+]", name)
             } else {
                 name

@@ -6,14 +6,21 @@
 //! `text_object_range(Around, _)`).
 
 use super::ops::shift_cursor_for_edit;
-use super::{Cursor, Editor, char_to_byte};
+use super::{Buffer, Cursor, Editor, char_to_byte};
 
 impl Editor {
     /// Wrap the half-open range `[from, to)` with `open` / `close`.
     /// The close is inserted first so the open's coordinates stay
     /// valid; cursors on the same row shift to preserve their relative
     /// positions.
-    pub fn surround_wrap(&mut self, open: &str, close: &str, from: Cursor, to: Cursor) {
+    pub fn surround_wrap(
+        &mut self,
+        buf: &mut Buffer,
+        open: &str,
+        close: &str,
+        from: Cursor,
+        to: Cursor,
+    ) {
         let (lo, hi) = order(from, to);
         if lo == hi {
             return;
@@ -21,17 +28,17 @@ impl Editor {
         let open_chars = open.chars().count();
         let close_chars = close.chars().count();
 
-        if hi.row < self.buffer.lines.len() {
-            let hi_byte = char_to_byte(&self.buffer.lines[hi.row], hi.col);
-            self.buffer.lines[hi.row].insert_str(hi_byte, close);
+        if hi.row < buf.lines.len() {
+            let hi_byte = char_to_byte(&buf.lines[hi.row], hi.col);
+            buf.lines[hi.row].insert_str(hi_byte, close);
             self.for_each_cursor(|c| shift_cursor_for_edit(c, hi.row, hi.col, 0, close_chars));
         }
-        let lo_byte = char_to_byte(&self.buffer.lines[lo.row], lo.col);
-        self.buffer.lines[lo.row].insert_str(lo_byte, open);
+        let lo_byte = char_to_byte(&buf.lines[lo.row], lo.col);
+        buf.lines[lo.row].insert_str(lo_byte, open);
         self.for_each_cursor(|c| shift_cursor_for_edit(c, lo.row, lo.col, 0, open_chars));
 
-        self.clamp_col(false);
-        self.buffer.touch();
+        self.clamp_col(buf, false);
+        buf.touch();
     }
 
     /// Remove a single character at `(row, col)` and `(row, col+1)`.
@@ -40,7 +47,7 @@ impl Editor {
     /// `lo` is the open-delimiter position; `hi` is one past the close
     /// (half-open). Open and close may live on different rows for
     /// multi-line pairs like `( …\n… )`.
-    pub fn surround_strip(&mut self, lo: Cursor, hi: Cursor) {
+    pub fn surround_strip(&mut self, buf: &mut Buffer, lo: Cursor, hi: Cursor) {
         let (lo, hi) = order(lo, hi);
         if lo == hi || hi.col == 0 && hi.row == lo.row {
             return;
@@ -55,31 +62,38 @@ impl Editor {
         } else {
             hi.col - 1
         };
-        delete_one_char(self, hi.row, close_col);
-        delete_one_char(self, lo.row, lo.col);
-        self.clamp_col(false);
-        self.buffer.touch();
+        delete_one_char(self, buf, hi.row, close_col);
+        delete_one_char(self, buf, lo.row, lo.col);
+        self.clamp_col(buf, false);
+        buf.touch();
     }
 
     /// Replace the boundary delimiters of `[lo, hi)` with `new_open` /
     /// `new_close`. Inner content is preserved verbatim — no attempt to
     /// trim / add the asymmetric-bracket space convention beyond what
     /// the caller bakes into `new_open` / `new_close`.
-    pub fn surround_replace(&mut self, lo: Cursor, hi: Cursor, new_open: &str, new_close: &str) {
+    pub fn surround_replace(
+        &mut self,
+        buf: &mut Buffer,
+        lo: Cursor,
+        hi: Cursor,
+        new_open: &str,
+        new_close: &str,
+    ) {
         let (lo, hi) = order(lo, hi);
         if lo == hi {
             return;
         }
         let close_col = if hi.col == 0 { return } else { hi.col - 1 };
-        replace_one_char(self, hi.row, close_col, new_close);
-        replace_one_char(self, lo.row, lo.col, new_open);
-        self.clamp_col(false);
-        self.buffer.touch();
+        replace_one_char(self, buf, hi.row, close_col, new_close);
+        replace_one_char(self, buf, lo.row, lo.col, new_open);
+        self.clamp_col(buf, false);
+        buf.touch();
     }
 }
 
-fn delete_one_char(buf: &mut Editor, row: usize, col: usize) {
-    let line = &mut buf.buffer.lines[row];
+fn delete_one_char(ed: &mut Editor, buf: &mut Buffer, row: usize, col: usize) {
+    let line = &mut buf.lines[row];
     let nchars = line.chars().count();
     if col >= nchars {
         return;
@@ -87,11 +101,11 @@ fn delete_one_char(buf: &mut Editor, row: usize, col: usize) {
     let start = char_to_byte(line, col);
     let end = char_to_byte(line, col + 1);
     line.replace_range(start..end, "");
-    buf.for_each_cursor(|c| shift_cursor_for_edit(c, row, col, 1, 0));
+    ed.for_each_cursor(|c| shift_cursor_for_edit(c, row, col, 1, 0));
 }
 
-fn replace_one_char(buf: &mut Editor, row: usize, col: usize, with: &str) {
-    let line = &mut buf.buffer.lines[row];
+fn replace_one_char(ed: &mut Editor, buf: &mut Buffer, row: usize, col: usize, with: &str) {
+    let line = &mut buf.lines[row];
     let nchars = line.chars().count();
     if col >= nchars {
         return;
@@ -100,7 +114,7 @@ fn replace_one_char(buf: &mut Editor, row: usize, col: usize, with: &str) {
     let end = char_to_byte(line, col + 1);
     line.replace_range(start..end, with);
     let inserted = with.chars().count();
-    buf.for_each_cursor(|c| shift_cursor_for_edit(c, row, col, 1, inserted));
+    ed.for_each_cursor(|c| shift_cursor_for_edit(c, row, col, 1, inserted));
 }
 
 fn order(a: Cursor, b: Cursor) -> (Cursor, Cursor) {
@@ -115,8 +129,8 @@ fn order(a: Cursor, b: Cursor) -> (Cursor, Cursor) {
 mod tests {
     use super::*;
 
-    fn buf_of(lines: &[&str]) -> Editor {
-        let mut b = Editor::new();
+    fn buf_of(lines: &[&str]) -> super::super::Ed {
+        let mut b = super::super::Ed::new();
         b.buffer.lines = lines.iter().map(|s| s.to_string()).collect();
         b.cursor = Cursor { row: 0, col: 0 };
         b
