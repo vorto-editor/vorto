@@ -21,6 +21,7 @@ mod cursor;
 mod history;
 mod inline_suggestion;
 mod insert;
+mod jumplist;
 mod motion;
 mod ops;
 mod search;
@@ -41,6 +42,7 @@ mod vcs_link;
 pub type IndentAnimState = (Option<std::time::Instant>, (usize, usize, usize), usize);
 
 pub use inline_suggestion::{RequestId, Suggestion, SuggestionState};
+pub use jumplist::{JumpEntry, JumpList};
 pub use ops::{flip_case_char_keep_width, to_lower_keep_width, to_upper_keep_width};
 pub use search::SearchState;
 pub use substitute::{SubsArgs, parse_substitute};
@@ -221,6 +223,19 @@ pub struct Editor {
     /// Accumulated command tokens since the last command fired. Cleared
     /// on Complete dispatch or Invalid parse.
     pub tokens: Vec<crate::action::Token>,
+    /// This pane's jump history (vim's jumplist). Rides along with the
+    /// session across buffer switches — the document swaps underneath but
+    /// the session (and its history) persists — so `Ctrl-O` can step back
+    /// into a buffer this pane has since switched away from. A `:split`
+    /// copies it to the new pane, matching vim.
+    pub jumps: JumpList,
+    /// Last cursor position this session held in each buffer it has
+    /// visited, keyed by document. On a buffer switch the outgoing
+    /// cursor is stashed here and the incoming buffer's remembered
+    /// cursor restored (origin on first visit); the entry is dropped
+    /// when the buffer is `:bd`-deleted. Per-session, so two panes
+    /// showing one document remember independent positions.
+    pub cursor_memory: std::collections::HashMap<BufferRef, Cursor>,
 }
 
 impl Editor {
@@ -232,15 +247,39 @@ impl Editor {
     }
 
     /// Fresh session referencing `doc` (cursor at the origin, no extras,
-    /// Normal mode). The document with that ref must live in the pool.
+    /// Normal mode, empty jumplist / cursor memory). The document with
+    /// that ref must live in the pool.
     pub fn for_doc(doc: BufferRef) -> Self {
         Self {
             doc,
-            cursor: Cursor::default(),
-            extra_cursors: Vec::new(),
-            mode: Mode::default(),
-            tokens: Vec::new(),
+            ..Self::default()
         }
+    }
+
+    /// Re-point this session at `next` (its document supplied as `doc`)
+    /// with the fresh-view normalization a buffer switch applies: drop
+    /// multi-cursors and pending command tokens, reset the mode to
+    /// Normal, and restore `next`'s remembered cursor (origin on first
+    /// visit) clamped to `doc`. The jumplist and cursor memory persist.
+    ///
+    /// Note this does *not* stash the outgoing buffer's cursor — callers
+    /// that want the leaving position remembered must do so before
+    /// calling (see `App::swap_active_doc`). The `:bd` inactive-pane
+    /// fixup deliberately skips that stash since the outgoing buffer is
+    /// gone for good.
+    pub fn adopt_doc(&mut self, next: BufferRef, doc: &Buffer) {
+        let restored = self.cursor_memory.get(&next).copied().unwrap_or_default();
+        self.doc = next;
+        self.extra_cursors.clear();
+        self.tokens.clear();
+        self.mode = Mode::default();
+        let last = doc.lines.len().saturating_sub(1);
+        self.cursor = Cursor {
+            row: restored.row.min(last),
+            col: restored.col,
+        };
+        // Clamp the column against the (possibly shorter) restored row.
+        self.clamp_col(doc, false);
     }
 
     /// Re-read `buf.path` from disk and replace the buffer contents in

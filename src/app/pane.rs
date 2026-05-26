@@ -294,9 +294,13 @@ impl App {
         // extras / Normal mode. The displaced session — with its own
         // cursor — becomes the inactive pane, keyed by its pane id. The
         // two panes now edit one shared `Buffer` through independent
-        // cursors.
+        // cursors. The jumplist and per-buffer cursor memory are *copied*
+        // into the new pane (vim copies the window-local jumplist on
+        // `:split`), after which each pane evolves its own.
         let mut new_active = Editor::for_doc(shared_ref);
         new_active.cursor = self.editor.cursor;
+        new_active.jumps = self.editor.jumps.clone();
+        new_active.cursor_memory = self.editor.cursor_memory.clone();
         let displaced = std::mem::replace(&mut self.editor, new_active);
         self.pane_content
             .insert(active_pane_id, PaneContent::Editor(displaced));
@@ -629,7 +633,7 @@ mod tests {
     //! mirroring exactly what `split_window` sets up.
 
     use crate::buffer_ref::BufferRef;
-    use crate::editor::{Buffer, Cursor, Editor};
+    use crate::editor::{Buffer, Cursor, Editor, JumpEntry};
     use std::collections::HashMap;
 
     use super::{PaneContent, PaneLayout};
@@ -774,5 +778,90 @@ mod tests {
         // inserted char, B is untouched on its own row.
         assert_eq!(a.cursor, Cursor { row: 0, col: 1 });
         assert_eq!(b.cursor, Cursor { row: 2, col: 0 });
+    }
+
+    #[test]
+    fn jumplist_survives_buffer_switch() {
+        let mut app = test_app();
+        let origin = app.editor.doc.clone();
+        // Record a jump origin, then switch buffers within the same pane.
+        app.editor.jumps.push(JumpEntry {
+            doc: origin.clone(),
+            cursor: Cursor { row: 0, col: 0 },
+        });
+        app.switch_to_buffer(BufferRef::Scratch(999)).unwrap();
+        assert_ne!(app.editor.doc, origin, "should have switched buffers");
+        // The session persists across the switch (no wholesale `Editor`
+        // replacement), so its jumplist rides along — `Ctrl-O` can still
+        // walk back into the buffer we left.
+        assert_eq!(app.editor.jumps.entries().len(), 1);
+        assert_eq!(app.editor.jumps.entries()[0].doc, origin);
+    }
+
+    #[test]
+    fn cursor_position_restored_on_revisit() {
+        let mut app = test_app();
+        let first = app.editor.doc.clone();
+        // Give the starting buffer content and park the cursor mid-file.
+        app.documents.get_mut(&first).unwrap().lines =
+            vec!["one".into(), "two".into(), "three".into()];
+        app.editor.cursor = Cursor { row: 2, col: 1 };
+
+        // Switching away lands a fresh view at the origin…
+        app.switch_to_buffer(BufferRef::Scratch(999)).unwrap();
+        assert_eq!(app.editor.cursor, Cursor { row: 0, col: 0 });
+
+        // …and switching back restores this pane's remembered position.
+        app.switch_to_buffer(first.clone()).unwrap();
+        assert_eq!(app.editor.doc, first);
+        assert_eq!(app.editor.cursor, Cursor { row: 2, col: 1 });
+    }
+
+    #[test]
+    fn bd_normalizes_inactive_pane_showing_deleted_buffer() {
+        let mut app = test_app();
+        let deleted = app.editor.doc.clone();
+        // Split so an inactive pane (the old editor pane) also shows the
+        // buffer we're about to delete.
+        let inactive_pane = app.editor_pane;
+        app.split_window_quiet(super::SplitDir::Vertical);
+
+        // A successor buffer to land on, with content shorter than the
+        // remembered cursor's column so we can prove the restore clamps.
+        let successor = BufferRef::Scratch(42);
+        let mut succ = Buffer::new();
+        succ.lines = vec!["one".into(), "two".into(), "x".into()];
+        app.documents.insert(successor.clone(), succ);
+
+        // Leave the inactive pane mid-edit on the doomed buffer: Insert
+        // mode, a pending count token, a stray multi-cursor, and a cursor
+        // remembered for the successor from a prior visit (col past the
+        // successor's last row, which is 1 char wide).
+        if let Some(PaneContent::Editor(ed)) = app.pane_content.get_mut(&inactive_pane) {
+            ed.mode = crate::mode::Mode::Insert;
+            ed.tokens.push(crate::action::Token::Count(2));
+            ed.extra_cursors.push(Cursor { row: 0, col: 0 });
+            ed.cursor = Cursor { row: 0, col: 0 };
+            ed.cursor_memory
+                .insert(successor.clone(), Cursor { row: 2, col: 5 });
+        }
+
+        // Mimic `:bd` pulling the deleted doc from the pool, then install
+        // the successor as the active session.
+        app.documents.remove(&deleted);
+        app.install_buffer(successor.clone());
+
+        // The inactive pane is re-pointed AND normalized the same way the
+        // active session is: mode/tokens reset, multi-cursors dropped, and
+        // its own remembered successor cursor restored (clamped to the
+        // shorter row) rather than snapped to the origin.
+        let Some(PaneContent::Editor(ed)) = app.pane_content.get(&inactive_pane) else {
+            panic!("inactive pane should still be an editor");
+        };
+        assert_eq!(ed.doc, successor);
+        assert_eq!(ed.mode, crate::mode::Mode::Normal);
+        assert!(ed.tokens.is_empty());
+        assert!(ed.extra_cursors.is_empty());
+        assert_eq!(ed.cursor, Cursor { row: 2, col: 0 });
     }
 }
