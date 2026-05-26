@@ -175,7 +175,10 @@ impl App {
     }
 
     fn run_jump_search(&mut self, forward: bool) {
-        if let Some(c) = self.search.find_next(&self.editor, self.active_doc(), forward) {
+        if let Some(c) = self
+            .search
+            .find_next(&self.editor, self.active_doc(), forward)
+        {
             self.editor.cursor = c;
         } else {
             self.push_toast(Toast::error("pattern not found"));
@@ -190,7 +193,8 @@ impl App {
     /// covers the whole match. Shared with Visual-mode key handling.
     pub(super) fn run_search_select(&mut self, forward: bool) {
         let Some((start, end_incl)) =
-            self.search.find_match_range(&self.editor, self.active_doc(), forward)
+            self.search
+                .find_match_range(&self.editor, self.active_doc(), forward)
         else {
             self.push_toast(Toast::error("pattern not found"));
             return;

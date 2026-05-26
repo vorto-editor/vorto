@@ -125,7 +125,9 @@ impl App {
     /// Resolve a motion against the current cursor and assign — the
     /// selection follows because the anchor is fixed.
     fn apply_visual_motion(&mut self, motion: MotionKind) {
-        let target = self.active_doc().motion_target(self.editor.cursor, motion, 1);
+        let target = self
+            .active_doc()
+            .motion_target(self.editor.cursor, motion, 1);
         self.editor.cursor = target;
     }
 
@@ -181,7 +183,10 @@ impl App {
         self.editor.cursor.row = from_row;
         self.editor.cursor.col = 0;
         let doc_ref = self.editor.doc.clone();
-        let doc = self.documents.get_mut(&doc_ref).expect("active doc present");
+        let doc = self
+            .documents
+            .get_mut(&doc_ref)
+            .expect("active doc present");
         for _ in 0..(to_row - from_row) {
             self.editor.join_next_line(doc);
         }
@@ -203,7 +208,10 @@ impl App {
         ed_op!(self, snapshot());
         let indent_settings = self.indent_settings();
         let doc_ref = self.editor.doc.clone();
-        let doc = self.documents.get_mut(&doc_ref).expect("active doc present");
+        let doc = self
+            .documents
+            .get_mut(&doc_ref)
+            .expect("active doc present");
         for r in from_row..=to_row {
             if indent {
                 self.editor.indent_line(doc, r, indent_settings);

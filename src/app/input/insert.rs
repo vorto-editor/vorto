@@ -284,7 +284,10 @@ impl App {
         all.sort_by_key(|(_, c)| std::cmp::Reverse((c.row, c.col)));
         let mut new_positions = vec![Cursor::default(); all.len()];
         let doc_ref = self.editor.doc.clone();
-        let doc = self.documents.get_mut(&doc_ref).expect("active doc present");
+        let doc = self
+            .documents
+            .get_mut(&doc_ref)
+            .expect("active doc present");
         for i in 0..all.len() {
             let (orig_idx, pos) = all[i];
             self.editor.cursor = pos;
@@ -316,7 +319,10 @@ impl App {
         all.sort_by_key(|(_, c)| std::cmp::Reverse((c.row, c.col)));
         let mut new_positions = vec![Cursor::default(); all.len()];
         let doc_ref = self.editor.doc.clone();
-        let doc = self.documents.get_mut(&doc_ref).expect("active doc present");
+        let doc = self
+            .documents
+            .get_mut(&doc_ref)
+            .expect("active doc present");
         for i in 0..all.len() {
             let (orig_idx, pos) = all[i];
             if pos.col == 0 {
@@ -363,7 +369,10 @@ impl App {
         rows.dedup();
         let mut removed: Vec<(usize, usize)> = Vec::with_capacity(rows.len());
         let doc_ref = self.editor.doc.clone();
-        let doc = self.documents.get_mut(&doc_ref).expect("active doc present");
+        let doc = self
+            .documents
+            .get_mut(&doc_ref)
+            .expect("active doc present");
         for row in rows {
             let before = doc.lines[row].chars().count();
             self.editor.dedent_line(doc, row, indent);

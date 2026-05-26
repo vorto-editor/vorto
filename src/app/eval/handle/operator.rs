@@ -93,7 +93,8 @@ pub(super) fn handle_op(app: &mut App, op: Operator, target: Target, outer_count
             let forward = app.search.last_forward ^ reverse;
             for _ in 0..outer_count {
                 let Some((start, end_incl)) =
-                    app.search.find_match_range(&app.editor, app.active_doc(), forward)
+                    app.search
+                        .find_match_range(&app.editor, app.active_doc(), forward)
                 else {
                     cmds.push(Cmd::ToastError("pattern not found".into()));
                     break;

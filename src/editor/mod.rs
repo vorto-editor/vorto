@@ -482,7 +482,8 @@ impl Ed {
         self.editor.dedent_line(&mut self.buffer, row, indent)
     }
     pub fn delete_char_before_smart(&mut self, indent: IndentSettings) {
-        self.editor.delete_char_before_smart(&mut self.buffer, indent)
+        self.editor
+            .delete_char_before_smart(&mut self.buffer, indent)
     }
 
     // Surround ops.

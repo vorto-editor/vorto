@@ -19,7 +19,10 @@ impl App {
             PromptOutcome::RunCommand(line) => self.execute_command(&line),
             PromptOutcome::Search { forward, query } => {
                 self.search.set(query, forward);
-                if let Some(c) = self.search.find_next(&self.editor, self.active_doc(), forward) {
+                if let Some(c) = self
+                    .search
+                    .find_next(&self.editor, self.active_doc(), forward)
+                {
                     self.editor.cursor = c;
                 } else {
                     self.push_toast(Toast::error("pattern not found"));

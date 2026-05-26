@@ -92,7 +92,9 @@ pub(super) fn handle_motion(app: &mut App, m: MotionExpr) -> Vec<Cmd> {
         | M::HalfPageUp
         | M::PageDown
         | M::PageUp => {
-            let target = app.active_doc().motion_target(app.editor.cursor, resolved, n);
+            let target = app
+                .active_doc()
+                .motion_target(app.editor.cursor, resolved, n);
             app.editor.cursor = target;
         }
         // Resolved away by `resolve_motion_pure` — should never
