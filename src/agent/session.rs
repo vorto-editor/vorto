@@ -152,8 +152,6 @@ pub struct AgentSession {
     /// The agent's most recently set window title (OSC 0/2), shared with
     /// the event listener. `None` until the agent sets one.
     title: Arc<Mutex<Option<String>>>,
-    /// Set once the reader thread saw EOF (process exited / PTY closed).
-    exited: bool,
 }
 
 impl AgentSession {
@@ -238,7 +236,6 @@ impl AgentSession {
             child,
             emu,
             title,
-            exited: false,
         })
     }
 
@@ -358,16 +355,6 @@ impl AgentSession {
         }
     }
 
-    /// Mark the process as exited (reader thread saw EOF).
-    pub fn mark_exited(&mut self) {
-        self.exited = true;
-    }
-
-    /// Whether the agent process has exited.
-    pub fn exited(&self) -> bool {
-        self.exited
-    }
-
     /// Resize the emulated terminal *and* the PTY to `cols` x `rows`.
     /// Called by the renderer when the agent pane's rectangle changes so
     /// both the grid and the agent reflow. A no-op when the size is
@@ -460,7 +447,6 @@ mod tests {
             saw_marker,
             "expected the PTY to echo our marker into the grid"
         );
-        assert!(!session.exited());
 
         // Killing reaps the child; a subsequent kill is harmless.
         session.kill();

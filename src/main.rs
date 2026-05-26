@@ -353,9 +353,7 @@ fn dispatch(app: &mut App, ev: event::AppEvent) -> Result<()> {
             }
         }
         event::AppEvent::AgentExited => {
-            if let Some(agent) = app.agent.as_mut() {
-                agent.mark_exited();
-            }
+            app.close_agent_pane();
         }
     }
     Ok(())

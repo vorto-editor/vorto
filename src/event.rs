@@ -88,7 +88,6 @@ pub enum AppEvent {
     /// buffering.
     AgentOutput(Vec<u8>),
     /// The agent process exited / its PTY closed (reader thread saw
-    /// EOF). The main loop marks the session exited so the renderer can
-    /// show an `[exited]` marker.
+    /// EOF). The main loop closes the agent pane and drops the process.
     AgentExited,
 }

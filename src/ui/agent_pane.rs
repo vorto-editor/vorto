@@ -8,8 +8,9 @@
 //! out and redraw correctly because they're driving a true terminal.
 //!
 //! The agent owns the whole rect — no border or header, so the agent's
-//! own chrome gets every cell. An `[exited]` badge overlays the top-right
-//! corner once the process ends.
+//! own chrome gets every cell. When the process exits the pane is closed
+//! automatically (`App::close_agent_pane`), so there is no exited state to
+//! render here.
 
 use alacritty_terminal::term::cell::Flags;
 use alacritty_terminal::vte::ansi::{Color as AnsiColor, NamedColor};
@@ -70,30 +71,6 @@ pub(super) fn draw_agent_pane(f: &mut Frame, app: &App, area: Rect, _active: boo
         let mut s = [0u8; 4];
         target.set_symbol(cell.c.encode_utf8(&mut s));
         target.set_style(style);
-    }
-
-    // Exited badge in the top-right corner.
-    if session.exited() {
-        let badge = " [exited] ";
-        let bw = badge.len() as u16;
-        if area.width >= bw {
-            let x = area.x + area.width - bw;
-            f.render_widget(
-                Span::styled(
-                    badge,
-                    Style::default()
-                        .fg(Color::Black)
-                        .bg(Color::Red)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Rect {
-                    x,
-                    y: area.y,
-                    width: bw,
-                    height: 1,
-                },
-            );
-        }
     }
 }
 

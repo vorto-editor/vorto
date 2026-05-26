@@ -454,6 +454,31 @@ impl App {
         self.push_toast(Toast::info("pane closed"));
     }
 
+    /// Close the agent pane and drop the agent process. Called when the
+    /// process exits (reader thread saw EOF): the pane disappears and
+    /// `App.agent` is cleared. Unlike `:close` on the agent pane — which
+    /// detaches but keeps the process alive for re-attach — this drops the
+    /// process too. No-op when no agent pane is open.
+    pub(crate) fn close_agent_pane(&mut self) {
+        let Some(agent_pid) = self.agent_pane else {
+            return;
+        };
+        let was_active = self.active_pane == agent_pid;
+        let neighbor = self.layout.remove_leaf(agent_pid);
+        self.pane_content.remove(&agent_pid);
+        self.agent_pane = None;
+        self.agent = None;
+        if was_active {
+            // `editor_pane` always backs `App.editor` and is a live leaf,
+            // so it's a safe landing spot; focus the geometric neighbour
+            // when there is one (mirrors the manual close path).
+            self.active_pane = self.editor_pane;
+            if let Some(n) = neighbor {
+                self.focus_pane(n);
+            }
+        }
+    }
+
     /// Move focus to the pane lying in the requested cardinal direction.
     /// Resolves against the rectangles computed by the UI on the last
     /// frame. No-op when no pane sits in that direction.
