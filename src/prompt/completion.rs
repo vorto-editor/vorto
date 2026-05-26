@@ -52,6 +52,12 @@ impl CommandPrompt {
     /// The visible input is replaced with the chosen candidate so the
     /// user can immediately submit it or keep typing past it.
     ///
+    /// When the prefix uniquely resolves to a single top-level command
+    /// that takes a second stage (a subcommand set or a path), a separating
+    /// space is appended and the cycle ends, so the very next Tab — and
+    /// the live hint panel — descend straight into that stage instead of
+    /// requiring the user to type the space by hand.
+    ///
     /// `root` anchors relative path completions, mirroring `:e`'s
     /// resolution against `startup_cwd`.
     pub(super) fn tab(&mut self, step: i32, root: &Path) {
@@ -65,13 +71,26 @@ impl CommandPrompt {
             let next = (c.selected as i32 + step).rem_euclid(len);
             c.selected = next as usize;
         }
-        if let Some(c) = &self.completion {
-            let head: String = self.input.as_str().chars().take(c.head_chars).collect();
-            let new = format!("{}{}", head, c.matches[c.selected]);
-            self.input = LineInput::new();
-            for ch in new.chars() {
-                self.input.insert(ch);
-            }
+        let Some(c) = &self.completion else {
+            return;
+        };
+        let head: String = self.input.as_str().chars().take(c.head_chars).collect();
+        let new = format!("{}{}", head, c.matches[c.selected]);
+        // A top-level command name that uniquely resolved and carries a
+        // second stage: append a space and drop the cycle so the live
+        // hint panel re-derives against the new head + space and shows
+        // the next stage, and the next Tab completes within it.
+        let descend = c.kind == CompletionKind::CommandName
+            && c.head_chars == 0
+            && c.matches.len() == 1
+            && Command::find(&c.matches[0]).is_some_and(|cmd| !matches!(cmd.args, Args::None));
+        self.input = LineInput::new();
+        for ch in new.chars() {
+            self.input.insert(ch);
+        }
+        if descend {
+            self.input.insert(' ');
+            self.completion = None;
         }
     }
 }
@@ -209,4 +228,67 @@ fn path_candidates(partial: &str, root: &Path) -> Vec<String> {
     });
     out.truncate(200);
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn typed(s: &str) -> CommandPrompt {
+        let mut cp = CommandPrompt::new();
+        for ch in s.chars() {
+            cp.input.insert(ch);
+        }
+        cp
+    }
+
+    // A command-name completion that resolves uniquely to a command with a
+    // second stage gets a trailing space and ends the cycle, so the next
+    // Tab descends into the subcommand stage.
+    #[test]
+    fn unique_subcommand_command_descends_with_space() {
+        let mut cp = typed("cop");
+        cp.tab(1, Path::new(""));
+        assert_eq!(cp.input.as_str(), "copilot ");
+        assert!(cp.completion.is_none());
+
+        // Next Tab completes within the subcommand stage.
+        cp.tab(1, Path::new(""));
+        assert_eq!(cp.input.as_str(), "copilot status");
+    }
+
+    // Path commands count as a second stage too.
+    #[test]
+    fn unique_path_command_descends_with_space() {
+        let mut cp = typed("edit");
+        cp.tab(1, Path::new(""));
+        assert_eq!(cp.input.as_str(), "edit ");
+        assert!(cp.completion.is_none());
+    }
+
+    // An ambiguous prefix keeps cycling without inserting a space, even
+    // when the first candidate happens to take arguments — the user is
+    // still choosing which command.
+    #[test]
+    fn ambiguous_prefix_cycles_without_space() {
+        let mut cp = typed("e");
+        cp.tab(1, Path::new(""));
+        // "e" and its alias "edit" both match → no descend.
+        assert_eq!(cp.input.as_str(), "e");
+        assert!(cp.completion.is_some());
+        cp.tab(1, Path::new(""));
+        assert_eq!(cp.input.as_str(), "edit");
+    }
+
+    // A command that uniquely resolves but has no second stage gets no
+    // trailing space — `log` is the only name starting with "log" and is
+    // `Args::None`, so this exercises the `matches.len() == 1` + `Args::None`
+    // path (unlike an ambiguous prefix, which is rejected earlier).
+    #[test]
+    fn argless_command_gets_no_space() {
+        let mut cp = typed("log");
+        cp.tab(1, Path::new(""));
+        assert_eq!(cp.input.as_str(), "log");
+        assert!(cp.completion.is_some());
+    }
 }
