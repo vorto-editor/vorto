@@ -184,12 +184,19 @@ impl App {
         }
 
         self.documents.clear();
-        self.pane_editors.clear();
+        self.pane_content.clear();
         self.sleeping.clear();
         self.opened_paths.clear();
+        // The agent *process* (`App.agent`) survives — only the editor
+        // buffers are wiped — but its pane is gone with the collapsed
+        // layout, so drop the pane reference.
+        self.agent_pane = None;
 
-        // Collapse to a single pane displaying the new scratch.
-        self.layout = PaneLayout::Leaf(self.active_pane);
+        // Collapse to a single pane displaying the new scratch. Use the
+        // editor pane as the surviving leaf so `App.editor` keeps
+        // backing it; the active pane may have been the (now-gone) agent.
+        self.layout = PaneLayout::Leaf(self.editor_pane);
+        self.active_pane = self.editor_pane;
 
         let id = self.mint_scratch_id();
         let key = BufferRef::Scratch(id);

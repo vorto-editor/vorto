@@ -1,6 +1,6 @@
 # ADR 0001: Document/Editor separation and an in-app agent pane
 
-- Status: Accepted (Phases A & B implemented; Phases C & D planned)
+- Status: Accepted (Phases A–D implemented)
 - Date: 2026-05-26
 
 ## Context
@@ -124,8 +124,12 @@ Negative / costs:
 - **Phase B — done** (`refactor(editor): pool documents behind BufferRef`):
   documents pooled; `Editor` references its doc; per-pane sessions keyed by
   `PaneId`; shared `:split` enabled.
-- **Phase C — planned**: `PaneContent { Editor | Agent }`, single `App.agent`,
-  `handle_key` dispatch, `Ctrl-W` escape hatch.
-- **Phase D — planned**: `AgentSession` — `portable-pty` for the process,
-  `alacritty_terminal` for VT parsing/grid, a lifted xterm key encoder, render
-  the grid into the pane's rect, kill on editor exit.
+- **Phase C — done** (`feat(agent): in-app agent pane (PTY-backed), replacing
+  external tmux/zellij`): `PaneContent { Editor | Agent }`, single `App.agent`,
+  `handle_key` dispatch routing keystrokes to the PTY, `Ctrl-W` escape hatch;
+  the external tmux/zellij multiplexer backend was removed.
+- **Phase D — done** (`feat(agent): render the agent pane with
+  alacritty_terminal`): `AgentSession` uses `portable-pty` for the process and
+  `alacritty_terminal` for VT parsing/grid, the lifted xterm key encoder is
+  DECCKM-aware, the grid renders into the pane's rect (colors + cursor), and the
+  process is killed on editor exit.

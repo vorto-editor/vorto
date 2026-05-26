@@ -191,6 +191,13 @@ fn main() -> Result<()> {
 
     let result = run(&mut terminal, &mut app, &event_rx);
 
+    // Kill the single agent process on the quit path. `Drop` would also
+    // do this when `app` falls out of scope, but doing it explicitly
+    // here means the child is reaped before we tear down the terminal.
+    if let Some(agent) = app.agent.as_mut() {
+        agent.kill();
+    }
+
     disable_raw_mode()?;
     let _ = execute!(terminal.backend_mut(), DisableBracketedPaste);
     if kbd_enhanced {
@@ -231,7 +238,17 @@ fn run(
         }
         prev_prompt_open = now_open;
         terminal.draw(|f| ui::draw(f, app))?;
-        let shape = app.config.cursor_shapes.for_mode(app.editor.mode);
+        // Cursor shape follows the focused pane: the editor's per-mode
+        // shape for an editor pane, or the agent terminal's own cursor
+        // shape when the agent pane is focused.
+        let shape = if Some(app.active_pane) == app.agent_pane {
+            app.agent
+                .as_ref()
+                .map(|a| a.cursor_shape())
+                .unwrap_or_else(|| app.config.cursor_shapes.for_mode(app.editor.mode))
+        } else {
+            app.config.cursor_shapes.for_mode(app.editor.mode)
+        };
         if last_shape != Some(shape) {
             let mut out = io::stdout();
             out.write_all(cursor_ansi(shape, app.config.cursor_shapes.blinking))?;
@@ -330,6 +347,14 @@ fn dispatch(app: &mut App, ev: event::AppEvent) -> Result<()> {
             path,
             base,
         } => app.handle_vcs_base_ready(generation, path, base),
+        event::AppEvent::AgentOutput(bytes) => {
+            if let Some(agent) = app.agent.as_ref() {
+                agent.push_output(&bytes);
+            }
+        }
+        event::AppEvent::AgentExited => {
+            app.close_agent_pane();
+        }
     }
     Ok(())
 }

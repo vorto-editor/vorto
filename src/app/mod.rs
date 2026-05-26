@@ -64,7 +64,7 @@ pub use copilot::{CopilotAuthState, CopilotPending};
 
 pub use jump::JumpState;
 pub use lsp_coordinator::{LspCoordinator, LspEventOutcome};
-pub use pane::{PaneId, PaneLayout, PaneRect, PaneRectMap, SplitDir};
+pub use pane::{PaneContent, PaneId, PaneLayout, PaneRect, PaneRectMap, SplitDir};
 pub use signature::{SignatureState, SignatureTrigger};
 pub use sleeping::SleepingBuffer;
 pub use toast::{Level, Toast, ToastQueue};
@@ -111,18 +111,21 @@ pub use crate::prompt::Prompt;
 const MRU_CAP: usize = 64;
 
 pub struct App {
-    /// Active editing session. *References* its document via
-    /// [`Editor::doc`]; the document itself lives in [`Self::documents`].
-    /// Carries the cursor / multi-cursor / mode for this view and the
-    /// in-flight command token stream. Kept as a dedicated field (rather
-    /// than another entry in `pane_editors`) so the hot path
+    /// Editing session backing [`Self::editor_pane`] (the most-recently
+    /// active editor leaf). *References* its document via [`Editor::doc`];
+    /// the document itself lives in [`Self::documents`]. Carries the
+    /// cursor / multi-cursor / mode for this view and the in-flight
+    /// command token stream. Kept as a dedicated field (rather than
+    /// another entry in `pane_content`) so the hot path
     /// `self.editor.cursor` / `.mode` / `.tokens` stays a single field
-    /// access.
+    /// access. Non-optional even when the agent pane is focused — it
+    /// then keeps rendering `editor_pane` and is restored on switch-back.
     pub editor: Editor,
     /// The shared document pool. Always contains the document named by
-    /// `self.editor.doc` and by every entry in [`Self::pane_editors`].
-    /// Two panes showing the same buffer name one entry here through
-    /// equal [`BufferRef`]s while keeping independent cursors.
+    /// `self.editor.doc` and by every [`PaneContent::Editor`] entry in
+    /// [`Self::pane_content`]. Two panes showing the same buffer name one
+    /// entry here through equal [`BufferRef`]s while keeping independent
+    /// cursors.
     pub documents: std::collections::HashMap<BufferRef, crate::editor::Buffer>,
     pub prompt: PromptController,
     pub search: SearchState,
@@ -267,18 +270,25 @@ pub struct App {
     /// pane covering the whole viewport". See [`mod@pane`] for the
     /// active-pane convention.
     pub layout: PaneLayout,
-    /// Pane id of the currently-active leaf in [`Self::layout`]. The
-    /// session for that pane is `App.editor`; other leaves' sessions
-    /// live in [`Self::pane_editors`].
+    /// Pane id of the currently-active leaf in [`Self::layout`]. When it
+    /// names an editor leaf this equals [`Self::editor_pane`] and the
+    /// session is `App.editor`. When it names the agent leaf it equals
+    /// [`Self::agent_pane`] (and `App.editor`/`editor_pane` still hold
+    /// the most-recently-active editor pane).
     pub active_pane: PaneId,
-    /// Per-pane editing sessions for every *inactive* leaf of
-    /// [`Self::layout`], keyed by [`PaneId`]. The active pane's session
-    /// is `App.editor` and is NOT also stored here. Keying by pane (not
-    /// by buffer ref) is what lets two panes show the same document with
-    /// independent cursors — each `Editor` carries its own cursor and
-    /// names its document through `.doc`. The documents themselves live
-    /// in [`Self::documents`].
-    pub pane_editors: std::collections::HashMap<PaneId, Editor>,
+    /// Pane id that `App.editor` currently backs — the most-recently
+    /// active *editor* leaf. Always an editor leaf, never the agent
+    /// leaf, and never present in [`Self::pane_content`]. When the agent
+    /// pane is focused, `active_pane != editor_pane` but this stays put
+    /// so the editor keeps rendering and the user can switch back.
+    pub editor_pane: PaneId,
+    /// Content of every leaf of [`Self::layout`] *except* the
+    /// `editor_pane`, keyed by [`PaneId`]. Inactive editor leaves hold a
+    /// [`PaneContent::Editor`] (its own cursor / `doc` ref — two panes
+    /// can share a pooled document with independent cursors); the agent
+    /// leaf holds the unit [`PaneContent::Agent`]. The documents
+    /// themselves live in [`Self::documents`].
+    pub pane_content: std::collections::HashMap<PaneId, PaneContent>,
     /// Counter for [`Self::mint_pane_id`]. Monotonic — never reused so
     /// a sleeping pane snapshot can't be confused with a fresh one.
     pub next_pane_id: PaneId,
@@ -300,11 +310,16 @@ pub struct App {
     /// would leak afresh each time. `config` is frozen at startup, so a
     /// single resolution stays correct for the whole session.
     pub(super) grammar_recipes: Vec<crate::grammar::recipe::GrammarRecipe>,
-    /// Multiplexer pane id of the agent launched by `:agent` this
-    /// session, if any. A second `:agent` focuses this pane (when still
-    /// alive) instead of opening another. Session-scoped — not persisted,
-    /// so a vorto restart starts fresh.
-    pub(super) agent_pane: Option<String>,
+    /// The single in-app agent process, lazily spawned on the first
+    /// `:agent`. Survives closing its pane (reopening `:agent`
+    /// re-attaches a pane to the same process); killed only on the quit
+    /// path / [`App`] teardown. `None` until the first launch.
+    pub agent: Option<crate::agent::AgentSession>,
+    /// Pane id of the leaf currently showing the agent, if one is open.
+    /// `pane_content[agent_pane] == PaneContent::Agent`. Closing the
+    /// agent pane clears this (without killing `App.agent`); a second
+    /// `:agent` re-opens a pane and re-points it here. Session-scoped.
+    pub(super) agent_pane: Option<PaneId>,
     /// Prompt staged by a `:agent <intent> @file` issued while no default
     /// agent is configured: the picker opens, and [`Self::select_agent`]
     /// consumes this so the chosen agent still launches seeded. `None`
@@ -386,13 +401,16 @@ impl App {
             clipboard: None,
             layout: PaneLayout::Leaf(pane::INITIAL_PANE_ID),
             active_pane: pane::INITIAL_PANE_ID,
-            // pane_editors only tracks inactive panes — the initial
-            // layout has just the active pane, so this starts empty.
-            pane_editors: HashMap::new(),
+            editor_pane: pane::INITIAL_PANE_ID,
+            // pane_content tracks every leaf except `editor_pane`. The
+            // initial layout has just that one editor leaf, so it starts
+            // empty.
+            pane_content: HashMap::new(),
             next_pane_id: pane::NEXT_PANE_ID_SEED,
             last_pane_rects: RefCell::new(PaneRectMap::default()),
             asked_grammars: std::collections::HashSet::new(),
             grammar_recipes,
+            agent: None,
             agent_pane: None,
             agent_pending_prompt: None,
             command_selection: None,

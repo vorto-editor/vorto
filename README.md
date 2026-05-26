@@ -14,8 +14,8 @@ optional GitHub Copilot — all in a single, dependency-light binary.
   code actions, goto definition / declaration / implementation,
   references, rename, format-on-save.
 - **Optional AI**: ghost-text inline completions via
-  `copilot-language-server` (silent when absent), plus `:agent` to launch
-  an AI coding agent in an adjacent tmux/zellij pane.
+  `copilot-language-server` (silent when absent), plus `:agent` to run
+  an AI coding agent in a built-in pane inside vorto.
 - **Async architecture** keeps the UI responsive while language servers
   index and grammars parse in the background.
 - **Git-aware** out of the box: diff gutter, picker respects
@@ -112,24 +112,24 @@ more). Override or add to them per-language in `config.toml`.
   `PATH`, vorto enables ghost-text inline completions: accept with
   `<Tab>`, dismiss with `<Esc>`. Missing the binary is a no-op — no
   errors, no prompts.
-- **Agent launcher** — `:agent` opens an AI coding agent in a new
-  terminal pane next to vorto. It detects the multiplexer hosting
-  vorto (tmux via `$TMUX`, zellij via `$ZELLIJ`) and opens the pane
-  there; with neither running it's a no-op with a hint. A bare `:agent`
-  launches the configured default, or opens a picker the first time and
-  remembers your choice. Re-running `:agent` focuses the existing pane
-  instead of spawning another. `:agent explain @file` / `:agent chat
-  @file` go further: they build a prompt about the active buffer and hand
-  it to the agent — seeded as a launch argument for a fresh pane, or
-  pasted into an already-open one. Use `@selection` instead of `@file` to
-  scope it to the visually-selected text: select in visual mode, press
-  `:`, and the selection is captured for `:agent explain @selection` and
-  embedded in the prompt as a code block. An unsaved or scratch buffer
-  used as `@file` is snapshotted to a temp file first so the agent has
-  something on disk to read. Built-in
-  catalog: **claude, codex, gemini, aider** — override commands/args, the
-  prompt-passing convention (`prompt_args`), or the default in
-  `config.toml` (see below).
+- **Agent launcher** — `:agent` opens an AI coding agent in a built-in
+  pane inside vorto, running under a pseudo-terminal alongside your
+  buffers (no external multiplexer required). A bare `:agent` launches
+  the configured default, or opens a picker the first time and remembers
+  your choice. Re-running `:agent` focuses the existing pane instead of
+  spawning another; the agent process keeps running even if you close its
+  pane. While the agent pane is focused, every key goes to the agent
+  except `Ctrl-W`, which is reserved for window navigation
+  (`Ctrl-W h/j/k/l/w`) so you can move focus back to a buffer. `:agent
+  explain @file` / `:agent chat @file` go further: they build a prompt
+  about the active buffer and send it to the agent. Use `@selection`
+  instead of `@file` to scope it to the visually-selected text: select in
+  visual mode, press `:`, and the selection is captured for `:agent
+  explain @selection` and embedded in the prompt as a code block. An
+  unsaved or scratch buffer used as `@file` is snapshotted to a temp file
+  first so the agent has something on disk to read. Built-in catalog:
+  **claude, codex, gemini, aider** — override commands/args or the
+  default in `config.toml` (see below).
 
 ### Git
 

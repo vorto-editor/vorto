@@ -542,11 +542,18 @@ impl App {
         // Two panes sharing one document reload it twice — the second
         // pass sees disk == buffer and reports "unchanged", so it's a
         // harmless no-op (no double snapshot).
-        let inactive_panes: Vec<crate::app::PaneId> = self.pane_editors.keys().copied().collect();
+        let inactive_panes: Vec<crate::app::PaneId> = self
+            .pane_content
+            .iter()
+            .filter_map(|(id, c)| match c {
+                crate::app::PaneContent::Editor(_) => Some(*id),
+                crate::app::PaneContent::Agent => None,
+            })
+            .collect();
         for pane in inactive_panes {
-            let doc_ref = match self.pane_editors.get(&pane) {
-                Some(ed) => ed.doc.clone(),
-                None => continue,
+            let doc_ref = match self.pane_content.get(&pane) {
+                Some(crate::app::PaneContent::Editor(ed)) => ed.doc.clone(),
+                _ => continue,
             };
             let has_path = self
                 .documents
@@ -557,7 +564,8 @@ impl App {
                 continue;
             }
             // Disjoint fields: the pane's editor and its pooled document.
-            let Some(mut ed) = self.pane_editors.remove(&pane) else {
+            let Some(crate::app::PaneContent::Editor(mut ed)) = self.pane_content.remove(&pane)
+            else {
                 continue;
             };
             let result = {
@@ -567,7 +575,8 @@ impl App {
                     .expect("pane doc present in pool");
                 ed.reload_from_disk(doc)
             };
-            self.pane_editors.insert(pane, ed);
+            self.pane_content
+                .insert(pane, crate::app::PaneContent::Editor(ed));
             match result {
                 Ok(true) => reloaded += 1,
                 Ok(false) => unchanged += 1,

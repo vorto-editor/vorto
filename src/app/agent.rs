@@ -1,38 +1,36 @@
-//! In-editor `:agent` command — launch an AI agent in a terminal pane.
+//! In-editor `:agent` command — run an AI agent in an in-app pane.
 //!
-//! vorto has no terminal emulator of its own, so the agent runs in a new
-//! pane opened by the multiplexer hosting vorto (tmux or zellij). Flow:
+//! The agent runs in a PTY *inside* vorto ([`crate::agent::AgentSession`]),
+//! displayed in a split pane. Flow:
 //!
-//! * detect the multiplexer; error out when neither is running (vorto
-//!   has no window to attach a standalone terminal to);
 //! * resolve the configured default agent — or open a picker when none
 //!   is set, persisting the choice the first time (see [`Self::select_agent`]);
-//! * ask the backend to open the pane.
+//! * open (or re-focus) the agent pane, lazily spawning the single
+//!   agent process on first use;
+//! * when a prompt was built, write it to the PTY.
 //!
-//! Bare `:agent` just launches. `:agent <intent> @target` (e.g.
-//! `:agent explain @file`, `:agent explain @selection`) additionally
-//! builds a prompt from the active buffer and forwards it: a fresh pane
-//! launches seeded with it ([`AgentSpec::prompt_argv`]), an already-open
-//! pane gets it pasted in via [`Multiplexer::send_prompt`]. `@file`
-//! resolves to the active buffer's path (an unsaved/scratch buffer is
-//! snapshotted to a temp file the agent can read); `@selection` embeds the
-//! visual selection — captured when `:` opened the prompt — inline as a
-//! code block. The reuse path uses bracketed paste, so a multi-line
-//! selection block pastes whole instead of submitting line by line.
+//! Bare `:agent` just opens/focuses the pane. `:agent <intent> @target`
+//! (e.g. `:agent explain @file`, `:agent explain @selection`)
+//! additionally builds a prompt from the active buffer and writes it to
+//! the agent's PTY (best-effort, with a trailing Enter to submit).
+//! `@file` resolves to the active buffer's path (an unsaved/scratch
+//! buffer is snapshotted to a temp file the agent can read);
+//! `@selection` embeds the visual selection — captured when `:` opened
+//! the prompt — inline as a code block.
 
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::agent::{self, AgentSpec, Multiplexer};
+use crate::agent::AgentSession;
 use crate::config::{AGENT_SUBCOMMANDS, resolve_subcommand};
 
-use super::{App, Toast, root_cause};
+use super::{App, PaneContent, SplitDir, Toast, root_cause};
 
 impl App {
-    /// `:agent [<intent> [@target]]`. Bare `:agent` launches the default
-    /// agent (or opens the picker). With an intent (`explain` / `chat`) it
-    /// builds a prompt from the active buffer and forwards it to the
-    /// agent.
+    /// `:agent [<intent> [@target]]`. Bare `:agent` opens/focuses the
+    /// default agent pane (or opens the picker). With an intent
+    /// (`explain` / `chat`) it builds a prompt from the active buffer
+    /// and writes it to the agent.
     pub(super) fn run_agent_command(&mut self, rest: &str) {
         let rest = rest.trim();
         let prompt = if rest.is_empty() {
@@ -46,14 +44,8 @@ impl App {
                 }
             }
         };
-        let Some(mux) = agent::detect() else {
-            self.push_toast(Toast::error(
-                "no terminal multiplexer detected — run vorto inside tmux or zellij",
-            ));
-            return;
-        };
         match self.config.agents.default.clone() {
-            Some(name) => self.launch_agent(&name, mux.as_ref(), prompt),
+            Some(name) => self.launch_agent(&name, prompt),
             None => {
                 // No default yet: stage the prompt so the picker's choice
                 // launches seeded, then ask which agent to use.
@@ -169,54 +161,77 @@ impl App {
             .into_owned()
     }
 
-    /// Resolve `name` against the catalog, then either reuse the existing
-    /// agent pane (focusing it, and typing in `prompt` when present) or
-    /// open a new one. Toasts on an unknown name or a backend failure.
-    fn launch_agent(&mut self, name: &str, mux: &dyn Multiplexer, prompt: Option<String>) {
+    /// Resolve `name` against the catalog, then open or re-focus the
+    /// in-app agent pane, lazily spawning the single agent process on
+    /// first use. A built prompt is written to the PTY (with a trailing
+    /// Enter). Toasts on an unknown name or a spawn failure.
+    fn launch_agent(&mut self, name: &str, prompt: Option<String>) {
         let Some(spec) = self.config.agents.find(name).cloned() else {
             self.push_toast(Toast::error(format!("unknown agent: {name}")));
             return;
         };
-        // Reuse: if we opened a pane earlier this session and it's still
-        // alive, jump to it instead of spawning a second one. A prompt
-        // gets typed into the running session.
-        if let Some(id) = self.agent_pane.clone() {
-            if mux.focus_if_alive(&id) {
-                match &prompt {
-                    Some(p) if mux.send_prompt(&id, p) => {
-                        self.push_toast(Toast::info(format!("sent prompt to {} pane", spec.name)))
-                    }
-                    Some(_) => self.push_toast(Toast::error(format!(
-                        "couldn't send prompt to {} pane",
-                        spec.name
-                    ))),
-                    None => self.push_toast(Toast::info(format!("focused {} pane", spec.name))),
+
+        // Lazily spawn the single agent process. Survives pane close —
+        // reopening `:agent` re-attaches a pane to the same process.
+        if self.agent.is_none() {
+            match AgentSession::spawn(&spec, &self.startup_cwd, self.event_tx.clone()) {
+                Ok(session) => {
+                    self.agent = Some(session);
+                    self.push_toast(Toast::info(format!("launched {}", spec.name)));
                 }
-                return;
+                Err(e) => {
+                    self.push_toast(Toast::error(format!(
+                        "agent launch failed: {}",
+                        root_cause(&e)
+                    )));
+                    return;
+                }
             }
-            // Stale — the pane was closed. Drop it and open afresh below.
-            self.agent_pane = None;
         }
-        self.spawn_agent_pane(&spec, mux, prompt.as_deref());
+
+        // Open the pane (or focus it if one already exists).
+        if let Some(id) = self.agent_pane {
+            self.focus_pane(id);
+        } else {
+            self.open_agent_pane();
+        }
+
+        // Deliver the prompt by writing to the PTY (best-effort). A
+        // Wrap it in bracketed-paste markers — we are the terminal, so we
+        // emit them — so a multi-line prompt (e.g. an `@selection` code
+        // block) arrives as one paste instead of line-by-line Enter
+        // keystrokes; agents in bracketed-paste mode honour it. A trailing
+        // CR submits.
+        if let (Some(p), Some(agent)) = (prompt.as_deref(), self.agent.as_ref()) {
+            agent.write(b"\x1b[200~");
+            agent.write(p.as_bytes());
+            agent.write(b"\x1b[201~");
+            agent.write(b"\r");
+            self.push_toast(Toast::info(format!("sent prompt to {}", spec.name)));
+        }
     }
 
-    fn spawn_agent_pane(&mut self, spec: &AgentSpec, mux: &dyn Multiplexer, prompt: Option<&str>) {
-        let seeded = prompt.is_some();
-        match mux.open_agent_pane(spec, &self.startup_cwd, prompt) {
-            Ok(pane_id) => {
-                self.agent_pane = pane_id;
-                let how = if seeded { " with prompt" } else { "" };
-                self.push_toast(Toast::info(format!(
-                    "launched {} in {} pane{how}",
-                    spec.name,
-                    mux.name()
-                )));
-            }
-            Err(e) => self.push_toast(Toast::error(format!(
-                "agent launch failed: {}",
-                root_cause(&e)
-            ))),
+    /// Split a new pane for the agent and mark it as the agent leaf.
+    /// Reuses the editor split machinery to create the leaf, then
+    /// converts that fresh leaf from an `Editor` into the `Agent`
+    /// content (the agent isn't an editor session).
+    fn open_agent_pane(&mut self) {
+        // Before the split, `editor_pane` backs `App.editor`. `split_window`
+        // makes a *new* editor leaf the active editor pane and stashes the
+        // displaced session under the old `editor_pane`.
+        let prev_editor_pane = self.editor_pane;
+        let new_leaf = self.split_window_quiet(SplitDir::Vertical);
+        // Undo the editor session move for the agent leaf: pull the
+        // displaced session back into `App.editor`, restore
+        // `editor_pane`, and discard the throwaway session the split
+        // installed for `new_leaf`. Then mark `new_leaf` as the agent.
+        if let Some(PaneContent::Editor(prev_ed)) = self.pane_content.remove(&prev_editor_pane) {
+            self.editor = prev_ed;
+            self.editor_pane = prev_editor_pane;
         }
+        self.pane_content.insert(new_leaf, PaneContent::Agent);
+        self.agent_pane = Some(new_leaf);
+        self.active_pane = new_leaf;
     }
 
     /// Open the agent picker (shown when no default is configured).
@@ -241,12 +256,6 @@ impl App {
     /// <intent>` that triggered the picker.
     pub(super) fn select_agent(&mut self, name: String) {
         let prompt = self.agent_pending_prompt.take();
-        let Some(mux) = agent::detect() else {
-            self.push_toast(Toast::error(
-                "no terminal multiplexer detected — run vorto inside tmux or zellij",
-            ));
-            return;
-        };
         if self.config.agents.default.is_none() {
             match crate::config::persist_default_agent(&name) {
                 Ok(path) => {
@@ -262,7 +271,7 @@ impl App {
                 ))),
             }
         }
-        self.launch_agent(&name, mux.as_ref(), prompt);
+        self.launch_agent(&name, prompt);
     }
 }
 
