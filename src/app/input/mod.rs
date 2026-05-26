@@ -50,7 +50,7 @@ impl App {
             }
             return;
         }
-        match self.mode {
+        match self.buffer.mode {
             Mode::Insert => self.insert_pasted_text(s),
             Mode::Normal => {
                 if s.is_empty() {
@@ -89,7 +89,7 @@ impl App {
         // genuinely idle. Other modes leave the toast alone — the user
         // is in the middle of input and shouldn't have side effects on
         // mode-exit Esc.
-        if matches!(self.mode, Mode::Normal) && key.code == KeyCode::Esc && self.toasts.has_fatal()
+        if matches!(self.buffer.mode, Mode::Normal) && key.code == KeyCode::Esc && self.toasts.has_fatal()
         {
             self.toasts.dismiss_fatal();
             return Ok(());
@@ -98,7 +98,7 @@ impl App {
         // Insert & Visual modes have small enough surfaces that they're
         // handled directly. The token pipeline is Normal-mode only — that
         // is where the rich operator/motion/text-object grammar lives.
-        match self.mode {
+        match self.buffer.mode {
             Mode::Insert => return self.handle_insert_key(key),
             Mode::Visual | Mode::VisualLine | Mode::VisualBlock => {
                 return self.handle_visual_key(key);
@@ -107,7 +107,7 @@ impl App {
         }
 
         // Normal mode: tokenize → classify → evaluate.
-        match eval::tokenize(&self.config.keymap, &self.tokens, self.mode, key) {
+        match eval::tokenize(&self.config.keymap, &self.tokens, self.buffer.mode, key) {
             Some(t) => self.tokens.push(t),
             None => {
                 self.tokens.clear();
@@ -129,7 +129,7 @@ impl App {
         // Set or clear the visual anchor at the mode boundary. Entering
         // any visual mode pins the anchor to the current cursor;
         // entering Normal/Insert drops it.
-        if mode.is_visual() && !self.mode.is_visual() {
+        if mode.is_visual() && !self.buffer.mode.is_visual() {
             self.visual_anchor = Some(self.buffer.cursor);
         } else if !mode.is_visual() {
             self.visual_anchor = None;
@@ -142,8 +142,8 @@ impl App {
         // requiring the user to type a key first. Insert→Insert
         // re-entry (no-op transitions) is harmless — the schedule call
         // just bumps the deadline back by the debounce window.
-        let entering_insert = mode == Mode::Insert && self.mode != Mode::Insert;
-        self.mode = mode;
+        let entering_insert = mode == Mode::Insert && self.buffer.mode != Mode::Insert;
+        self.buffer.mode = mode;
         if entering_insert {
             self.schedule_inline_suggestion();
         }

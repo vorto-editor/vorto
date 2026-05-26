@@ -377,12 +377,12 @@ impl App {
     }
 
     fn toggle_visual(&mut self, target: Mode) {
-        if self.mode == target {
+        if self.buffer.mode == target {
             self.enter_mode(Mode::Normal);
         } else {
             // Switch sub-mode but keep the anchor — pressing `V` from
             // charwise visual should extend the selection line-wise.
-            self.mode = target;
+            self.buffer.mode = target;
         }
     }
 

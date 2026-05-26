@@ -137,7 +137,7 @@ pub(super) fn draw_command_line(f: &mut Frame, app: &App, area: Rect) {
 
 fn status_label(app: &App) -> (String, Color) {
     match &app.prompt.state {
-        Prompt::None => (app.mode.to_string(), mode_color(app.mode)),
+        Prompt::None => (app.buffer.mode.to_string(), mode_color(app.buffer.mode)),
         Prompt::Command(_) => ("COMMAND".into(), Color::Yellow),
         Prompt::Search { forward: true, .. } => ("SEARCH/".into(), Color::LightBlue),
         Prompt::Search { forward: false, .. } => ("SEARCH?".into(), Color::LightBlue),
