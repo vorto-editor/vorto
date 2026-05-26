@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 
-use crate::editor::{Buffer, Editor};
+use crate::editor::{Buffer, Cursor, Editor};
 
 use crate::buffer_ref::BufferRef;
 
@@ -111,7 +111,23 @@ impl App {
     /// the outgoing document from the pool and cleaned up any MRU /
     /// sleeping entries that refer to it.
     pub(super) fn install_buffer(&mut self, next: Editor) {
+        // `:bd` removes the outgoing document from the pool. Any inactive
+        // pane still showing it (e.g. after `:split`) would be left with a
+        // dangling `doc` ref and panic on its next render/focus, so move
+        // those sessions onto the successor too — matching vim, where a
+        // window showing a bdeleted buffer switches to the replacement.
+        let deleted = self.editor.doc.clone();
+        let successor = next.doc.clone();
         self.editor = next;
+        if deleted != successor {
+            for ed in self.pane_editors.values_mut() {
+                if ed.doc == deleted {
+                    ed.doc = successor.clone();
+                    ed.cursor = Cursor::default();
+                    ed.extra_cursors.clear();
+                }
+            }
+        }
     }
 
     /// [`BufferRef`] for the currently-active document — simply the

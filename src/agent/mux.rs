@@ -142,9 +142,12 @@ impl Multiplexer for Tmux {
         if !run_status(&tmux_set_buffer_argv(prompt)) {
             return false;
         }
-        run_ok(&tmux_paste_buffer_argv(id));
-        run_ok(&argv(&["tmux", "send-keys", "-t", id, "Enter"]));
-        true
+        if !run_status(&tmux_paste_buffer_argv(id)) {
+            return false;
+        }
+        // A separate Enter submits; report a delivery failure to the caller
+        // rather than claiming success the trait contract doesn't hold.
+        run_status(&argv(&["tmux", "send-keys", "-t", id, "Enter"]))
     }
 }
 
@@ -209,15 +212,21 @@ impl Multiplexer for Zellij {
         // literally instead of submitting line-by-line; then byte 13
         // (Enter) submits. Agents that don't honour bracketed paste fall
         // back to treating the markers as a no-op and newlines as submits.
-        run_ok(&argv(&["zellij", "action", "focus-pane-id", id]));
-        run_ok(&zellij_write_bytes_argv(&PASTE_START));
+        // `write-chars` targets the focused pane — if focusing fails we'd
+        // type into the wrong pane, so bail instead of reporting success.
+        if !run_status(&argv(&["zellij", "action", "focus-pane-id", id])) {
+            return false;
+        }
+        if !run_status(&zellij_write_bytes_argv(&PASTE_START)) {
+            return false;
+        }
         let typed = run_status(&zellij_type_argv(prompt));
-        run_ok(&zellij_write_bytes_argv(&PASTE_END));
+        run_ok(&zellij_write_bytes_argv(&PASTE_END)); // best-effort close marker
         if !typed {
             return false;
         }
-        run_ok(&argv(&["zellij", "action", "write", "13"]));
-        true
+        // Byte 13 (Enter) submits; surface a delivery failure to the caller.
+        run_status(&argv(&["zellij", "action", "write", "13"]))
     }
 }
 

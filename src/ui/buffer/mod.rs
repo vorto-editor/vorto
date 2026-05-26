@@ -279,9 +279,9 @@ pub(super) fn place_cursor(f: &mut Frame, app: &App, buf_area: Rect) {
 /// gutter (line numbers + VCS bars) and lines with syntax highlighting,
 /// but no diagnostics, no selection, no extra cursors, no jump-label
 /// overlay, no search-hit painting — those overlays all belong to the
-/// active pane. Scroll is anchored on the inactive pane's own
-/// `Buffer.cursor.row` / `Buffer.scroll`, so each pane remembers where
-/// the user was last looking.
+/// active pane. Scroll is anchored on the inactive pane's own session
+/// cursor (`Editor.cursor.row`) over the shared document's `scroll`, so
+/// each pane remembers where the user was last looking.
 pub(super) fn draw_buffer_inactive(
     f: &mut Frame,
     ed: &Editor,
