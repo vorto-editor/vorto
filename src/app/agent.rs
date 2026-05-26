@@ -139,6 +139,22 @@ impl App {
             .unwrap_or(0);
         let path =
             std::env::temp_dir().join(format!("vorto-{}-{stamp}-{name}", std::process::id()));
+        // Unsaved buffer contents can be sensitive — keep the temp file
+        // private to the user rather than relying on the umask (a default
+        // 0o666 would be world-readable in a shared /tmp).
+        #[cfg(unix)]
+        {
+            use std::io::Write;
+            use std::os::unix::fs::OpenOptionsExt;
+            let mut f = std::fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .mode(0o600)
+                .open(&path)?;
+            f.write_all(contents.as_bytes())?;
+        }
+        #[cfg(not(unix))]
         std::fs::write(&path, contents)?;
         Ok(path)
     }
