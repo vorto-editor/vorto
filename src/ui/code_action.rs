@@ -85,10 +85,10 @@ pub(super) fn draw_code_action_menu(f: &mut Frame, app: &App, buf_area: Rect) {
     f.render_widget(Clear, area);
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(super::PANEL_BORDER_FG))
+        .border_style(Style::default().fg(super::panel_border_fg()))
         .title(" code actions ")
         .padding(Padding::horizontal(1))
-        .style(Style::default().bg(super::PANEL_BG));
+        .style(Style::default().bg(super::panel_bg()));
     let inner = block.inner(area);
     f.render_widget(block, area);
 

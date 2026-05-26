@@ -68,6 +68,7 @@ pub enum Inline {
     Copilot,
     Grammar,
     Agent,
+    Theme,
 }
 
 /// `:copilot` subcommands. Source of truth for completion + the hint
@@ -337,6 +338,13 @@ pub const COMMANDS: &[Command] = &[
         description: "launch an AI agent (or :agent explain/chat @file)",
         args: Args::Sub(AGENT_SUBCOMMANDS),
         kind: Kind::Inline(Inline::Agent),
+    },
+    Command {
+        name: "theme",
+        aliases: &["colorscheme", "colo"],
+        description: "pick a color theme (live preview)",
+        args: Args::None,
+        kind: Kind::Inline(Inline::Theme),
     },
 ];
 

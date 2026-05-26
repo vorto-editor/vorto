@@ -55,6 +55,7 @@ mod pane;
 mod runtime;
 mod signature;
 mod sleeping;
+mod theme;
 mod toast;
 mod types;
 mod workers;
@@ -331,6 +332,11 @@ pub struct App {
     /// non-visual mode, so it always reflects the selection live at the
     /// moment the prompt was opened (or `None` when there wasn't one).
     pub(super) command_selection: Option<String>,
+    /// Theme that was active when the `:theme` picker opened — the one to
+    /// restore if the user cancels. `Some` only while the picker is up
+    /// (set on open, cleared on commit or revert). Live preview swaps the
+    /// global active theme freely; this is the safety net.
+    pub(super) theme_origin: Option<String>,
     pub should_quit: bool,
 }
 
@@ -414,6 +420,7 @@ impl App {
             agent_pane: None,
             agent_pending_prompt: None,
             command_selection: None,
+            theme_origin: None,
             should_quit: false,
         }
     }

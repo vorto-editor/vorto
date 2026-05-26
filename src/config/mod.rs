@@ -82,6 +82,10 @@ pub struct Config {
     pub grammar_dir: PathBuf,
     /// Absolute path to the query directory (`<lang>/highlights.scm`).
     pub query_dir: PathBuf,
+    /// Active theme name (`theme = "..."`). Resolved against bundled +
+    /// `~/.config/vorto/themes/*.toml` by [`crate::theme::load_by_name`]
+    /// at startup. Defaults to `ansi` — the terminal's own palette.
+    pub theme: String,
 }
 
 /// Raw `[grammars.<name>]` entry: where to fetch a grammar's source.
@@ -147,6 +151,7 @@ impl Config {
             .query_dir
             .map(PathBuf::from)
             .unwrap_or_else(|| default_subdir("queries"));
+        let theme = toml.theme.unwrap_or_else(|| crate::theme::ANSI.to_string());
 
         Ok(Self {
             keymap,
@@ -158,6 +163,7 @@ impl Config {
             grammars,
             grammar_dir,
             query_dir,
+            theme,
         })
     }
 }
@@ -206,6 +212,9 @@ struct Toml {
     /// Directory holding `<lang>/highlights.scm`. Defaults to
     /// `<config>/queries`.
     query_dir: Option<String>,
+    /// Active theme name. Resolved by [`crate::theme::load_by_name`] at
+    /// startup; defaults to `ansi` (terminal palette).
+    theme: Option<String>,
 }
 
 impl Toml {
@@ -271,6 +280,76 @@ fn workspace_path(cwd: &Path) -> Option<PathBuf> {
     None
 }
 
+// ────────────────────────────────────────────────────────────────────────
+// Theme persistence
+// ────────────────────────────────────────────────────────────────────────
+
+/// Write `theme = "<name>"` to the user's config file, preserving the
+/// rest of the file verbatim, and return the path written. Used by the
+/// `:theme` picker when the user commits a choice. Mirrors
+/// [`persist_default_agent`]'s text-preserving, non-destructive approach.
+pub fn persist_theme(name: &str) -> Result<PathBuf> {
+    let path = default_path().ok_or_else(|| anyhow!("no config path (is $HOME set?)"))?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("creating config dir {}", parent.display()))?;
+    }
+    let existing = match std::fs::read_to_string(&path) {
+        Ok(s) => s,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => return Err(e).with_context(|| format!("reading {}", path.display())),
+    };
+    let updated = upsert_theme(&existing, name);
+    std::fs::write(&path, updated).with_context(|| format!("writing {}", path.display()))?;
+    Ok(path)
+}
+
+/// Set the top-level `theme` key in a config file's text. Replaces an
+/// existing top-level `theme = ...` assignment if one appears before the
+/// first `[table]` header; otherwise prepends the line (a bare key must
+/// precede any table header, since a key written *after* `[foo]` would
+/// belong to that table). All other lines are kept verbatim; line
+/// endings are normalized to `\n` (the file is rejoined with `\n`), and
+/// a trailing newline is preserved when the original had one.
+fn upsert_theme(existing: &str, name: &str) -> String {
+    let line = format!("theme = {}", agent::toml_basic_string(name));
+    let mut lines: Vec<String> = existing.lines().map(str::to_string).collect();
+
+    // Find an existing top-level `theme = ...`, scanning only until the
+    // first `[table]` header — a `theme` key inside a table isn't the
+    // top-level one we own.
+    let mut target = None;
+    for (i, l) in lines.iter().enumerate() {
+        let t = l.trim_start();
+        if t.starts_with('[') {
+            break;
+        }
+        if is_theme_assignment(t) {
+            target = Some(i);
+            break;
+        }
+    }
+
+    match target {
+        Some(i) => lines[i] = line,
+        None => lines.insert(0, line),
+    }
+
+    let mut s = lines.join("\n");
+    if existing.is_empty() || existing.ends_with('\n') {
+        s.push('\n');
+    }
+    s
+}
+
+/// True for a `theme = ...` top-level assignment line (key left of the
+/// first `=`, trimmed, equals `theme`). Comments (`# theme = ...`) and
+/// other keys (`theme_dir = ...`) don't match.
+fn is_theme_assignment(line: &str) -> bool {
+    line.split_once('=')
+        .is_some_and(|(k, _)| k.trim() == "theme")
+}
+
 fn default_subdir(name: &str) -> PathBuf {
     if let Some(xdg) = std::env::var_os("XDG_CONFIG_HOME") {
         return PathBuf::from(xdg).join("vorto").join(name);
@@ -279,6 +358,24 @@ fn default_subdir(name: &str) -> PathBuf {
         return PathBuf::from(home).join(".config/vorto").join(name);
     }
     PathBuf::from(name)
+}
+
+/// Directories scanned for user theme files (`<name>.toml`), in
+/// descending priority: a workspace-local `.vorto/themes/` (when the cwd
+/// has a `.vorto` *directory*) wins over the global
+/// `~/.config/vorto/themes/`. A theme present in an earlier dir shadows
+/// the same name later — and any user theme shadows a bundled one,
+/// matching the grammar/language "user overrides built-in" rule.
+pub fn theme_dirs() -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    if let Ok(cwd) = std::env::current_dir() {
+        let vorto = cwd.join(".vorto");
+        if vorto.is_dir() {
+            dirs.push(vorto.join("themes"));
+        }
+    }
+    dirs.push(default_subdir("themes"));
+    dirs
 }
 
 // ────────────────────────────────────────────────────────────────────────
@@ -450,6 +547,51 @@ grammar = "fish-shell"
 
         assert_eq!(workspace_path(&root), None);
         std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn upsert_theme_into_empty_file() {
+        assert_eq!(
+            upsert_theme("", "gruvbox-dark"),
+            "theme = \"gruvbox-dark\"\n"
+        );
+    }
+
+    #[test]
+    fn upsert_theme_replaces_existing_top_level() {
+        let existing = "theme = \"ansi\"\n\n[editor]\ntab_width = 4\n";
+        let got = upsert_theme(existing, "catppuccin-mocha");
+        assert_eq!(
+            got,
+            "theme = \"catppuccin-mocha\"\n\n[editor]\ntab_width = 4\n"
+        );
+    }
+
+    #[test]
+    fn upsert_theme_prepends_when_absent() {
+        let existing = "[editor]\ntab_width = 4\n";
+        let got = upsert_theme(existing, "gruvbox-dark");
+        assert_eq!(got, "theme = \"gruvbox-dark\"\n[editor]\ntab_width = 4\n");
+    }
+
+    #[test]
+    fn upsert_theme_ignores_key_inside_table() {
+        // A `theme = ` line that lives inside a table isn't the top-level
+        // key — the new one is prepended and the in-table line untouched.
+        let existing = "[sometable]\ntheme = \"x\"\n";
+        let got = upsert_theme(existing, "gruvbox-dark");
+        assert_eq!(
+            got,
+            "theme = \"gruvbox-dark\"\n[sometable]\ntheme = \"x\"\n"
+        );
+    }
+
+    #[test]
+    fn upsert_theme_result_reparses() {
+        let existing = "theme = \"ansi\"\n[editor]\ntab_width = 2\n";
+        let got = upsert_theme(existing, "gruvbox-dark");
+        let toml: Toml = toml::from_str(&got).unwrap();
+        assert_eq!(toml.theme.as_deref(), Some("gruvbox-dark"));
     }
 
     #[test]

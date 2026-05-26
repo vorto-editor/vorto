@@ -1,0 +1,70 @@
+# Solarized Light — ported from the official Helix theme.
+
+# ── Syntax ───────────────────────────────────────────────────────────
+keyword            = "green"
+include            = "green"
+conditional        = "green"
+repeat             = "green"
+exception          = "green"
+namespace          = "violet"
+"function"         = "blue"
+"function.macro"   = "magenta"
+"function.builtin" = { fg = "blue", modifiers = ["bold"] }
+method             = "blue"
+constructor        = "blue"
+type               = "yellow"
+"type.builtin"     = { fg = "yellow", modifiers = ["bold"] }
+string             = "cyan"
+"string.escape"    = { fg = "red", modifiers = ["bold"] }
+character          = "cyan"
+number             = "cyan"
+boolean            = "cyan"
+constant           = "cyan"
+"constant.builtin" = { fg = "cyan", modifiers = ["bold"] }
+comment            = "base01"
+"variable.builtin" = { fg = "cyan", modifiers = ["bold"] }
+label              = "green"
+operator           = "green"
+"punctuation.special" = "green"
+attribute          = "violet"
+tag                = "green"
+"markup.heading"        = "blue"
+"markup.heading.marker" = "blue"
+"markup.list"           = "red"
+"markup.raw"            = "green"
+"markup.link.url"       = { fg = "yellow", modifiers = ["underlined"] }
+"markup.link.label"     = "red"
+"diff.plus"             = "green"
+"diff.minus"            = "red"
+
+# ── UI chrome ────────────────────────────────────────────────────────
+"ui.background"          = { fg = "base1", bg = "base03" }
+"ui.linenr"              = { fg = "base0", bg = "base02" }
+"ui.linenr.selected"     = { fg = "blue", modifiers = ["bold"] }
+"ui.selection"           = { bg = "base0175" }
+"ui.search"              = { bg = "base02" }
+"ui.statusline"          = { fg = "base03", bg = "base0" }
+"ui.menu.selected"       = { fg = "base02", bg = "base2" }
+"ui.popup"               = { bg = "base02" }
+"ui.popup.border"        = { fg = "base01" }
+
+[palette]
+red      = "#dc322f"
+green    = "#859900"
+yellow   = "#b58900"
+blue     = "#268bd2"
+magenta  = "#d33682"
+cyan     = "#2aa198"
+orange   = "#cb4b16"
+violet   = "#6c71c4"
+base0    = "#657b83"
+base1    = "#586e75"
+base2    = "#073642"
+base3    = "#002b36"
+base00   = "#839496"
+base01   = "#93a1a1"
+base015  = "#c5c8bd"
+base0175 = "#dddbcc"
+base02   = "#eee8d5"
+base025  = "#f5eedb"
+base03   = "#fdf6e3"

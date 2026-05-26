@@ -1,0 +1,71 @@
+# Ayu Light — ported from the official Helix theme.
+
+# ── Syntax ───────────────────────────────────────────────────────────
+keyword            = "orange"
+include            = "yellow"
+conditional        = "yellow"
+repeat             = "yellow"
+exception          = "yellow"
+namespace          = "blue"
+"function"         = "yellow"
+"function.macro"   = "yellow"
+"function.builtin" = "yellow"
+method             = "yellow"
+constructor        = "green"
+type               = "blue"
+"type.builtin"     = "blue"
+string             = "green"
+"string.escape"    = "green"
+character          = "green"
+number             = "magenta"
+boolean            = "magenta"
+constant           = "magenta"
+"constant.builtin" = "magenta"
+comment            = { fg = "gray", modifiers = ["italic"] }
+parameter          = "foreground"
+"variable.parameter" = "foreground"
+"variable.builtin"   = "foreground"
+property           = "foreground"
+field              = "foreground"
+label              = "orange"
+operator           = "orange"
+"punctuation.bracket"   = "foreground"
+"punctuation.delimiter" = "foreground"
+"punctuation.special"   = "orange"
+attribute          = "blue"
+tag                = "blue"
+"markup.heading"        = "orange"
+"markup.heading.marker" = "orange"
+"markup.list"           = "yellow"
+"markup.raw"            = "orange"
+"markup.link.url"       = { fg = "blue", modifiers = ["underlined"] }
+"markup.link.label"     = "yellow"
+"diff.plus"             = "green"
+"diff.minus"            = "red"
+
+# ── UI chrome ────────────────────────────────────────────────────────
+"ui.background"          = { fg = "foreground", bg = "background" }
+"ui.linenr"              = { fg = "dark_gray" }
+"ui.linenr.selected"     = { fg = "gray" }
+"ui.selection"           = { bg = "dark_gray" }
+"ui.search"              = { bg = "black" }
+"ui.statusline"          = { fg = "foreground", bg = "black" }
+"ui.menu.selected"       = { fg = "background", bg = "gray" }
+"ui.popup"               = { fg = "#7B91b3", bg = "black" }
+"ui.popup.border"        = { fg = "gray" }
+
+[palette]
+background = "#fafafa"
+foreground = "#5c6166"
+black = "#e7eaed"
+white = "#fcfcfc"
+blue = "#399ee6"
+light_blue = "#55b4d4"
+cyan = "#478acc"
+dark_gray = "#d8d8d7"
+gray = "#828c9a"
+green = "#86b300"
+magenta = "#a37acc"
+orange = "#fa8d3e"
+red = "#f07171"
+yellow = "#ffaa33"

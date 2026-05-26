@@ -1,0 +1,85 @@
+# Catppuccin Mocha — ported from the official Helix theme.
+# Scope → color; colors reference the [palette] at the bottom (a TOML
+# table header captures every key after it, so the palette must be last).
+
+# ── Syntax ───────────────────────────────────────────────────────────
+keyword            = "mauve"
+include            = "mauve"
+conditional        = "mauve"
+repeat             = "mauve"
+exception          = "mauve"
+namespace          = { fg = "yellow", modifiers = ["italic"] }
+"function"         = "blue"
+"function.macro"   = "mauve"
+"function.builtin" = "blue"
+method             = "blue"
+constructor        = "sapphire"
+type               = "yellow"
+"type.builtin"     = "yellow"
+string             = "green"
+"string.escape"    = "pink"
+character          = "teal"
+number             = "peach"
+boolean            = "peach"
+constant           = "peach"
+"constant.builtin" = "peach"
+comment            = { fg = "overlay2", modifiers = ["italic"] }
+parameter          = { fg = "maroon", modifiers = ["italic"] }
+"variable.parameter" = { fg = "maroon", modifiers = ["italic"] }
+"variable.builtin"   = "red"
+property           = "blue"
+field              = "blue"
+label              = "sapphire"
+operator           = "sky"
+"punctuation.bracket"   = "overlay2"
+"punctuation.delimiter" = "overlay2"
+"punctuation.special"   = "sky"
+attribute          = "yellow"
+tag                = "blue"
+"markup.heading"        = { fg = "blue", modifiers = ["bold"] }
+"markup.heading.marker" = "mauve"
+"markup.list"           = "teal"
+"markup.raw"            = "green"
+"markup.link.url"       = { fg = "blue", modifiers = ["underlined"] }
+"markup.link.label"     = "lavender"
+"diff.plus"             = "green"
+"diff.minus"            = "red"
+
+# ── UI chrome ────────────────────────────────────────────────────────
+"ui.background"          = { fg = "text", bg = "base" }
+"ui.linenr"              = { fg = "surface1" }
+"ui.linenr.selected"     = { fg = "lavender" }
+"ui.selection"           = { bg = "surface1" }
+"ui.search"              = { bg = "surface2" }
+"ui.statusline"          = { fg = "subtext1", bg = "mantle" }
+"ui.menu.selected"       = { fg = "text", bg = "surface1", modifiers = ["bold"] }
+"ui.popup"               = { fg = "text", bg = "surface0" }
+"ui.popup.border"        = { fg = "surface2" }
+
+[palette]
+rosewater = "#f5e0dc"
+flamingo  = "#f2cdcd"
+pink      = "#f5c2e7"
+mauve     = "#cba6f7"
+red       = "#f38ba8"
+maroon    = "#eba0ac"
+peach     = "#fab387"
+yellow    = "#f9e2af"
+green     = "#a6e3a1"
+teal      = "#94e2d5"
+sky       = "#89dceb"
+sapphire  = "#74c7ec"
+blue      = "#89b4fa"
+lavender  = "#b4befe"
+text      = "#cdd6f4"
+subtext1  = "#bac2de"
+subtext0  = "#a6adc8"
+overlay2  = "#9399b2"
+overlay1  = "#7f849c"
+overlay0  = "#6c7086"
+surface2  = "#585b70"
+surface1  = "#45475a"
+surface0  = "#313244"
+base      = "#1e1e2e"
+mantle    = "#181825"
+crust     = "#11111b"

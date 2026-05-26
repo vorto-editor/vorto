@@ -86,9 +86,9 @@ pub(super) fn draw_grammar_list(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(Clear, popup);
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(super::PANEL_BORDER_FG))
+        .border_style(Style::default().fg(super::panel_border_fg()))
         .title(title)
-        .style(Style::default().bg(super::PANEL_BG));
+        .style(Style::default().bg(super::panel_bg()));
     let inner = block.inner(popup);
     f.render_widget(block, popup);
 
@@ -262,7 +262,7 @@ pub(super) fn draw_grammar_install_prompt(f: &mut Frame, app: &App, area: Rect) 
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::Yellow))
         .title(" install grammar ")
-        .style(Style::default().bg(super::PANEL_BG))
+        .style(Style::default().bg(super::panel_bg()))
         .padding(Padding::new(pad_x, pad_x, pad_y, pad_y));
     let inner = block.inner(popup);
     f.render_widget(block, popup);
@@ -271,8 +271,9 @@ pub(super) fn draw_grammar_install_prompt(f: &mut Frame, app: &App, area: Rect) 
 }
 
 /// First visible row index that keeps `selected` inside a `window`-tall
-/// viewport. Clamps so the list never scrolls past its end.
-fn scroll_offset(selected: usize, len: usize, window: usize) -> usize {
+/// viewport. Clamps so the list never scrolls past its end. Shared with
+/// the theme picker, which has the same scroll-a-list-in-a-box need.
+pub(super) fn scroll_offset(selected: usize, len: usize, window: usize) -> usize {
     if window == 0 || len <= window {
         return 0;
     }

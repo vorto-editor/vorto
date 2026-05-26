@@ -1,0 +1,70 @@
+# One Dark — ported from the official Helix theme.
+
+# ── Syntax ───────────────────────────────────────────────────────────
+keyword            = "red"
+include            = "red"
+conditional        = "purple"
+repeat             = "purple"
+exception          = "purple"
+namespace          = "blue"
+"function"         = "blue"
+"function.macro"   = "purple"
+"function.builtin" = "blue"
+method             = "blue"
+constructor        = "blue"
+type               = "yellow"
+"type.builtin"     = "yellow"
+string             = "green"
+"string.escape"    = "gold"
+character          = "green"
+number             = "gold"
+boolean            = "cyan"
+constant           = "cyan"
+"constant.builtin" = "cyan"
+comment            = { fg = "light-gray", modifiers = ["italic"] }
+parameter          = "red"
+"variable.parameter" = "red"
+"variable.builtin"   = "blue"
+property           = "red"
+field              = "red"
+label              = "purple"
+operator           = "purple"
+"punctuation.bracket"   = "white"
+"punctuation.delimiter" = "white"
+"punctuation.special"   = "purple"
+attribute          = "yellow"
+tag                = "red"
+"markup.heading"        = "red"
+"markup.heading.marker" = "red"
+"markup.list"           = "red"
+"markup.raw"            = "green"
+"markup.link.url"       = { fg = "cyan", modifiers = ["underlined"] }
+"markup.link.label"     = "purple"
+"diff.plus"             = "green"
+"diff.minus"            = "red"
+
+# ── UI chrome ────────────────────────────────────────────────────────
+"ui.background"          = { fg = "white", bg = "black" }
+"ui.linenr"              = { fg = "linenr" }
+"ui.linenr.selected"     = { fg = "white" }
+"ui.selection"           = { bg = "faint-gray" }
+"ui.search"              = { bg = "gray" }
+"ui.statusline"          = { fg = "white", bg = "light-black" }
+"ui.menu.selected"       = { fg = "black", bg = "blue" }
+"ui.popup"               = { fg = "white", bg = "gray" }
+"ui.popup.border"        = { fg = "gray" }
+
+[palette]
+yellow      = "#e5c07b"
+blue        = "#61afef"
+red         = "#e06c75"
+purple      = "#c678dd"
+green       = "#98c379"
+gold        = "#d19a66"
+cyan        = "#56b6c2"
+white       = "#abb2bf"
+black       = "#282c34"
+light-black = "#2c323c"
+gray        = "#3e4452"
+faint-gray  = "#3b4048"
+linenr      = "#4b5263"

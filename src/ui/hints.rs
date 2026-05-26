@@ -125,10 +125,10 @@ pub(super) fn draw_command_hints(f: &mut Frame, cp: &CommandPrompt, cmd_area: Re
         return;
     }
 
-    let bg = Style::default().bg(super::PANEL_BG);
+    let bg = Style::default().bg(super::panel_bg());
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_style(bg.fg(super::PANEL_BORDER_FG))
+        .border_style(bg.fg(super::panel_border_fg()))
         .title(Span::styled(
             title.to_string(),
             bg.fg(Color::Yellow).add_modifier(Modifier::BOLD),
@@ -274,11 +274,11 @@ pub(super) fn draw_pending_hints(f: &mut Frame, app: &App, status_area: Rect) {
         return;
     }
 
-    let bg = Style::default().bg(super::PANEL_BG);
+    let bg = Style::default().bg(super::panel_bg());
     let title = format!(" {} ", name);
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_style(bg.fg(super::PANEL_BORDER_FG))
+        .border_style(bg.fg(super::panel_border_fg()))
         .title(Span::styled(
             title,
             bg.fg(Color::Yellow).add_modifier(Modifier::BOLD),

@@ -1,0 +1,82 @@
+# Tokyo Night — ported from the official Helix theme.
+
+# ── Syntax ───────────────────────────────────────────────────────────
+keyword            = { fg = "purple", modifiers = ["italic"] }
+include            = "cyan"
+conditional        = "magenta"
+repeat             = "magenta"
+exception          = "magenta"
+namespace          = "cyan"
+"function"         = { fg = "blue", modifiers = ["italic"] }
+"function.macro"   = "cyan"
+"function.builtin" = "aqua"
+method             = { fg = "blue", modifiers = ["italic"] }
+constructor        = "aqua"
+type               = "aqua"
+"type.builtin"     = "aqua"
+string             = "light-green"
+"string.escape"    = "magenta"
+character          = "light-green"
+number             = "orange"
+boolean            = "orange"
+constant           = "orange"
+"constant.builtin" = "orange"
+comment            = { fg = "comment", modifiers = ["italic"] }
+parameter          = { fg = "yellow", modifiers = ["italic"] }
+"variable.parameter" = { fg = "yellow", modifiers = ["italic"] }
+"variable.builtin"   = "red"
+property           = "green"
+field              = "green"
+label              = "blue"
+operator           = "turquoise"
+"punctuation.bracket"   = "turquoise"
+"punctuation.delimiter" = "turquoise"
+"punctuation.special"   = "turquoise"
+attribute          = "cyan"
+tag                = "magenta"
+"markup.heading"        = { fg = "blue", modifiers = ["bold"] }
+"markup.heading.marker" = "blue"
+"markup.list"           = { fg = "orange", modifiers = ["bold"] }
+"markup.raw"            = "teal"
+"markup.link.url"       = { fg = "cyan", modifiers = ["underlined"] }
+"markup.link.label"     = "teal"
+"diff.plus"             = "add"
+"diff.minus"            = "delete"
+
+# ── UI chrome ────────────────────────────────────────────────────────
+"ui.background"          = { fg = "fg", bg = "bg" }
+"ui.linenr"              = { fg = "fg-gutter" }
+"ui.linenr.selected"     = { fg = "fg-linenr" }
+"ui.selection"           = { bg = "bg-selection" }
+"ui.search"              = { bg = "bg-focus" }
+"ui.statusline"          = { fg = "fg-dark", bg = "bg-menu" }
+"ui.menu.selected"       = { bg = "fg-selected" }
+"ui.popup"               = { fg = "fg", bg = "bg-menu" }
+"ui.popup.border"        = { fg = "border-highlight" }
+
+[palette]
+red              = "#f7768e"
+orange           = "#ff9e64"
+yellow           = "#e0af68"
+light-green      = "#9ece6a"
+green            = "#73daca"
+aqua             = "#2ac3de"
+teal             = "#1abc9c"
+turquoise        = "#89ddff"
+cyan             = "#7dcfff"
+blue             = "#7aa2f7"
+purple           = "#9d7cd8"
+magenta          = "#bb9af7"
+comment          = "#565f89"
+add              = "#449dab"
+delete           = "#914c54"
+fg               = "#c0caf5"
+fg-dark          = "#a9b1d6"
+fg-gutter        = "#3b4261"
+fg-linenr        = "#737aa2"
+fg-selected      = "#343a55"
+border-highlight = "#27a1b9"
+bg               = "#1a1b26"
+bg-selection     = "#283457"
+bg-menu          = "#16161e"
+bg-focus         = "#292e42"

@@ -15,7 +15,10 @@
 //! - [`injection`] — `injections.scm` → embed sub-language highlights /
 //!   indent scopes (e.g. TS inside a Vue `<script lang="ts">`)
 //! - [`loader`] — grammar `.so` / `.dylib` loading and query I/O
-//! - [`theme`] — capture-name → terminal style mapping
+//!
+//! Capture-name → terminal style mapping now lives in [`crate::theme`]
+//! (themes are swappable at runtime); [`style_for`] re-exports the active
+//! theme's resolver so existing call sites are unchanged.
 
 mod bracket;
 pub(crate) mod engine;
@@ -24,9 +27,8 @@ mod indent;
 pub(crate) mod injection;
 mod loader;
 mod textobject;
-mod theme;
 
+pub use crate::theme::style_for;
 pub use engine::Engine;
 pub use highlight::Capture;
 pub use loader::Loader;
-pub use theme::style_for;

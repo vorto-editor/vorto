@@ -25,19 +25,19 @@ pub(super) fn draw_copilot_signin(f: &mut Frame, app: &App, area: Rect) {
         return;
     }
 
-    let bg = Style::default().bg(super::PANEL_BG);
-    let label = Style::default().bg(super::PANEL_BG).fg(Color::Gray);
+    let bg = Style::default().bg(super::panel_bg());
+    let label = Style::default().bg(super::panel_bg()).fg(Color::Gray);
     let value = Style::default()
-        .bg(super::PANEL_BG)
+        .bg(super::panel_bg())
         .fg(Color::Yellow)
         .add_modifier(Modifier::BOLD);
-    let dim = Style::default().bg(super::PANEL_BG).fg(Color::DarkGray);
+    let dim = Style::default().bg(super::panel_bg()).fg(Color::DarkGray);
 
     let body: Vec<Line> = vec![
         Line::from(Span::styled(
             "GitHub Copilot — device flow signin",
             Style::default()
-                .bg(super::PANEL_BG)
+                .bg(super::panel_bg())
                 .fg(Color::LightBlue)
                 .add_modifier(Modifier::BOLD),
         )),
@@ -92,7 +92,7 @@ pub(super) fn draw_copilot_signin(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(Clear, popup);
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(super::PANEL_BORDER_FG))
+        .border_style(Style::default().fg(super::panel_border_fg()))
         .title(" copilot signin ")
         .style(bg)
         .padding(Padding::horizontal(1));

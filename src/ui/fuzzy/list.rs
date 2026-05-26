@@ -81,6 +81,15 @@ pub(super) fn draw_fuzzy_list(f: &mut Frame, finder: &Finder, area: Rect) {
     // 2 cells reserved at the start of each row for the `> ` / `  `
     // selection marker.
     let inner_w = list_w.saturating_sub(2);
+
+    // Selected-row background — the active theme's `ui.menu.selected` bg,
+    // or ANSI bright-black (the historical default) when it isn't set.
+    // Resolved once per frame and threaded through the row builders
+    // rather than re-reading the active-theme `RwLock` per row.
+    let sel_bg = crate::theme::active()
+        .ui_menu_selected()
+        .bg
+        .unwrap_or(Color::DarkGray);
     let scroll = finder.selected.saturating_sub(list_h.saturating_sub(1));
     let items: Vec<ListItem> = finder
         .matches
@@ -92,22 +101,20 @@ pub(super) fn draw_fuzzy_list(f: &mut Frame, finder: &Finder, area: Rect) {
             let raw = &finder.items[m.idx];
             let is_sel = i == finder.selected;
             let base = if is_sel {
-                Style::default()
-                    .bg(Color::DarkGray)
-                    .add_modifier(Modifier::BOLD)
+                Style::default().bg(sel_bg).add_modifier(Modifier::BOLD)
             } else {
                 Style::default()
             };
             let inner = if matches!(finder.kind, FuzzyKind::WorkspaceSearch) {
                 let row = m.line_hits.first().copied().unwrap_or(0);
-                render_workspace_match(raw, row, is_sel, inner_w)
+                render_workspace_match(raw, row, is_sel, inner_w, sel_bg)
             } else {
-                render_match(raw, &m.positions, is_sel, finder.kind, inner_w)
+                render_match(raw, &m.positions, is_sel, finder.kind, inner_w, sel_bg)
             };
             let inner = pad_line(inner, inner_w, base);
             let marker_style = if is_sel {
                 Style::default()
-                    .bg(Color::DarkGray)
+                    .bg(sel_bg)
                     .fg(Color::Yellow)
                     .add_modifier(Modifier::BOLD)
             } else {
@@ -127,11 +134,15 @@ pub(super) fn draw_fuzzy_list(f: &mut Frame, finder: &Finder, area: Rect) {
 /// dimmed; the line number is cyan. Matching is against line content
 /// but we don't reproduce the content in the row — the preview pane on
 /// the right already shows it under a target band.
-fn render_workspace_match<'a>(path: &'a str, row: usize, selected: bool, width: usize) -> Line<'a> {
+fn render_workspace_match<'a>(
+    path: &'a str,
+    row: usize,
+    selected: bool,
+    width: usize,
+    sel_bg: Color,
+) -> Line<'a> {
     let base = if selected {
-        Style::default()
-            .bg(Color::DarkGray)
-            .add_modifier(Modifier::BOLD)
+        Style::default().bg(sel_bg).add_modifier(Modifier::BOLD)
     } else {
         Style::default()
     };
@@ -188,11 +199,10 @@ fn render_match<'a>(
     selected: bool,
     kind: FuzzyKind,
     width: usize,
+    sel_bg: Color,
 ) -> Line<'a> {
     let base = if selected {
-        Style::default()
-            .bg(Color::DarkGray)
-            .add_modifier(Modifier::BOLD)
+        Style::default().bg(sel_bg).add_modifier(Modifier::BOLD)
     } else {
         Style::default()
     };

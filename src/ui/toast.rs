@@ -149,7 +149,7 @@ fn layout_toast(
 }
 
 fn draw_one(f: &mut Frame, area: Rect, level: Level, lines: &[String], hint: Option<&'static str>) {
-    let bg = Style::default().bg(super::PANEL_BG);
+    let bg = Style::default().bg(super::panel_bg());
     let fg = match level {
         Level::Info => Color::Reset,
         Level::Warn => Color::Yellow,
@@ -158,7 +158,7 @@ fn draw_one(f: &mut Frame, area: Rect, level: Level, lines: &[String], hint: Opt
     };
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_style(bg.fg(super::PANEL_BORDER_FG))
+        .border_style(bg.fg(super::panel_border_fg()))
         .style(bg);
     let inner = block.inner(area);
     f.render_widget(Clear, area);

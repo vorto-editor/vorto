@@ -16,7 +16,7 @@ use crate::vcs::LineStatus;
 use super::indent_guides::IndentGuide;
 use super::{
     EXTRA_CURSOR_BG, EXTRA_CURSOR_FG, INDENT_GUIDE_FG, JUMP_LABEL_BG, JUMP_LABEL_FG,
-    MATCH_BRACKET_FG, SEARCH_HIT_BG, SEL_BG, WHITESPACE_FG,
+    MATCH_BRACKET_FG, WHITESPACE_FG, search_style, sel_style,
 };
 
 /// Gutter cell rendered between the line number and the buffer text.
@@ -122,7 +122,7 @@ pub(super) fn render_line(
         let cursor_cell_style = {
             let mut style = Style::default();
             if is_selected(0) {
-                style = style.bg(SEL_BG);
+                style = style.patch(sel_style());
             }
             if is_extra_cursor(0) {
                 style = extra_cursor_style(style);
@@ -211,13 +211,17 @@ pub(super) fn render_line(
     // Matching-bracket is a fg/bold overlay applied last so the pair
     // remains identifiable even when sitting inside a selection or
     // search match.
+    // Resolve the theme-driven selection/search styles once for the whole
+    // row instead of per cell (this closure runs for every column).
+    let sel = sel_style();
+    let search = search_style();
     let style_at = |col: usize| -> Style {
         let mut s = base[col];
         if is_search_hit(col) {
-            s = s.bg(SEARCH_HIT_BG);
+            s = s.patch(search);
         }
         if is_selected(col) {
-            s = s.bg(SEL_BG);
+            s = s.patch(sel);
         }
         if is_extra_cursor(col) {
             s = extra_cursor_style(s);

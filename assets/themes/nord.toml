@@ -1,0 +1,74 @@
+# Nord — ported from the official Helix theme.
+
+# ── Syntax ───────────────────────────────────────────────────────────
+keyword            = "nord9"
+include            = "nord9"
+conditional        = "nord9"
+repeat             = "nord9"
+exception          = "nord9"
+namespace          = "nord4"
+"function"         = "nord8"
+"function.macro"   = "nord9"
+"function.builtin" = "nord7"
+method             = "nord8"
+constructor        = "nord8"
+type               = "nord7"
+"type.builtin"     = "nord7"
+string             = "nord14"
+"string.escape"    = "nord13"
+character          = "nord14"
+number             = "nord15"
+boolean            = "nord9"
+constant           = "nord4"
+"constant.builtin" = "nord4"
+comment            = { fg = "nord3_bright", modifiers = ["italic"] }
+parameter          = "nord8"
+"variable.parameter" = "nord8"
+"variable.builtin"   = "nord9"
+property           = "nord4"
+field              = "nord4"
+label              = "nord7"
+operator           = "nord9"
+"punctuation.bracket"   = "nord6"
+"punctuation.delimiter" = "nord6"
+"punctuation.special"   = "nord9"
+attribute          = "nord9"
+tag                = "nord7"
+"markup.heading"        = "nord8"
+"markup.heading.marker" = "nord9"
+"markup.list"           = "nord9"
+"markup.raw"            = "nord7"
+"markup.link.url"       = { fg = "nord8", modifiers = ["underlined"] }
+"markup.link.label"     = "nord8"
+"diff.plus"             = "nord14"
+"diff.minus"            = "nord11"
+
+# ── UI chrome ────────────────────────────────────────────────────────
+"ui.background"          = { fg = "nord4", bg = "nord0" }
+"ui.linenr"              = { fg = "nord3" }
+"ui.linenr.selected"     = { fg = "nord5" }
+"ui.selection"           = { bg = "nord3" }
+"ui.search"              = { bg = "nord2" }
+"ui.statusline"          = { fg = "nord4", bg = "nord1" }
+"ui.menu.selected"       = { fg = "nord8", bg = "nord2" }
+"ui.popup"               = { fg = "nord4", bg = "nord1" }
+"ui.popup.border"        = { fg = "nord3" }
+
+[palette]
+nord0        = "#2e3440"
+nord1        = "#3b4252"
+nord2        = "#434c5e"
+nord3        = "#4c566a"
+nord3_bright = "#616e88"
+nord4        = "#d8dee9"
+nord5        = "#e5e9f0"
+nord6        = "#eceff4"
+nord7        = "#8fbcbb"
+nord8        = "#88c0d0"
+nord9        = "#81a1c1"
+nord10       = "#5e81ac"
+nord11       = "#bf616a"
+nord12       = "#d08770"
+nord13       = "#ebcb8b"
+nord14       = "#a3be8c"
+nord15       = "#b48ead"

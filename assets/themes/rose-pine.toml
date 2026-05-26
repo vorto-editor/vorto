@@ -1,0 +1,72 @@
+# Rosé Pine — ported from the official Helix theme.
+
+# ── Syntax ───────────────────────────────────────────────────────────
+keyword            = "pine"
+include            = "pine"
+conditional        = "pine"
+repeat             = "pine"
+exception          = "pine"
+namespace          = "text"
+"function"         = "rose"
+"function.macro"   = "rose"
+"function.builtin" = "love"
+method             = "rose"
+constructor        = "foam"
+type               = "foam"
+"type.builtin"     = "foam"
+string             = "gold"
+"string.escape"    = "pine"
+character          = "gold"
+number             = "gold"
+boolean            = "rose"
+constant           = "foam"
+"constant.builtin" = "foam"
+comment            = { fg = "muted", modifiers = ["italic"] }
+parameter          = "iris"
+"variable.parameter" = "iris"
+"variable.builtin"   = "love"
+property           = "foam"
+field              = "foam"
+label              = "foam"
+operator           = "subtle"
+"punctuation.bracket"   = "subtle"
+"punctuation.delimiter" = "subtle"
+"punctuation.special"   = "subtle"
+attribute          = "iris"
+tag                = "foam"
+"markup.heading"        = { fg = "iris", modifiers = ["bold"] }
+"markup.heading.marker" = "iris"
+"markup.list"           = "muted"
+"markup.raw"            = "subtle"
+"markup.link.url"       = { fg = "iris", modifiers = ["underlined"] }
+"markup.link.label"     = "text"
+"diff.plus"             = "foam"
+"diff.minus"            = "love"
+
+# ── UI chrome ────────────────────────────────────────────────────────
+"ui.background"          = { fg = "text", bg = "base" }
+"ui.linenr"              = { fg = "muted" }
+"ui.linenr.selected"     = { fg = "text" }
+"ui.selection"           = { bg = "overlay" }
+"ui.search"              = { bg = "highlight_med" }
+"ui.statusline"          = { fg = "subtle", bg = "surface" }
+"ui.menu.selected"       = { fg = "text", bg = "overlay" }
+"ui.popup"               = { fg = "subtle", bg = "surface" }
+"ui.popup.border"        = { fg = "highlight_high" }
+
+[palette]
+base           = "#191724"
+surface        = "#1f1d2e"
+overlay        = "#26233a"
+muted          = "#6e6a86"
+subtle         = "#908caa"
+text           = "#e0def4"
+love           = "#eb6f92"
+gold           = "#f6c177"
+rose           = "#ebbcba"
+pine           = "#31748f"
+foam           = "#9ccfd8"
+iris           = "#c4a7e7"
+highlight_low  = "#21202e"
+highlight_med  = "#403d52"
+highlight_high = "#524f67"

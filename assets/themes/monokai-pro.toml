@@ -1,0 +1,77 @@
+# Monokai Pro — ported from the unofficial Helix theme (author: WindSoilder).
+
+# ── Syntax ───────────────────────────────────────────────────────────
+keyword            = "red"
+include            = "red"
+conditional        = "red"
+repeat             = "red"
+exception          = "red"
+namespace          = "base8"
+"function"         = "green"
+"function.macro"   = "blue"
+"function.builtin" = "cyan"
+method             = "green"
+constructor        = "blue"
+type               = "green"
+"type.builtin"     = "red"
+string             = "yellow"
+"string.escape"    = "base8"
+character          = "yellow"
+number             = "purple"
+boolean            = "red"
+constant           = "orange"
+"constant.builtin" = "red"
+comment            = { fg = "base5", modifiers = ["italic"] }
+parameter          = "#f59762"
+"variable.parameter" = "#f59762"
+"variable.builtin"   = "red"
+property           = "base8"
+field              = "base8"
+label              = "base8"
+operator           = "red"
+"punctuation.bracket"   = "base6"
+"punctuation.delimiter" = "base6"
+"punctuation.special"   = "red"
+attribute          = "blue"
+tag                = "red"
+"markup.heading"        = "green"
+"markup.heading.marker" = "green"
+"markup.list"           = "base8"
+"markup.raw"            = "base8"
+"markup.link.url"       = { fg = "orange", modifiers = ["underlined"] }
+"markup.link.label"     = "yellow"
+"diff.plus"             = "green"
+"diff.minus"            = "red"
+
+# ── UI chrome ────────────────────────────────────────────────────────
+"ui.background"          = { fg = "base8", bg = "base2" }
+"ui.linenr"              = { fg = "base5" }
+"ui.linenr.selected"     = { bg = "base3" }
+"ui.selection"           = { bg = "base4" }
+"ui.search"              = { bg = "base3" }
+"ui.statusline"          = { fg = "base8", bg = "base4" }
+"ui.menu.selected"       = { fg = "base2", bg = "yellow" }
+"ui.popup"               = { fg = "base8", bg = "base3" }
+"ui.popup.border"        = { fg = "base4" }
+
+[palette]
+# primary colors
+red = "#ff6188"
+orange = "#fc9867"
+yellow = "#ffd866"
+green = "#a9dc76"
+blue = "#78dce8"
+purple = "#ab9df2"
+cyan = "#78dce8"
+# base colors, sorted from darkest to lightest
+base0 = "#19181a"
+base1 = "#221f22"
+base2 = "#2d2a2e"
+base3 = "#403e41"
+base4 = "#5b595c"
+base5 = "#727072"
+base6 = "#939293"
+base7 = "#c1c0c0"
+base8 = "#fcfcfa"
+# variants (for when transparency isn't supported)
+base8x0c = "#363337"
