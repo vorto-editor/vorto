@@ -1,18 +1,21 @@
-//! Compressed snapshots of inactive buffers.
+//! Compressed snapshots of inactive documents.
 //!
 //! Each entry in [`super::App::sleeping`] holds the full state of a
-//! buffer the user has switched away from (lines, cursor, undo/redo
-//! history, dirty flag, …) so a `<space>b` round-trip preserves
-//! unsaved edits. To keep memory bounded — undo history alone can
-//! easily duplicate the source 200x — we deflate the line content
-//! lazily: if the *total* raw byte count for a buffer exceeds
-//! [`COMPRESS_THRESHOLD`], we compress every line vector inside it.
-//! Otherwise we leave the content raw to avoid the per-allocation
-//! overhead on tiny scratch files.
+//! *document* whose ref is no longer shown in any pane (lines,
+//! undo/redo history, dirty flag, …) so a `<space>b` round-trip
+//! preserves unsaved edits. Cursor / mode are per-pane *session* state
+//! now (they live on [`Editor`], not [`Buffer`]), so a document that's
+//! shown nowhere has no live cursor — on reopen a fresh `Editor` with
+//! a default cursor is created.
 //!
-//! `dirty`, the cursor, and the path stay uncompressed regardless
-//! so the picker and `:q`-time dirty check can read them without
-//! paying for a thaw.
+//! To keep memory bounded — undo history alone can easily duplicate the
+//! source 200x — we deflate the line content lazily: if the *total* raw
+//! byte count for a document exceeds [`COMPRESS_THRESHOLD`], we compress
+//! every line vector inside it. Otherwise we leave the content raw to
+//! avoid the per-allocation overhead on tiny scratch files.
+//!
+//! `dirty` and the path stay uncompressed regardless so the picker and
+//! `:q`-time dirty check can read them without paying for a thaw.
 
 use std::io::{Read, Write};
 use std::path::PathBuf;
@@ -21,7 +24,7 @@ use flate2::Compression;
 use flate2::read::DeflateDecoder;
 use flate2::write::DeflateEncoder;
 
-use crate::editor::{Buffer, Cursor, Editor, Snapshot};
+use crate::editor::{Buffer, Cursor, Snapshot};
 
 /// Minimum raw byte count (main + all undo + all redo) for a
 /// sleeping buffer's line content to be compressed. Below this we
@@ -82,14 +85,12 @@ pub(super) struct FrozenSnapshot {
     dirty: bool,
 }
 
-/// All the state we hold for a sleeping buffer. Built by
+/// All the state we hold for a sleeping document. Built by
 /// [`SleepingBuffer::freeze`] and consumed by
 /// [`SleepingBuffer::thaw`].
 #[derive(Debug)]
 pub struct SleepingBuffer {
     lines: Lines,
-    cursor: Cursor,
-    extra_cursors: Vec<Cursor>,
     path: Option<PathBuf>,
     pub dirty: bool,
     yank: String,
@@ -105,12 +106,7 @@ pub struct SleepingBuffer {
 }
 
 impl SleepingBuffer {
-    pub fn freeze(e: Editor) -> Self {
-        // The per-view cursor / extras live on the `Editor`; the document
-        // state (lines, undo history, …) lives on its `Buffer`.
-        let cursor = e.cursor;
-        let extra_cursors = e.extra_cursors;
-        let b: Buffer = e.buffer;
+    pub fn freeze(b: Buffer) -> Self {
         // Decide once, for the whole buffer: if the total raw byte
         // count is above the threshold, compress everything;
         // otherwise keep everything raw. This catches the "lots of
@@ -151,8 +147,6 @@ impl SleepingBuffer {
 
         SleepingBuffer {
             lines: freeze(b.lines),
-            cursor,
-            extra_cursors,
             path: b.path,
             dirty: b.dirty,
             yank: b.yank,
@@ -200,7 +194,7 @@ impl SleepingBuffer {
         }
     }
 
-    pub fn thaw(self) -> Editor {
+    pub fn thaw(self) -> Buffer {
         let mut b = Buffer::new();
         b.lines = self.lines.thaw();
         b.path = self.path;
@@ -238,12 +232,11 @@ impl SleepingBuffer {
         // the restore. An external commit while the buffer slept thus
         // still shows up in the gutter, just a frame later.
         //
-        // Mode defaults to Normal on thaw (matching the prior behaviour
-        // where a thawed buffer's mode wasn't preserved).
-        let mut ed = Editor::from_buffer(b);
-        ed.cursor = self.cursor;
-        ed.extra_cursors = self.extra_cursors;
-        ed
+        // Cursor / mode are NOT restored — they're per-pane session
+        // state now, and a document shown in no pane carries no cursor.
+        // The caller wraps the thawed document in a fresh `Editor`
+        // (cursor at origin, Normal mode).
+        b
     }
 }
 
@@ -251,27 +244,25 @@ impl SleepingBuffer {
 mod tests {
     use super::*;
 
-    fn buf_from(lines: &[&str]) -> Editor {
-        let mut e = Editor::new();
-        e.buffer.lines = lines.iter().map(|s| s.to_string()).collect();
-        e
+    fn buf_from(lines: &[&str]) -> Buffer {
+        let mut b = Buffer::new();
+        b.lines = lines.iter().map(|s| s.to_string()).collect();
+        b
     }
 
     #[test]
     fn freeze_thaw_roundtrip_preserves_lines() {
         let mut b = buf_from(&["hello", "world", "foo bar baz"]);
-        b.cursor = Cursor { row: 1, col: 3 };
-        b.buffer.dirty = true;
-        b.buffer.yank = "yanked".to_string();
-        b.buffer.version = 42;
+        b.dirty = true;
+        b.yank = "yanked".to_string();
+        b.version = 42;
 
         let frozen = SleepingBuffer::freeze(b);
         let thawed = frozen.thaw();
-        assert_eq!(thawed.buffer.lines, vec!["hello", "world", "foo bar baz"]);
-        assert_eq!(thawed.cursor, Cursor { row: 1, col: 3 });
-        assert!(thawed.buffer.dirty);
-        assert_eq!(thawed.buffer.yank, "yanked");
-        assert_eq!(thawed.buffer.version, 42);
+        assert_eq!(thawed.lines, vec!["hello", "world", "foo bar baz"]);
+        assert!(thawed.dirty);
+        assert_eq!(thawed.yank, "yanked");
+        assert_eq!(thawed.version, 42);
     }
 
     #[test]
@@ -290,7 +281,7 @@ mod tests {
         let mut b = buf_from(&["short main"]);
         // Push 200 small snapshots (200 × ~50B = 10KB > 4KB).
         for i in 0..200 {
-            b.buffer.undo_stack.push(Snapshot {
+            b.undo_stack.push(Snapshot {
                 lines: vec![format!("snapshot {i:03} of fifty-something bytes per row")],
                 cursor: Cursor::default(),
                 extra_cursors: Vec::new(),
@@ -307,7 +298,7 @@ mod tests {
     #[test]
     fn dirty_flag_visible_without_thaw() {
         let mut b = buf_from(&["x"]);
-        b.buffer.dirty = true;
+        b.dirty = true;
         let frozen = SleepingBuffer::freeze(b);
         // Cheap to read; no decompression needed even when compressed.
         assert!(frozen.dirty);

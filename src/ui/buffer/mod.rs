@@ -98,13 +98,13 @@ pub(super) fn draw_buffer(f: &mut Frame, app: &App, area: Rect) {
     let sel = app.selection();
     let last_visible = scroll + height;
     let captures = app
-        .editor.buffer
+        .active_doc()
         .highlighter
         .as_ref()
         .map(|h| h.captures_in_rows(scroll, last_visible))
         .unwrap_or_default();
     let row_severity = build_row_severity(app, scroll, last_visible);
-    let vcs_statuses = app.editor.buffer.vcs_statuses();
+    let vcs_statuses = app.active_doc().vcs_statuses();
     let cursor_row = app.editor.cursor.row;
     let cursor_col = app.editor.cursor.col;
     let extras = &app.editor.extra_cursors;
@@ -116,7 +116,7 @@ pub(super) fn draw_buffer(f: &mut Frame, app: &App, area: Rect) {
     // resolve to the containing literal node and naturally don't match
     // here.
     let bracket_pair: Vec<(usize, usize)> = app
-        .editor.buffer
+        .active_doc()
         .highlighter
         .as_ref()
         .and_then(|h| h.matching_bracket(cursor_row, cursor_col))
@@ -151,7 +151,7 @@ pub(super) fn draw_buffer(f: &mut Frame, app: &App, area: Rect) {
         area.width
             .saturating_sub(GUTTER_SIGN_WIDTH + 5 + GUTTER_VCS_WIDTH) as usize;
     let col_scroll = compute_col_scroll(app, inner_text_width, tab_width);
-    for (i, line) in app.editor.buffer.lines.iter().enumerate().skip(scroll) {
+    for (i, line) in app.active_doc().lines.iter().enumerate().skip(scroll) {
         if visual_y as usize >= height {
             break;
         }
@@ -251,7 +251,7 @@ pub(super) fn draw_buffer(f: &mut Frame, app: &App, area: Rect) {
         }
     }
 
-    app.editor.buffer.cursor_visual_y.set(cursor_visual_y);
+    app.active_doc().cursor_visual_y.set(cursor_visual_y);
     f.render_widget(Paragraph::new(visible), area);
 }
 
@@ -261,9 +261,9 @@ pub(super) fn place_cursor(f: &mut Frame, app: &App, buf_area: Rect) {
     }
     let line_no_width: u16 = 5;
     let tab_width = app.effective_editor().tab_width.max(1);
-    let line = &app.editor.buffer.lines[app.editor.cursor.row];
+    let line = &app.active_doc().lines[app.editor.cursor.row];
     let visual_col = visual_col_of(line, app.editor.cursor.col, tab_width);
-    let col_scroll = app.editor.buffer.col_scroll.get();
+    let col_scroll = app.active_doc().col_scroll.get();
     let on_screen_col = visual_col.saturating_sub(col_scroll);
     let x =
         buf_area.x + GUTTER_SIGN_WIDTH + line_no_width + GUTTER_VCS_WIDTH + on_screen_col as u16;
@@ -271,7 +271,7 @@ pub(super) fn place_cursor(f: &mut Frame, app: &App, buf_area: Rect) {
     // visual y, accounting for any virtual diagnostic lines pushing it
     // down. Use it directly so the terminal cursor stays glued to the
     // rendered cursor row.
-    let y = buf_area.y + app.editor.buffer.cursor_visual_y.get();
+    let y = buf_area.y + app.active_doc().cursor_visual_y.get();
     f.set_cursor_position((x, y));
 }
 
@@ -282,8 +282,13 @@ pub(super) fn place_cursor(f: &mut Frame, app: &App, buf_area: Rect) {
 /// active pane. Scroll is anchored on the inactive pane's own
 /// `Buffer.cursor.row` / `Buffer.scroll`, so each pane remembers where
 /// the user was last looking.
-pub(super) fn draw_buffer_inactive(f: &mut Frame, ed: &Editor, eff: &EditorConfig, area: Rect) {
-    let buf = &ed.buffer;
+pub(super) fn draw_buffer_inactive(
+    f: &mut Frame,
+    ed: &Editor,
+    buf: &crate::editor::Buffer,
+    eff: &EditorConfig,
+    area: Rect,
+) {
     let height = area.height as usize;
     let cur = ed.cursor.row;
     let mut scroll = buf.scroll.get();

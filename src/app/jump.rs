@@ -54,7 +54,7 @@ impl App {
     /// and assigns labels. Cancels (with a status message) when there
     /// is nothing in the viewport to label.
     pub(super) fn start_jump_label(&mut self) {
-        let targets = collect_jump_targets(&self.editor.buffer);
+        let targets = collect_jump_targets(&self.active_doc());
         if targets.is_empty() {
             self.push_toast(Toast::info("no jump targets"));
             return;

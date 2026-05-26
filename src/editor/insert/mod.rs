@@ -17,7 +17,7 @@
 mod autopair;
 mod indent_calc;
 
-use super::{Editor, IndentSettings, char_to_byte};
+use super::{Buffer, Editor, IndentSettings, char_to_byte};
 use autopair::{
     TagAutopair, auto_pair_closer, detect_open_tag, is_auto_pair_closer, should_auto_pair,
 };
@@ -26,12 +26,12 @@ use indent_calc::{
 };
 
 impl Editor {
-    pub fn insert_char(&mut self, c: char) {
-        let line = &mut self.buffer.lines[self.cursor.row];
+    pub fn insert_char(&mut self, buf: &mut Buffer, c: char) {
+        let line = &mut buf.lines[self.cursor.row];
         let byte_idx = char_to_byte(line, self.cursor.col);
         line.insert(byte_idx, c);
         self.cursor.col += 1;
-        self.buffer.touch();
+        buf.touch();
     }
 
     /// Insert `c` at the cursor with three modern-editor behaviours
@@ -55,9 +55,9 @@ impl Editor {
     ///
     /// Single-cursor only: the multi-cursor fan-out path goes through
     /// raw [`insert_char`] to keep cursor-shift bookkeeping simple.
-    pub fn insert_char_smart(&mut self, c: char, indent: IndentSettings) {
-        let next = self.char_at_cursor();
-        let prev = self.char_before_cursor();
+    pub fn insert_char_smart(&mut self, buf: &mut Buffer, c: char, indent: IndentSettings) {
+        let next = self.char_at_cursor(buf);
+        let prev = self.char_before_cursor(buf);
 
         if is_auto_pair_closer(c) && next == Some(c) {
             self.cursor.col += 1;
@@ -69,30 +69,30 @@ impl Editor {
         // to run *before* `insert_char(c)` so `detect_open_tag` sees
         // the line as it was when the user pressed `>`.
         if c == '>'
-            && let Some(tag) = self.tag_autopair_close()
+            && let Some(tag) = self.tag_autopair_close(buf)
         {
-            self.insert_char('>');
+            self.insert_char(buf, '>');
             let closing: String = match tag {
                 TagAutopair::Close(name) => format!("</{}>", name),
             };
             let back = closing.chars().count();
             for ch in closing.chars() {
-                self.insert_char(ch);
+                self.insert_char(buf, ch);
             }
             self.cursor.col -= back;
             return;
         }
 
-        if matches!(c, '}' | ')' | ']') && self.line_is_blank_before_cursor() {
-            self.dedent_current_line(indent);
+        if matches!(c, '}' | ')' | ']') && self.line_is_blank_before_cursor(buf) {
+            self.dedent_current_line(buf, indent);
         }
 
-        self.insert_char(c);
+        self.insert_char(buf, c);
 
         if let Some(closer) = auto_pair_closer(c)
             && should_auto_pair(c, prev, next)
         {
-            self.insert_char(closer);
+            self.insert_char(buf, closer);
             self.cursor.col -= 1;
         }
     }
@@ -101,30 +101,29 @@ impl Editor {
     /// (JSX / HTML / XML / Vue / Svelte / Astro / MDX, gated by file
     /// extension). The buffer side just calls this and acts on the
     /// payload; the scan lives in [`autopair::detect_open_tag`].
-    fn tag_autopair_close(&self) -> Option<TagAutopair> {
-        let ext = self
-            .buffer
+    fn tag_autopair_close(&self, buf: &Buffer) -> Option<TagAutopair> {
+        let ext = buf
             .path
             .as_ref()
             .and_then(|p| p.extension())
             .and_then(|e| e.to_str());
-        detect_open_tag(&self.buffer.lines[self.cursor.row], self.cursor.col, ext)
+        detect_open_tag(&buf.lines[self.cursor.row], self.cursor.col, ext)
     }
 
     /// Char at the cursor's logical position, or `None` past end-of-line.
-    pub fn char_at_cursor(&self) -> Option<char> {
-        self.buffer.lines
+    pub fn char_at_cursor(&self, buf: &Buffer) -> Option<char> {
+        buf.lines
             .get(self.cursor.row)
             .and_then(|line| line.chars().nth(self.cursor.col))
     }
 
     /// Char immediately before the cursor on the current row, or `None`
     /// at column 0.
-    pub fn char_before_cursor(&self) -> Option<char> {
+    pub fn char_before_cursor(&self, buf: &Buffer) -> Option<char> {
         if self.cursor.col == 0 {
             return None;
         }
-        self.buffer.lines
+        buf.lines
             .get(self.cursor.row)
             .and_then(|line| line.chars().nth(self.cursor.col - 1))
     }
@@ -132,8 +131,8 @@ impl Editor {
     /// True when every character on the cursor row strictly *before*
     /// the cursor column is whitespace. An empty line (cursor at
     /// col 0) qualifies too, vacuously.
-    pub fn line_is_blank_before_cursor(&self) -> bool {
-        let line = &self.buffer.lines[self.cursor.row];
+    pub fn line_is_blank_before_cursor(&self, buf: &Buffer) -> bool {
+        let line = &buf.lines[self.cursor.row];
         line.chars()
             .take(self.cursor.col)
             .all(|c| c.is_whitespace())
@@ -144,11 +143,11 @@ impl Editor {
     /// any `\t` in the leading run means tab, otherwise spaces; an
     /// empty leading run falls back to `indent.use_tabs`. Cursor
     /// follows the shift when it's on this row.
-    pub fn indent_line(&mut self, row: usize, indent: IndentSettings) {
-        if row >= self.buffer.lines.len() {
+    pub fn indent_line(&mut self, buf: &mut Buffer, row: usize, indent: IndentSettings) {
+        if row >= buf.lines.len() {
             return;
         }
-        let line = &self.buffer.lines[row];
+        let line = &buf.lines[row];
         let leading: String = line.chars().take_while(|c| c.is_whitespace()).collect();
         let use_tabs = if leading.is_empty() {
             indent.use_tabs
@@ -161,11 +160,11 @@ impl Editor {
             " ".repeat(indent.width.max(1))
         };
         let added_chars = prefix.chars().count();
-        self.buffer.lines[row].insert_str(0, &prefix);
+        buf.lines[row].insert_str(0, &prefix);
         if self.cursor.row == row {
             self.cursor.col += added_chars;
         }
-        self.buffer.touch();
+        buf.touch();
     }
 
     /// Strip one indent level from the start of `row`. Same rounding
@@ -173,11 +172,11 @@ impl Editor {
     /// whitespace drops one trailing `\t`; space-terminated rounds
     /// down to the nearest multiple of `indent.width` strictly below
     /// the current count. Cursor follows on the affected row.
-    pub fn dedent_line(&mut self, row: usize, indent: IndentSettings) {
-        if row >= self.buffer.lines.len() {
+    pub fn dedent_line(&mut self, buf: &mut Buffer, row: usize, indent: IndentSettings) {
+        if row >= buf.lines.len() {
             return;
         }
-        let line = self.buffer.lines[row].clone();
+        let line = buf.lines[row].clone();
         let leading: String = line.chars().take_while(|c| c.is_whitespace()).collect();
         if leading.is_empty() {
             return;
@@ -197,11 +196,11 @@ impl Editor {
         let delete_start_char = leading_char_count - remove_chars;
         let delete_start_byte = char_to_byte(&line, delete_start_char);
         let delete_end_byte = char_to_byte(&line, delete_start_char + remove_chars);
-        self.buffer.lines[row].replace_range(delete_start_byte..delete_end_byte, "");
+        buf.lines[row].replace_range(delete_start_byte..delete_end_byte, "");
         if self.cursor.row == row {
             self.cursor.col = self.cursor.col.saturating_sub(remove_chars);
         }
-        self.buffer.touch();
+        buf.touch();
     }
 
     /// Strip one indent level from the start of the cursor row,
@@ -210,8 +209,8 @@ impl Editor {
     /// whitespace rounds *down* to the nearest multiple of
     /// `indent.width` strictly below the current column count
     /// (so 8 → 4, 7 → 4, 4 → 0 with width 4).
-    pub fn dedent_current_line(&mut self, indent: IndentSettings) {
-        let line = self.buffer.lines[self.cursor.row].clone();
+    pub fn dedent_current_line(&mut self, buf: &mut Buffer, indent: IndentSettings) {
+        let line = buf.lines[self.cursor.row].clone();
         let leading: String = line.chars().take_while(|c| c.is_whitespace()).collect();
         if leading.is_empty() {
             return;
@@ -228,12 +227,12 @@ impl Editor {
         let delete_start_char = leading_char_count - remove_chars;
         let delete_start_byte = char_to_byte(&line, delete_start_char);
         let delete_end_byte = char_to_byte(&line, delete_start_char + remove_chars);
-        self.buffer.lines[self.cursor.row].replace_range(delete_start_byte..delete_end_byte, "");
+        buf.lines[self.cursor.row].replace_range(delete_start_byte..delete_end_byte, "");
         self.cursor.col = self.cursor.col.saturating_sub(remove_chars);
-        self.buffer.touch();
+        buf.touch();
     }
 
-    pub fn insert_newline(&mut self, indent: IndentSettings) {
+    pub fn insert_newline(&mut self, buf: &mut Buffer, indent: IndentSettings) {
         // Splitting at column 0 just inserts a blank line *above* the
         // current content. The right half is the original line verbatim
         // — running auto-indent on it would re-indent text that the
@@ -241,12 +240,12 @@ impl Editor {
         // `@indent.begin` fires on `func main() {` and would otherwise
         // push it one level deeper).
         if self.cursor.col == 0 {
-            self.buffer.lines.insert(self.cursor.row, String::new());
+            buf.lines.insert(self.cursor.row, String::new());
             self.cursor.row += 1;
-            self.buffer.touch();
+            buf.touch();
             return;
         }
-        let line = self.buffer.lines[self.cursor.row].clone();
+        let line = buf.lines[self.cursor.row].clone();
         let byte_idx = char_to_byte(&line, self.cursor.col);
         let (left, right) = line.split_at(byte_idx);
         let left_owned = left.to_string();
@@ -262,8 +261,7 @@ impl Editor {
         let prev = left_owned.chars().last();
         let next_ch = right_owned.chars().next();
         let base = copy_leading_indent(&left_owned, indent);
-        let ts_begin = self
-            .buffer
+        let ts_begin = buf
             .highlighter
             .as_ref()
             .is_some_and(|h| h.indent_begins_at(self.cursor.row));
@@ -298,11 +296,11 @@ impl Editor {
             closer_line.push_str(&right_owned);
             let middle = add_one_indent_level(&base_indent, indent);
             self.cursor.col = middle.chars().count();
-            self.buffer.lines[self.cursor.row] = left_owned;
-            self.buffer.lines.insert(self.cursor.row + 1, middle);
-            self.buffer.lines.insert(self.cursor.row + 2, closer_line);
+            buf.lines[self.cursor.row] = left_owned;
+            buf.lines.insert(self.cursor.row + 1, middle);
+            buf.lines.insert(self.cursor.row + 2, closer_line);
             self.cursor.row += 1;
-            self.buffer.touch();
+            buf.touch();
             return;
         }
 
@@ -314,13 +312,13 @@ impl Editor {
             new_indent = strip_one_indent_level(&new_indent, indent);
         }
 
-        self.buffer.lines[self.cursor.row] = left_owned;
+        buf.lines[self.cursor.row] = left_owned;
         let mut next = new_indent.clone();
         next.push_str(&right_owned);
-        self.buffer.lines.insert(self.cursor.row + 1, next);
+        buf.lines.insert(self.cursor.row + 1, next);
         self.cursor.row += 1;
         self.cursor.col = new_indent.chars().count();
-        self.buffer.touch();
+        buf.touch();
     }
 
     /// Insert `s` at the cursor verbatim, treating any of `\n`, `\r\n`,
@@ -335,7 +333,7 @@ impl Editor {
     /// `\n`, Windows-attached sessions use `\r\n`. Splitting on only
     /// one leaves embedded control bytes in the buffer and the user
     /// sees `^M` artifacts on screen.
-    pub fn insert_text_raw(&mut self, s: &str) {
+    pub fn insert_text_raw(&mut self, buf: &mut Buffer, s: &str) {
         if s.is_empty() {
             return;
         }
@@ -343,13 +341,13 @@ impl Editor {
         let segments: Vec<&str> = normalized.split('\n').collect();
         let row = self.cursor.row;
         let col = self.cursor.col;
-        let byte_idx = char_to_byte(&self.buffer.lines[row], col);
+        let byte_idx = char_to_byte(&buf.lines[row], col);
         if segments.len() == 1 {
-            self.buffer.lines[row].insert_str(byte_idx, segments[0]);
+            buf.lines[row].insert_str(byte_idx, segments[0]);
             self.cursor.col += segments[0].chars().count();
         } else {
-            let tail = self.buffer.lines[row].split_off(byte_idx);
-            self.buffer.lines[row].push_str(segments[0]);
+            let tail = buf.lines[row].split_off(byte_idx);
+            buf.lines[row].push_str(segments[0]);
             let last_idx = segments.len() - 1;
             for (i, seg) in segments.iter().enumerate().skip(1) {
                 let mut new_line =
@@ -358,83 +356,83 @@ impl Editor {
                 if i == last_idx {
                     new_line.push_str(&tail);
                 }
-                self.buffer.lines.insert(row + i, new_line);
+                buf.lines.insert(row + i, new_line);
             }
             self.cursor.row = row + last_idx;
             self.cursor.col = segments[last_idx].chars().count();
         }
-        self.buffer.touch();
+        buf.touch();
     }
 
-    pub fn insert_line_below(&mut self, indent: IndentSettings) {
-        let reference = self.buffer.lines[self.cursor.row].clone();
+    pub fn insert_line_below(&mut self, buf: &mut Buffer, indent: IndentSettings) {
+        let reference = buf.lines[self.cursor.row].clone();
         let new_indent =
-            compute_new_line_indent(&reference, self.cursor.row, &self.buffer.highlighter, indent);
+            compute_new_line_indent(&reference, self.cursor.row, &buf.highlighter, indent);
         let col = new_indent.chars().count();
-        self.buffer.lines.insert(self.cursor.row + 1, new_indent);
+        buf.lines.insert(self.cursor.row + 1, new_indent);
         self.cursor.row += 1;
         self.cursor.col = col;
-        self.buffer.touch();
+        buf.touch();
     }
 
-    pub fn insert_line_above(&mut self, indent: IndentSettings) {
+    pub fn insert_line_above(&mut self, buf: &mut Buffer, indent: IndentSettings) {
         // For `O`, match the indent of the line being pushed down —
         // the tree-sitter `@indent.begin` opening (if any) belongs to
         // that line, so we copy its leading whitespace verbatim
         // without adding an extra level.
-        let new_indent = copy_leading_indent(&self.buffer.lines[self.cursor.row], indent);
+        let new_indent = copy_leading_indent(&buf.lines[self.cursor.row], indent);
         let col = new_indent.chars().count();
-        self.buffer.lines.insert(self.cursor.row, new_indent);
+        buf.lines.insert(self.cursor.row, new_indent);
         self.cursor.col = col;
-        self.buffer.touch();
+        buf.touch();
     }
 
     /// Delete the character under the cursor (vim's `x`). No-op past
     /// end of line. Cursor follows via `clamp_col` so it doesn't end up
     /// past-the-end after deleting the last char.
-    pub fn delete_char_under_cursor(&mut self) {
-        let line = &mut self.buffer.lines[self.cursor.row];
+    pub fn delete_char_under_cursor(&mut self, buf: &mut Buffer) {
+        let line = &mut buf.lines[self.cursor.row];
         if self.cursor.col < line.chars().count() {
             let byte_idx = char_to_byte(line, self.cursor.col);
             let ch = line[byte_idx..].chars().next().unwrap();
             line.replace_range(byte_idx..byte_idx + ch.len_utf8(), "");
-            self.buffer.touch();
-            self.clamp_col(false);
+            buf.touch();
+            self.clamp_col(buf, false);
         }
     }
 
     /// Backspace primitive: delete the char before the cursor, or join
     /// with the previous line at column 0. The auto-pair / smart-indent
     /// behaviour wraps this in [`delete_char_before_smart`].
-    pub fn delete_char_before(&mut self) {
+    pub fn delete_char_before(&mut self, buf: &mut Buffer) {
         if self.cursor.col > 0 {
-            let line = &mut self.buffer.lines[self.cursor.row];
+            let line = &mut buf.lines[self.cursor.row];
             let byte_idx = char_to_byte(line, self.cursor.col - 1);
             let ch = line[byte_idx..].chars().next().unwrap();
             line.replace_range(byte_idx..byte_idx + ch.len_utf8(), "");
             self.cursor.col -= 1;
-            self.buffer.touch();
+            buf.touch();
         } else if self.cursor.row > 0 {
             // Join with the previous line.
-            let line = self.buffer.lines.remove(self.cursor.row);
+            let line = buf.lines.remove(self.cursor.row);
             self.cursor.row -= 1;
-            self.cursor.col = self.buffer.lines[self.cursor.row].chars().count();
-            self.buffer.lines[self.cursor.row].push_str(&line);
-            self.buffer.touch();
+            self.cursor.col = buf.lines[self.cursor.row].chars().count();
+            buf.lines[self.cursor.row].push_str(&line);
+            buf.touch();
         }
     }
 
     /// Replace the character under the cursor with `ch`. No-op on an
     /// empty line — vim's `r` errors there; we silently skip.
-    pub fn replace_char(&mut self, ch: char) {
-        let line = &mut self.buffer.lines[self.cursor.row];
+    pub fn replace_char(&mut self, buf: &mut Buffer, ch: char) {
+        let line = &mut buf.lines[self.cursor.row];
         if self.cursor.col >= line.chars().count() {
             return;
         }
         let byte_idx = char_to_byte(line, self.cursor.col);
         let old_ch = line[byte_idx..].chars().next().unwrap();
         line.replace_range(byte_idx..byte_idx + old_ch.len_utf8(), &ch.to_string());
-        self.buffer.touch();
+        buf.touch();
     }
 
     /// Backspace with auto-pair awareness and smart-indent dedent:
@@ -456,21 +454,21 @@ impl Editor {
     ///
     /// Single-cursor only — the multi-cursor fan-out keeps using the
     /// dumb version so the per-cursor `col -= 1` shift stays valid.
-    pub fn delete_char_before_smart(&mut self, indent: IndentSettings) {
-        let prev = self.char_before_cursor();
-        let next = self.char_at_cursor();
+    pub fn delete_char_before_smart(&mut self, buf: &mut Buffer, indent: IndentSettings) {
+        let prev = self.char_before_cursor(buf);
+        let next = self.char_at_cursor(buf);
         if let (Some(p), Some(n)) = (prev, next)
             && auto_pair_closer(p) == Some(n)
         {
-            let line = &mut self.buffer.lines[self.cursor.row];
+            let line = &mut buf.lines[self.cursor.row];
             let start_byte = char_to_byte(line, self.cursor.col - 1);
             let end_byte = char_to_byte(line, self.cursor.col + 1);
             line.replace_range(start_byte..end_byte, "");
             self.cursor.col -= 1;
-            self.buffer.touch();
+            buf.touch();
             return;
         }
-        if self.cursor.col > 0 && self.line_is_blank_before_cursor() {
+        if self.cursor.col > 0 && self.line_is_blank_before_cursor(buf) {
             // Only collapse a full indent level when the char immediately
             // before the cursor matches the configured indent character.
             // Otherwise (e.g. `use_tabs=true` but the leading run is
@@ -479,34 +477,35 @@ impl Editor {
             // a plain single-char backspace instead of nibbling chars
             // that aren't part of the user's indent unit.
             let indent_char = if indent.use_tabs { '\t' } else { ' ' };
-            if self.char_before_cursor() == Some(indent_char) {
-                self.dedent_current_line(indent);
+            if self.char_before_cursor(buf) == Some(indent_char) {
+                self.dedent_current_line(buf, indent);
                 return;
             }
         }
         if self.cursor.col == 0 && self.cursor.row > 0 {
-            let prev_blank = self.buffer.lines[self.cursor.row - 1]
+            let prev_blank = buf.lines[self.cursor.row - 1]
                 .chars()
                 .all(|c| c.is_whitespace());
             let curr_starts_with_closer = matches!(
-                self.buffer.lines[self.cursor.row]
+                buf.lines[self.cursor.row]
                     .chars()
                     .find(|c| !c.is_whitespace()),
                 Some('}' | ')' | ']')
             );
             if prev_blank && curr_starts_with_closer {
-                self.delete_char_before();
-                self.dedent_current_line(indent);
+                self.delete_char_before(buf);
+                self.dedent_current_line(buf, indent);
                 return;
             }
         }
-        self.delete_char_before();
+        self.delete_char_before(buf);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use super::super::Ed;
 
     fn settings() -> IndentSettings {
         IndentSettings {
@@ -517,7 +516,7 @@ mod tests {
 
     #[test]
     fn indent_line_adds_spaces_for_empty_leading() {
-        let mut b = Editor::new();
+        let mut b = Ed::new();
         b.buffer.lines = vec!["let x = 1;".into()];
         b.cursor.row = 0;
         b.cursor.col = 4;
@@ -528,7 +527,7 @@ mod tests {
 
     #[test]
     fn indent_line_uses_tab_when_leading_has_tab() {
-        let mut b = Editor::new();
+        let mut b = Ed::new();
         b.buffer.lines = vec!["\tx".into()];
         b.cursor.row = 0;
         b.indent_line(0, settings());
@@ -537,7 +536,7 @@ mod tests {
 
     #[test]
     fn indent_line_falls_back_to_use_tabs_on_blank_leading() {
-        let mut b = Editor::new();
+        let mut b = Ed::new();
         b.buffer.lines = vec!["x".into()];
         let s = IndentSettings {
             width: 4,
@@ -549,7 +548,7 @@ mod tests {
 
     #[test]
     fn dedent_line_removes_one_level_of_spaces() {
-        let mut b = Editor::new();
+        let mut b = Ed::new();
         b.buffer.lines = vec!["        x".into()];
         b.cursor.row = 0;
         b.cursor.col = 8;
@@ -560,7 +559,7 @@ mod tests {
 
     #[test]
     fn dedent_line_rounds_partial_indent_down() {
-        let mut b = Editor::new();
+        let mut b = Ed::new();
         b.buffer.lines = vec!["       x".into()]; // 7 spaces
         b.dedent_line(0, settings());
         assert_eq!(b.buffer.lines[0], "    x");
@@ -568,7 +567,7 @@ mod tests {
 
     #[test]
     fn dedent_line_strips_trailing_tab() {
-        let mut b = Editor::new();
+        let mut b = Ed::new();
         b.buffer.lines = vec!["\t\tx".into()];
         b.dedent_line(0, settings());
         assert_eq!(b.buffer.lines[0], "\tx");
@@ -576,7 +575,7 @@ mod tests {
 
     #[test]
     fn dedent_line_noop_on_no_leading_whitespace() {
-        let mut b = Editor::new();
+        let mut b = Ed::new();
         b.buffer.lines = vec!["x".into()];
         b.cursor.col = 0;
         b.dedent_line(0, settings());
@@ -586,7 +585,7 @@ mod tests {
 
     #[test]
     fn open_below_copies_leading_whitespace() {
-        let mut b = Editor::new();
+        let mut b = Ed::new();
         b.buffer.lines = vec!["    let x = 1;".into(), "    let y = 2;".into()];
         b.cursor.row = 0;
         b.insert_line_below(settings());
@@ -597,7 +596,7 @@ mod tests {
 
     #[test]
     fn open_below_adds_level_after_opening_brace() {
-        let mut b = Editor::new();
+        let mut b = Ed::new();
         b.buffer.lines = vec!["fn foo() {".into(), "}".into()];
         b.cursor.row = 0;
         b.insert_line_below(settings());
@@ -607,7 +606,7 @@ mod tests {
 
     #[test]
     fn open_below_uses_tabs_when_reference_does() {
-        let mut b = Editor::new();
+        let mut b = Ed::new();
         b.buffer.lines = vec!["\tfn foo() {".into(), "}".into()];
         b.cursor.row = 0;
         b.insert_line_below(settings());
@@ -616,7 +615,7 @@ mod tests {
 
     #[test]
     fn open_above_copies_indent_without_adding_level() {
-        let mut b = Editor::new();
+        let mut b = Ed::new();
         b.buffer.lines = vec!["    let x = 1;".into()];
         b.cursor.row = 0;
         b.insert_line_above(settings());
@@ -632,7 +631,7 @@ mod tests {
         // even when the line opens a block (e.g. `func main() {`),
         // which would otherwise trip the trailing-opener / tree-sitter
         // `@indent.begin` rule and prepend an indent.
-        let mut b = Editor::new();
+        let mut b = Ed::new();
         b.buffer.lines = vec!["func main() {".into()];
         b.cursor.row = 0;
         b.cursor.col = 0;
@@ -647,7 +646,7 @@ mod tests {
     fn newline_at_col_zero_preserves_existing_indent() {
         // Same shortcut, but the original line already has indent —
         // the right half keeps it verbatim, no extra level added.
-        let mut b = Editor::new();
+        let mut b = Ed::new();
         b.buffer.lines = vec!["    let x = 1;".into()];
         b.cursor.row = 0;
         b.cursor.col = 0;
@@ -665,7 +664,7 @@ mod tests {
         // was too eager. Tree-sitter's @indent.begin handles real
         // cases; here there's no highlighter, so the new line stays
         // at base indent.
-        let mut b = Editor::new();
+        let mut b = Ed::new();
         b.buffer.lines = vec!["func main() {".into()];
         b.cursor.row = 0;
         b.cursor.col = 13; // end of line
@@ -681,7 +680,7 @@ mod tests {
         // `func main |{` — splitting before `{` should leave the new
         // line (which starts with `{`) at the function header's base
         // indent, not one level deeper.
-        let mut b = Editor::new();
+        let mut b = Ed::new();
         b.buffer.lines = vec!["func main {".into()];
         b.cursor.row = 0;
         b.cursor.col = 10; // before '{'
@@ -694,7 +693,7 @@ mod tests {
 
     #[test]
     fn newline_before_opener_preserves_outer_indent() {
-        let mut b = Editor::new();
+        let mut b = Ed::new();
         b.buffer.lines = vec!["    if cond ".into(), "(x) {}".into()];
         // Place cursor before `(` on line 1 to exercise the
         // opener-at-start rule with a non-empty base indent.
@@ -709,7 +708,7 @@ mod tests {
 
     #[test]
     fn newline_splits_and_carries_indent() {
-        let mut b = Editor::new();
+        let mut b = Ed::new();
         b.buffer.lines = vec!["    let x = foo + bar;".into()];
         b.cursor.row = 0;
         b.cursor.col = 16; // between '+' and ' bar'
@@ -723,7 +722,7 @@ mod tests {
     fn close_bracket_dedents_when_line_is_blank() {
         // Typed `}` on a line that's all whitespace: dedent one
         // level, then insert.
-        let mut b = Editor::new();
+        let mut b = Ed::new();
         b.buffer.lines = vec!["fn foo() {".into(), "        ".into()];
         b.cursor.row = 1;
         b.cursor.col = 8;
@@ -735,7 +734,7 @@ mod tests {
     #[test]
     fn close_bracket_no_dedent_when_text_precedes() {
         // `}` after real code stays where the user typed it.
-        let mut b = Editor::new();
+        let mut b = Ed::new();
         b.buffer.lines = vec!["    let x = HashMap::new(".into()];
         b.cursor.row = 0;
         b.cursor.col = 25;
@@ -747,7 +746,7 @@ mod tests {
     #[test]
     fn close_bracket_dedents_partial_indent() {
         // 7 spaces with width 4 → drop 3 to land on 4.
-        let mut b = Editor::new();
+        let mut b = Ed::new();
         b.buffer.lines = vec!["       ".into()];
         b.cursor.row = 0;
         b.cursor.col = 7;
@@ -758,7 +757,7 @@ mod tests {
 
     #[test]
     fn close_bracket_dedents_tab_indent() {
-        let mut b = Editor::new();
+        let mut b = Ed::new();
         b.buffer.lines = vec!["\t\t".into()];
         b.cursor.row = 0;
         b.cursor.col = 2;
@@ -769,7 +768,7 @@ mod tests {
 
     #[test]
     fn close_bracket_clears_indent_when_already_at_one_level() {
-        let mut b = Editor::new();
+        let mut b = Ed::new();
         b.buffer.lines = vec!["    ".into()];
         b.cursor.row = 0;
         b.cursor.col = 4;
@@ -780,7 +779,7 @@ mod tests {
 
     #[test]
     fn auto_pair_inserts_matching_closer_and_keeps_cursor_between() {
-        let mut b = Editor::new();
+        let mut b = Ed::new();
         b.buffer.lines = vec!["foo".into()];
         b.cursor.row = 0;
         b.cursor.col = 3;
@@ -791,7 +790,7 @@ mod tests {
 
     #[test]
     fn auto_pair_skip_over_closer_when_next_char_matches() {
-        let mut b = Editor::new();
+        let mut b = Ed::new();
         b.buffer.lines = vec!["()".into()];
         b.cursor.row = 0;
         b.cursor.col = 1; // between '(' and ')'
@@ -802,7 +801,7 @@ mod tests {
 
     #[test]
     fn auto_pair_suppressed_when_next_char_is_word() {
-        let mut b = Editor::new();
+        let mut b = Ed::new();
         b.buffer.lines = vec!["foo".into()];
         b.cursor.row = 0;
         b.cursor.col = 0; // about to type `(` before the `f`
@@ -814,7 +813,7 @@ mod tests {
     #[test]
     fn auto_pair_quote_suppressed_after_word_char() {
         // Apostrophe in `it's` shouldn't grow into `it''`.
-        let mut b = Editor::new();
+        let mut b = Ed::new();
         b.buffer.lines = vec!["it".into()];
         b.cursor.row = 0;
         b.cursor.col = 2;
@@ -825,7 +824,7 @@ mod tests {
 
     #[test]
     fn auto_pair_quote_pairs_after_punctuation() {
-        let mut b = Editor::new();
+        let mut b = Ed::new();
         b.buffer.lines = vec!["print(".into()];
         b.cursor.row = 0;
         b.cursor.col = 6;
@@ -836,7 +835,7 @@ mod tests {
 
     #[test]
     fn delete_char_before_smart_removes_empty_pair() {
-        let mut b = Editor::new();
+        let mut b = Ed::new();
         b.buffer.lines = vec!["foo()".into()];
         b.cursor.row = 0;
         b.cursor.col = 4; // between '(' and ')'
@@ -848,7 +847,7 @@ mod tests {
     #[test]
     fn delete_char_before_smart_falls_through_when_not_empty_pair() {
         // Backspace inside `(x)` between `(` and `x` only removes `(`.
-        let mut b = Editor::new();
+        let mut b = Ed::new();
         b.buffer.lines = vec!["(x)".into()];
         b.cursor.row = 0;
         b.cursor.col = 1;
@@ -863,7 +862,7 @@ mod tests {
         // drops the closer onto its own row at the base indent, with a
         // blank +1-indented row between for the cursor. Without the
         // 3-line spread the closer rides the inner indent.
-        let mut b = Editor::new();
+        let mut b = Ed::new();
         b.buffer.lines = vec!["fn foo() {}".into()];
         b.cursor.row = 0;
         b.cursor.col = 10; // between '{' and '}'
@@ -877,7 +876,7 @@ mod tests {
 
     #[test]
     fn newline_inside_empty_braces_preserves_outer_indent() {
-        let mut b = Editor::new();
+        let mut b = Ed::new();
         b.buffer.lines = vec!["    if cond {}".into()];
         b.cursor.row = 0;
         b.cursor.col = 13; // between '{' and '}'
@@ -891,7 +890,7 @@ mod tests {
 
     #[test]
     fn newline_inside_empty_parens_also_spreads() {
-        let mut b = Editor::new();
+        let mut b = Ed::new();
         b.buffer.lines = vec!["foo()".into()];
         b.cursor.row = 0;
         b.cursor.col = 4; // between '(' and ')'
@@ -908,7 +907,7 @@ mod tests {
         // line carries the closer, so it should land one indent level
         // out from the body — `}` aligned to the block's opener, not
         // riding the body indent.
-        let mut b = Editor::new();
+        let mut b = Ed::new();
         b.buffer.lines = vec!["        bar();}".into()];
         b.cursor.row = 0;
         b.cursor.col = 14; // before '}'
@@ -920,7 +919,7 @@ mod tests {
 
     #[test]
     fn newline_before_closer_clears_indent_at_one_level() {
-        let mut b = Editor::new();
+        let mut b = Ed::new();
         b.buffer.lines = vec!["    bar();]".into()];
         b.cursor.row = 0;
         b.cursor.col = 10; // before ']'
@@ -932,7 +931,7 @@ mod tests {
 
     #[test]
     fn newline_before_closer_strips_one_tab() {
-        let mut b = Editor::new();
+        let mut b = Ed::new();
         b.buffer.lines = vec!["\t\tbar();)".into()];
         b.cursor.row = 0;
         b.cursor.col = 8; // before ')'
@@ -946,7 +945,7 @@ mod tests {
         // Cursor on a blank-before-closer line: backspace pulls the
         // closer back one full indent level instead of nibbling a
         // single space at a time.
-        let mut b = Editor::new();
+        let mut b = Ed::new();
         b.buffer.lines = vec!["        }".into()];
         b.cursor.row = 0;
         b.cursor.col = 8; // before '}'
@@ -957,7 +956,7 @@ mod tests {
 
     #[test]
     fn backspace_before_closer_clears_indent_at_one_level() {
-        let mut b = Editor::new();
+        let mut b = Ed::new();
         b.buffer.lines = vec!["    }".into()];
         b.cursor.row = 0;
         b.cursor.col = 4;
@@ -968,7 +967,7 @@ mod tests {
 
     #[test]
     fn backspace_before_closer_strips_tab() {
-        let mut b = Editor::new();
+        let mut b = Ed::new();
         b.buffer.lines = vec!["\t\t]".into()];
         b.cursor.row = 0;
         b.cursor.col = 2;
@@ -980,7 +979,7 @@ mod tests {
     #[test]
     fn backspace_does_not_dedent_when_text_precedes_closer() {
         // Real content before the closer — normal one-char backspace.
-        let mut b = Editor::new();
+        let mut b = Ed::new();
         b.buffer.lines = vec!["    x)".into()];
         b.cursor.row = 0;
         b.cursor.col = 5; // between 'x' and ')'
@@ -994,7 +993,7 @@ mod tests {
         // Cursor anywhere inside the leading-whitespace run of a line
         // that's "indent + closer" — backspace dedents the whole line
         // by one level, not just one space.
-        let mut b = Editor::new();
+        let mut b = Ed::new();
         b.buffer.lines = vec!["        }".into()];
         b.cursor.row = 0;
         b.cursor.col = 4; // mid-indent, not at the closer
@@ -1005,7 +1004,7 @@ mod tests {
 
     #[test]
     fn backspace_on_closer_line_with_trailing_content_dedents() {
-        let mut b = Editor::new();
+        let mut b = Ed::new();
         b.buffer.lines = vec!["        });".into()];
         b.cursor.row = 0;
         b.cursor.col = 8; // before ')'
@@ -1019,7 +1018,7 @@ mod tests {
         // Empty-but-indented line (e.g., the middle row of the 3-line
         // spread after Enter inside `{}`). Backspace should collapse
         // one indent level, not nibble a single space.
-        let mut b = Editor::new();
+        let mut b = Ed::new();
         b.buffer.lines = vec!["    ".into()];
         b.cursor.row = 0;
         b.cursor.col = 4;
@@ -1032,7 +1031,7 @@ mod tests {
     fn backspace_in_indent_before_content_dedents() {
         // Cursor in leading whitespace before regular content — also
         // dedents (standard smart-backspace behaviour).
-        let mut b = Editor::new();
+        let mut b = Ed::new();
         b.buffer.lines = vec!["        let x = 1;".into()];
         b.cursor.row = 0;
         b.cursor.col = 8; // right before 'let'
@@ -1044,7 +1043,7 @@ mod tests {
     #[test]
     fn backspace_past_first_non_blank_is_normal_one_char() {
         // Once we're into content, backspace is one char as usual.
-        let mut b = Editor::new();
+        let mut b = Ed::new();
         b.buffer.lines = vec!["    let x = 1;".into()];
         b.cursor.row = 0;
         b.cursor.col = 7; // between 't' of 'let' and ' '
@@ -1057,7 +1056,7 @@ mod tests {
     fn backspace_at_col0_of_closer_line_above_empty_joins_and_dedents() {
         // Closer line orphaned over an empty row: Backspace at col 0
         // should both eat the empty row above and dedent the closer.
-        let mut b = Editor::new();
+        let mut b = Ed::new();
         b.buffer.lines = vec!["".into(), "    }".into()];
         b.cursor.row = 1;
         b.cursor.col = 0;
@@ -1070,7 +1069,7 @@ mod tests {
     #[test]
     fn backspace_at_col0_of_closer_line_above_blank_joins_and_dedents() {
         // Whitespace-only row above counts as blank too.
-        let mut b = Editor::new();
+        let mut b = Ed::new();
         b.buffer.lines = vec!["    ".into(), "        }".into()];
         b.cursor.row = 1;
         b.cursor.col = 0;
@@ -1083,7 +1082,7 @@ mod tests {
     #[test]
     fn backspace_at_col0_above_content_does_not_dedent() {
         // Row above has real content — vanilla join, no dedent.
-        let mut b = Editor::new();
+        let mut b = Ed::new();
         b.buffer.lines = vec!["foo".into(), "    }".into()];
         b.cursor.row = 1;
         b.cursor.col = 0;
@@ -1098,7 +1097,7 @@ mod tests {
         // `use_tabs=true` but the leading run is spaces — the indent
         // character (`\t`) isn't found, so backspace nibbles one space
         // instead of swallowing the whole space run.
-        let mut b = Editor::new();
+        let mut b = Ed::new();
         b.buffer.lines = vec!["    foo".into()];
         b.cursor.row = 0;
         b.cursor.col = 4;
@@ -1116,7 +1115,7 @@ mod tests {
         // `use_tabs=false` but the leading run is a tab — the indent
         // character (` `) isn't found, so backspace deletes one char
         // (the tab) without rounding.
-        let mut b = Editor::new();
+        let mut b = Ed::new();
         b.buffer.lines = vec!["\tfoo".into()];
         b.cursor.row = 0;
         b.cursor.col = 1;
@@ -1127,7 +1126,7 @@ mod tests {
 
     #[test]
     fn insert_text_raw_single_line_splices_at_cursor() {
-        let mut b = Editor::new();
+        let mut b = Ed::new();
         b.buffer.lines = vec!["abef".into()];
         b.cursor.row = 0;
         b.cursor.col = 2;
@@ -1140,7 +1139,7 @@ mod tests {
     fn insert_text_raw_multiline_preserves_indent_verbatim() {
         // Pasting pre-indented text must not have auto-indent stacked on
         // top — each line lands exactly as it appeared in the payload.
-        let mut b = Editor::new();
+        let mut b = Ed::new();
         b.buffer.lines = vec!["    pub fn foo() {".into(), "    }".into()];
         b.cursor.row = 0;
         b.cursor.col = 18; // end of line 0
@@ -1155,7 +1154,7 @@ mod tests {
 
     #[test]
     fn insert_text_raw_normalizes_crlf() {
-        let mut b = Editor::new();
+        let mut b = Ed::new();
         b.buffer.lines = vec!["".into()];
         b.insert_text_raw("foo\r\nbar");
         assert_eq!(b.buffer.lines, vec!["foo".to_string(), "bar".to_string()]);
@@ -1167,7 +1166,7 @@ mod tests {
         // breaks as bare `\r`. Without normalization the CRs end up
         // embedded in a single line and the renderer surfaces them as
         // `^M`-style artifacts.
-        let mut b = Editor::new();
+        let mut b = Ed::new();
         b.buffer.lines = vec!["".into()];
         b.insert_text_raw("foo\rbar\rbaz");
         assert_eq!(
@@ -1178,7 +1177,7 @@ mod tests {
 
     #[test]
     fn tag_autopair_closes_on_gt_in_tsx() {
-        let mut b = Editor::new();
+        let mut b = Ed::new();
         b.buffer.path = Some(std::path::PathBuf::from("app.tsx"));
         b.buffer.lines = vec!["<div".into()];
         b.cursor.row = 0;
@@ -1191,7 +1190,7 @@ mod tests {
 
     #[test]
     fn tag_autopair_fragment_in_tsx() {
-        let mut b = Editor::new();
+        let mut b = Ed::new();
         b.buffer.path = Some(std::path::PathBuf::from("c.tsx"));
         b.buffer.lines = vec!["<".into()];
         b.cursor.row = 0;
@@ -1203,7 +1202,7 @@ mod tests {
 
     #[test]
     fn tag_autopair_skipped_outside_supported_ext() {
-        let mut b = Editor::new();
+        let mut b = Ed::new();
         b.buffer.path = Some(std::path::PathBuf::from("a.rs"));
         b.buffer.lines = vec!["if x <y".into()];
         b.cursor.row = 0;
@@ -1216,7 +1215,7 @@ mod tests {
 
     #[test]
     fn tag_autopair_self_closing_left_alone() {
-        let mut b = Editor::new();
+        let mut b = Ed::new();
         b.buffer.path = Some(std::path::PathBuf::from("a.tsx"));
         b.buffer.lines = vec!["<img /".into()];
         b.cursor.row = 0;
@@ -1228,7 +1227,7 @@ mod tests {
 
     #[test]
     fn newline_inside_empty_tag_pair_spreads_three_lines() {
-        let mut b = Editor::new();
+        let mut b = Ed::new();
         b.buffer.lines = vec!["    <div></div>".into()];
         b.cursor.row = 0;
         b.cursor.col = 9; // between `>` and `</div>`
@@ -1242,7 +1241,7 @@ mod tests {
 
     #[test]
     fn newline_inside_empty_fragment_spreads_three_lines() {
-        let mut b = Editor::new();
+        let mut b = Ed::new();
         b.buffer.lines = vec!["<></>".into()];
         b.cursor.row = 0;
         b.cursor.col = 2; // between `>` and `</>`
@@ -1258,7 +1257,7 @@ mod tests {
     fn insert_text_raw_splits_existing_tail_onto_last_line() {
         // Mid-line paste: anything after the cursor on the original row
         // rides the last pasted segment.
-        let mut b = Editor::new();
+        let mut b = Ed::new();
         b.buffer.lines = vec!["abcXYZ".into()];
         b.cursor.row = 0;
         b.cursor.col = 3;

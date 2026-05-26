@@ -15,6 +15,15 @@ pub enum BufferRef {
     File(PathBuf),
 }
 
+impl Default for BufferRef {
+    /// The original anonymous scratch buffer — a sensible default for a
+    /// freshly constructed editor session before a real document is
+    /// attached.
+    fn default() -> Self {
+        BufferRef::Scratch(0)
+    }
+}
+
 impl BufferRef {
     /// Human-readable label for scratch buffers in pickers and status
     /// messages. `Scratch(0)` is the original anonymous buffer (just

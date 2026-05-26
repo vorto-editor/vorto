@@ -52,6 +52,7 @@ use std::time::SystemTime;
 
 use anyhow::Result;
 
+use crate::buffer_ref::BufferRef;
 use crate::mode::Mode;
 use crate::syntax::Engine;
 use crate::vcs::{self, LineStatus};
@@ -198,13 +199,16 @@ impl Default for IndentSettings {
     }
 }
 
-/// Per-pane editing session. Owns its [`Buffer`] (the document) plus the
-/// cursor / multi-cursor / mode state that's specific to *this* view of
-/// the document, and the in-flight command token stream.
+/// Per-pane editing session. *References* its document — the [`Buffer`]
+/// itself lives in the shared document pool (`App.documents`), named by
+/// [`Self::doc`] — plus the cursor / multi-cursor / mode state that's
+/// specific to *this* view of the document, and the in-flight command
+/// token stream. Two panes can name the same document through equal
+/// `doc` refs while keeping independent cursors.
 #[derive(Default)]
 pub struct Editor {
-    /// The document this session is editing.
-    pub buffer: Buffer,
+    /// The document this session is editing, named by its pool key.
+    pub doc: BufferRef,
     /// Primary cursor.
     pub cursor: Cursor,
     /// Additional cursor positions for multi-cursor editing. The primary
@@ -220,10 +224,18 @@ pub struct Editor {
 }
 
 impl Editor {
-    /// Fresh session over an empty scratch buffer.
+    /// Fresh session referencing the original anonymous scratch
+    /// document (cursor at the origin, no extras, Normal mode). The
+    /// document itself lives in the pool; this only names it.
     pub fn new() -> Self {
+        Self::for_doc(BufferRef::default())
+    }
+
+    /// Fresh session referencing `doc` (cursor at the origin, no extras,
+    /// Normal mode). The document with that ref must live in the pool.
+    pub fn for_doc(doc: BufferRef) -> Self {
         Self {
-            buffer: Buffer::new(),
+            doc,
             cursor: Cursor::default(),
             extra_cursors: Vec::new(),
             mode: Mode::default(),
@@ -231,30 +243,9 @@ impl Editor {
         }
     }
 
-    /// Wrap an already-built [`Buffer`] in a fresh session (cursor at the
-    /// origin, no extras, Normal mode).
-    pub fn from_buffer(buffer: Buffer) -> Self {
-        Self {
-            buffer,
-            cursor: Cursor::default(),
-            extra_cursors: Vec::new(),
-            mode: Mode::default(),
-            tokens: Vec::new(),
-        }
-    }
-
-    /// Load a file into a fresh session. Companion to
-    /// [`Buffer::load`] for callers that want the session wrapper in
-    /// one step; the app's open path builds the `Buffer` first and
-    /// wraps it via [`Editor::from_buffer`].
-    #[allow(dead_code)]
-    pub fn load(path: &Path) -> Result<Self> {
-        Ok(Self::from_buffer(Buffer::load(path)?))
-    }
-
-    /// Re-read `self.buffer.path` from disk and replace the buffer
-    /// contents in place. Caller is responsible for the dirty-vs-force
-    /// decision — this method always reloads.
+    /// Re-read `buf.path` from disk and replace the buffer contents in
+    /// place. Caller is responsible for the dirty-vs-force decision —
+    /// this method always reloads.
     ///
     /// Returns:
     /// - `Ok(true)` when the on-disk content differed and the buffer
@@ -264,9 +255,8 @@ impl Editor {
     ///   is refreshed (mtime alone may have moved), nothing else
     ///   moves so undo history stays intact.
     /// - `Err(_)` when the read failed or no path is attached.
-    pub fn reload_from_disk(&mut self) -> Result<bool> {
-        let path = self
-            .buffer
+    pub fn reload_from_disk(&mut self, buf: &mut Buffer) -> Result<bool> {
+        let path = buf
             .path
             .clone()
             .ok_or_else(|| anyhow::anyhow!("no file name"))?;
@@ -275,24 +265,24 @@ impl Editor {
         if lines.is_empty() {
             lines.push(String::new());
         }
-        if lines == self.buffer.lines {
-            self.buffer.disk_meta = FileMeta::of(&path);
+        if lines == buf.lines {
+            buf.disk_meta = FileMeta::of(&path);
             return Ok(false);
         }
-        self.snapshot();
-        self.buffer.lines = lines;
-        self.buffer.dirty = false;
-        self.buffer.version = self.buffer.version.wrapping_add(1);
-        self.buffer.vcs_base = vcs::head_blob_lines(&path);
-        *self.buffer.vcs_diff.borrow_mut() = None;
-        self.buffer.disk_meta = FileMeta::of(&path);
+        self.snapshot(buf);
+        buf.lines = lines;
+        buf.dirty = false;
+        buf.version = buf.version.wrapping_add(1);
+        buf.vcs_base = vcs::head_blob_lines(&path);
+        *buf.vcs_diff.borrow_mut() = None;
+        buf.disk_meta = FileMeta::of(&path);
 
         // Clamp every cursor (primary + extras) into the possibly-shrunk
         // buffer. Done inline instead of going through `clamp_col` so
         // we can fix `row` first — `clamp_col` reads `current_line` off
         // the primary cursor's row, which would panic if `row` were
         // still past the new end.
-        let last_row = self.buffer.lines.len().saturating_sub(1);
+        let last_row = buf.lines.len().saturating_sub(1);
         let clamp_one = |c: &mut Cursor, lines: &[String]| {
             if c.row > last_row {
                 c.row = last_row;
@@ -302,12 +292,12 @@ impl Editor {
                 c.col = row_len;
             }
         };
-        clamp_one(&mut self.cursor, &self.buffer.lines);
+        clamp_one(&mut self.cursor, &buf.lines);
         for c in &mut self.extra_cursors {
-            clamp_one(c, &self.buffer.lines);
+            clamp_one(c, &buf.lines);
         }
 
-        self.buffer.refresh_highlights();
+        buf.refresh_highlights();
         Ok(true)
     }
 }
@@ -435,4 +425,96 @@ fn classify(c: char) -> CharClass {
 
 fn is_blank_line(line: &str) -> bool {
     line.chars().all(|c| c.is_whitespace())
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// Test harness.
+// ────────────────────────────────────────────────────────────────────────
+
+/// Pairs an [`Editor`] session with the [`Buffer`] it edits so the
+/// submodule unit tests can keep their old `Editor::new()` + `b.buffer`
+/// + `b.<op>(...)` shape after `Editor` stopped owning its buffer.
+///
+/// `Deref`/`DerefMut` forward to the inner `Editor` (so `b.cursor`,
+/// `b.extra_cursors`, `b.mode` keep working), while the editing ops
+/// used by tests are re-exposed as inherent methods that thread
+/// `&mut self.buffer` — inherent methods shadow the `Deref` target, so
+/// `b.insert_char(...)` resolves here, not to `Editor::insert_char`.
+#[cfg(test)]
+pub(crate) struct Ed {
+    pub editor: Editor,
+    pub buffer: Buffer,
+}
+
+#[cfg(test)]
+#[allow(dead_code)]
+impl Ed {
+    pub fn new() -> Self {
+        Self {
+            editor: Editor::new(),
+            buffer: Buffer::new(),
+        }
+    }
+
+    // Insert-side ops.
+    pub fn insert_char(&mut self, c: char) {
+        self.editor.insert_char(&mut self.buffer, c)
+    }
+    pub fn insert_char_smart(&mut self, c: char, indent: IndentSettings) {
+        self.editor.insert_char_smart(&mut self.buffer, c, indent)
+    }
+    pub fn insert_newline(&mut self, indent: IndentSettings) {
+        self.editor.insert_newline(&mut self.buffer, indent)
+    }
+    pub fn insert_text_raw(&mut self, s: &str) {
+        self.editor.insert_text_raw(&mut self.buffer, s)
+    }
+    pub fn insert_line_below(&mut self, indent: IndentSettings) {
+        self.editor.insert_line_below(&mut self.buffer, indent)
+    }
+    pub fn insert_line_above(&mut self, indent: IndentSettings) {
+        self.editor.insert_line_above(&mut self.buffer, indent)
+    }
+    pub fn indent_line(&mut self, row: usize, indent: IndentSettings) {
+        self.editor.indent_line(&mut self.buffer, row, indent)
+    }
+    pub fn dedent_line(&mut self, row: usize, indent: IndentSettings) {
+        self.editor.dedent_line(&mut self.buffer, row, indent)
+    }
+    pub fn delete_char_before_smart(&mut self, indent: IndentSettings) {
+        self.editor.delete_char_before_smart(&mut self.buffer, indent)
+    }
+
+    // Surround ops.
+    pub fn surround_wrap(&mut self, open: &str, close: &str, from: Cursor, to: Cursor) {
+        self.editor
+            .surround_wrap(&mut self.buffer, open, close, from, to)
+    }
+    pub fn surround_strip(&mut self, lo: Cursor, hi: Cursor) {
+        self.editor.surround_strip(&mut self.buffer, lo, hi)
+    }
+    pub fn surround_replace(&mut self, lo: Cursor, hi: Cursor, new_open: &str, new_close: &str) {
+        self.editor
+            .surround_replace(&mut self.buffer, lo, hi, new_open, new_close)
+    }
+
+    // Substitute.
+    pub fn substitute(&mut self, args: &SubsArgs<'_>) -> substitute::SubsOutcome {
+        self.editor.substitute(&mut self.buffer, args)
+    }
+}
+
+#[cfg(test)]
+impl std::ops::Deref for Ed {
+    type Target = Editor;
+    fn deref(&self) -> &Editor {
+        &self.editor
+    }
+}
+
+#[cfg(test)]
+impl std::ops::DerefMut for Ed {
+    fn deref_mut(&mut self) -> &mut Editor {
+        &mut self.editor
+    }
 }

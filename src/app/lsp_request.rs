@@ -79,7 +79,7 @@ impl App {
         }
         self.sync_buffer_if_dirty();
         let cursor = self.editor.cursor;
-        let line = &self.editor.buffer.lines[cursor.row];
+        let line = &self.active_doc().lines[cursor.row];
         let start_col = identifier_prefix_start(line, cursor.col);
         let prefix_start = Cursor {
             row: cursor.row,
@@ -103,7 +103,11 @@ impl App {
             self.completion = None;
             return;
         }
-        let line = &self.editor.buffer.lines[cursor.row];
+        let doc = self
+            .documents
+            .get(&self.editor.doc)
+            .expect("active doc present");
+        let line = &doc.lines[cursor.row];
         let prefix = prefix_slice(line, state.prefix_start.col, cursor.col);
         // Close once the user has backspaced below the popup's
         // open-time threshold (2 for ident auto-trigger, 0 for
@@ -174,7 +178,7 @@ impl App {
             base
         };
 
-        self.editor.snapshot();
+        ed_op!(self, snapshot());
 
         let prefix_start = state.prefix_start;
         let cursor = self.editor.cursor;
@@ -226,9 +230,10 @@ impl App {
 
         let mut all_edits = item.additional_text_edits.clone();
         all_edits.push(primary);
-        let mut lines = std::mem::take(&mut self.editor.buffer.lines);
+        let doc = self.active_doc_mut();
+        let mut lines = std::mem::take(&mut doc.lines);
         lsp::apply_text_edits(&mut lines, all_edits);
-        self.editor.buffer.lines = lines;
+        doc.lines = lines;
 
         let replacement_newlines = replacement.matches('\n').count();
         let final_row =
@@ -248,11 +253,12 @@ impl App {
                 .chars()
                 .count()
         };
-        let last = self.editor.buffer.lines.len().saturating_sub(1);
+        let last = self.active_doc().lines.len().saturating_sub(1);
         self.editor.cursor.row = final_row.min(last);
         self.editor.cursor.col = final_col;
-        self.editor.buffer.bump_version();
-        self.editor.buffer.dirty = true;
+        let doc = self.active_doc_mut();
+        doc.bump_version();
+        doc.dirty = true;
 
         // Best-effort follow-up. Servers that don't support resolve
         // either echo the item back unchanged or surface an error — the
@@ -371,7 +377,7 @@ impl App {
         // no path / unknown extension / no LSP configured. `:lsp all`
         // bypasses the filter.
         let buffer_lang = self
-            .editor.buffer
+            .active_doc()
             .path
             .as_deref()
             .and_then(|p| self.config.languages.by_path(p));
@@ -555,14 +561,14 @@ impl App {
     /// every key handled; pays for the `lines.join` snapshot only when
     /// at least one consumer needs it.
     pub fn sync_buffer_if_dirty(&mut self) {
-        let needs_lsp = self.editor.buffer.version != self.lsp.last_synced_version();
+        let needs_lsp = self.active_doc().version != self.lsp.last_synced_version();
         let needs_copilot = self.copilot_needs_sync();
         if !needs_lsp && !needs_copilot {
             return;
         }
-        let text = self.editor.buffer.lines.join("\n");
+        let text = self.active_doc().lines.join("\n");
         if needs_lsp {
-            self.lsp.set_last_synced_version(self.editor.buffer.version);
+            self.lsp.set_last_synced_version(self.active_doc().version);
             if let Err(e) = self.lsp.did_change(&text) {
                 // Background sync after every keystroke — toasting on
                 // each failure would flood the screen. Log only; if the
@@ -586,7 +592,7 @@ impl App {
     pub(super) fn jump_to_location(&mut self, loc: &crate::lsp::Location) -> Result<()> {
         let path = lsp::uri_to_path(&loc.uri)
             .ok_or_else(|| anyhow::anyhow!("unsupported uri scheme: {}", loc.uri))?;
-        let need_open = match &self.editor.buffer.path {
+        let need_open = match &self.active_doc().path {
             Some(p) => p.canonicalize().ok() != path.canonicalize().ok(),
             None => true,
         };
@@ -595,10 +601,10 @@ impl App {
         }
         let row = loc.range.start.line as usize;
         let col = loc.range.start.character as usize;
-        let last = self.editor.buffer.lines.len().saturating_sub(1);
+        let last = self.active_doc().lines.len().saturating_sub(1);
         self.editor.cursor.row = row.min(last);
         self.editor.cursor.col = col;
-        self.editor.clamp_col(false);
+        ed_op_ref!(self, clamp_col(false));
         Ok(())
     }
 }

@@ -94,8 +94,9 @@ impl App {
         if self.clipboard.is_none() {
             self.clipboard = arboard::Clipboard::new().ok();
         }
+        let yank = self.active_doc().yank.clone();
         if let Some(cb) = self.clipboard.as_mut() {
-            let _ = cb.set_text(self.editor.buffer.yank.clone());
+            let _ = cb.set_text(yank);
         }
     }
 
@@ -105,7 +106,7 @@ impl App {
     /// and we want a fresh selection even if we're already in some
     /// visual mode.
     fn run_select_whole_buffer(&mut self) {
-        let last = self.editor.buffer.lines.len().saturating_sub(1);
+        let last = self.active_doc().lines.len().saturating_sub(1);
         self.visual_anchor = Some(crate::editor::Cursor { row: 0, col: 0 });
         self.editor.mode = crate::mode::Mode::VisualLine;
         self.editor.cursor = crate::editor::Cursor { row: last, col: 0 };
@@ -164,17 +165,17 @@ impl App {
         // Clamp against the live buffer — servers occasionally publish
         // diagnostics that point past EOF (in-flight edits race against
         // the next `publishDiagnostics`).
-        let last_row = self.editor.buffer.lines.len().saturating_sub(1);
+        let last_row = self.active_doc().lines.len().saturating_sub(1);
         let row = (target.range.start.line as usize).min(last_row);
         let col = target.range.start.character as usize;
         self.editor.cursor = crate::editor::Cursor { row, col };
-        self.editor.clamp_col(false);
+        ed_op_ref!(self, clamp_col(false));
         self.run_scroll(ScrollAnchor::Center);
         self.push_toast(Toast::info(target.message.clone()));
     }
 
     fn run_jump_search(&mut self, forward: bool) {
-        if let Some(c) = self.search.find_next(&self.editor, forward) {
+        if let Some(c) = self.search.find_next(&self.editor, self.active_doc(), forward) {
             self.editor.cursor = c;
         } else {
             self.push_toast(Toast::error("pattern not found"));
@@ -188,7 +189,9 @@ impl App {
     /// way, the cursor lands on the match's last char so the selection
     /// covers the whole match. Shared with Visual-mode key handling.
     pub(super) fn run_search_select(&mut self, forward: bool) {
-        let Some((start, end_incl)) = self.search.find_match_range(&self.editor, forward) else {
+        let Some((start, end_incl)) =
+            self.search.find_match_range(&self.editor, self.active_doc(), forward)
+        else {
             self.push_toast(Toast::error("pattern not found"));
             return;
         };
@@ -205,7 +208,7 @@ impl App {
     /// `handle_motion`; visual mode bypasses the Cmd pipeline so this
     /// shim collapses both into one call.
     pub(super) fn search_word_under_cursor(&mut self, forward: bool) {
-        let Some(word) = word_under_cursor(&self.editor) else {
+        let Some(word) = word_under_cursor(&self.editor, self.active_doc()) else {
             self.push_toast(Toast::error("no word under cursor"));
             return;
         };
@@ -214,7 +217,7 @@ impl App {
     }
 
     pub(super) fn run_scroll(&mut self, anchor: ScrollAnchor) {
-        let height = self.editor.buffer.viewport_height.get();
+        let height = self.active_doc().viewport_height.get();
         if height == 0 {
             // Viewport size isn't known yet (most often: we just thawed
             // a sleeping buffer, which resets `viewport_height` to 0 by
@@ -222,19 +225,19 @@ impl App {
             // draw via `pending_center`; the sticky scroll path in
             // `compute_scroll` reads and clears it.
             if matches!(anchor, ScrollAnchor::Center) {
-                self.editor.buffer.pending_center.set(true);
+                self.active_doc().pending_center.set(true);
             }
             return;
         }
         let cur = self.editor.cursor.row;
-        let last = self.editor.buffer.lines.len().saturating_sub(1);
+        let last = self.active_doc().lines.len().saturating_sub(1);
         let scroll = match anchor {
             ScrollAnchor::Top => cur,
             ScrollAnchor::Center => cur.saturating_sub(height / 2),
             ScrollAnchor::Bottom => cur + 1 - height.min(cur + 1),
         };
         let max_scroll = last.saturating_sub(height.saturating_sub(1));
-        self.editor.buffer.scroll.set(scroll.min(max_scroll));
+        self.active_doc().scroll.set(scroll.min(max_scroll));
     }
 
     /// Persist the active buffer to disk and, when `then_quit`, set
@@ -253,13 +256,13 @@ impl App {
         // it lives. In-place saves go through the formatter step,
         // which is no-op when no formatter is configured and no LSP
         // is attached.
-        if path.is_none() && self.editor.buffer.path.is_some() {
+        if path.is_none() && self.active_doc().path.is_some() {
             self.run_format_on_save();
         }
 
         let target = path
             .map(|p| p.to_path_buf())
-            .or_else(|| self.editor.buffer.path.clone());
+            .or_else(|| self.active_doc().path.clone());
         let Some(target) = target else {
             self.push_toast(Toast::error("no file name (use :w <path>)"));
             return;
@@ -275,7 +278,7 @@ impl App {
         // mask an external `rm`.
         if path.is_none()
             && !force
-            && let Some(expected) = self.editor.buffer.disk_meta
+            && let Some(expected) = self.active_doc().disk_meta
         {
             match crate::editor::FileMeta::of(&target) {
                 Some(actual) if actual != expected => {
@@ -315,9 +318,9 @@ impl App {
         }
 
         let result = if path.is_some() {
-            self.editor.buffer.save_as(&target)
+            self.active_doc_mut().save_as(&target)
         } else {
-            self.editor.buffer.save()
+            self.active_doc_mut().save()
         };
         let wrote = match result {
             Ok(()) => {
@@ -357,7 +360,7 @@ impl App {
             return;
         }
         let language = self
-            .editor.buffer
+            .active_doc()
             .path
             .as_deref()
             .and_then(|p| self.config.languages.by_path(p));
@@ -370,13 +373,13 @@ impl App {
             && let Some(formatter) = lang.formatter.clone()
         {
             let cwd = self
-                .editor.buffer
+                .active_doc()
                 .path
                 .as_ref()
                 .and_then(|p| p.parent())
                 .map(|p| p.to_path_buf())
                 .unwrap_or_else(|| self.lsp.startup_cwd().to_path_buf());
-            let text = self.editor.buffer.lines.join("\n");
+            let text = self.active_doc().lines.join("\n");
             match crate::format::run_external(&formatter, &text, &cwd) {
                 Ok(formatted) => self.apply_formatted_text(formatted),
                 Err(e) => {
@@ -423,13 +426,14 @@ impl App {
             }
             v
         };
-        if new_lines == self.editor.buffer.lines {
+        if new_lines == self.active_doc().lines {
             return;
         }
-        self.editor.snapshot();
-        self.editor.buffer.lines = new_lines;
-        self.editor.buffer.bump_version();
-        self.editor.buffer.dirty = true;
+        ed_op!(self, snapshot());
+        let doc = self.active_doc_mut();
+        doc.lines = new_lines;
+        doc.bump_version();
+        doc.dirty = true;
         self.clamp_cursor_to_buffer();
     }
 
@@ -437,15 +441,17 @@ impl App {
     /// so undo lands on the pre-format state; bumps the version so
     /// the highlighter re-runs against the rewritten text.
     fn apply_format_edits(&mut self, edits: Vec<lsp::TextEdit>) {
-        self.editor.snapshot();
-        let mut lines = std::mem::take(&mut self.editor.buffer.lines);
+        ed_op!(self, snapshot());
+        let doc = self.active_doc_mut();
+        let mut lines = std::mem::take(&mut doc.lines);
         lsp::apply_text_edits(&mut lines, edits);
         if lines.is_empty() {
             lines.push(String::new());
         }
-        self.editor.buffer.lines = lines;
-        self.editor.buffer.bump_version();
-        self.editor.buffer.dirty = true;
+        let doc = self.active_doc_mut();
+        doc.lines = lines;
+        doc.bump_version();
+        doc.dirty = true;
         self.clamp_cursor_to_buffer();
     }
 
@@ -455,12 +461,12 @@ impl App {
     /// edit — formatters mostly preserve structure, and the user
     /// can scroll back if the cursor lands somewhere unexpected.
     fn clamp_cursor_to_buffer(&mut self) {
-        let last_row = self.editor.buffer.lines.len().saturating_sub(1);
+        let last_row = self.active_doc().lines.len().saturating_sub(1);
         if self.editor.cursor.row > last_row {
             self.editor.cursor.row = last_row;
         }
         let row_len = self
-            .editor.buffer
+            .active_doc()
             .lines
             .get(self.editor.cursor.row)
             .map(|s| s.chars().count())
@@ -491,11 +497,11 @@ impl App {
     /// normal `didChange` sync so the LSP picks up the new content
     /// on the next tick.
     fn run_reload(&mut self) {
-        let Some(path) = self.editor.buffer.path.clone() else {
+        let Some(path) = self.active_doc().path.clone() else {
             self.push_toast(Toast::error("no file name"));
             return;
         };
-        match self.editor.reload_from_disk() {
+        match ed_op!(self, reload_from_disk()) {
             Ok(true) => self.push_toast(Toast::info(format!("reloaded {}", path.display()))),
             Ok(false) => self.push_toast(Toast::info("reloaded (no change)")),
             Err(e) => self.push_toast(Toast::error(format!("reload: {}", root_cause(&e)))),
@@ -520,23 +526,49 @@ impl App {
         let mut unchanged = 0usize;
         let mut errors: Vec<String> = Vec::new();
 
-        if self.editor.buffer.path.is_some() {
-            match self.editor.reload_from_disk() {
+        if self.active_doc().path.is_some() {
+            match ed_op!(self, reload_from_disk()) {
                 Ok(true) => reloaded += 1,
                 Ok(false) => unchanged += 1,
                 Err(e) => errors.push(format!("active: {}", root_cause(&e))),
             }
         }
 
-        for (key, buf) in self.parked_buffers.iter_mut() {
-            if buf.buffer.path.is_none() {
+        // Inactive panes' sessions, each resolving its own document.
+        // Two panes sharing one document reload it twice — the second
+        // pass sees disk == buffer and reports "unchanged", so it's a
+        // harmless no-op (no double snapshot).
+        let inactive_panes: Vec<crate::app::PaneId> = self.pane_editors.keys().copied().collect();
+        for pane in inactive_panes {
+            let doc_ref = match self.pane_editors.get(&pane) {
+                Some(ed) => ed.doc.clone(),
+                None => continue,
+            };
+            let has_path = self
+                .documents
+                .get(&doc_ref)
+                .map(|d| d.path.is_some())
+                .unwrap_or(false);
+            if !has_path {
                 continue;
             }
-            match buf.reload_from_disk() {
+            // Disjoint fields: the pane's editor and its pooled document.
+            let Some(mut ed) = self.pane_editors.remove(&pane) else {
+                continue;
+            };
+            let result = {
+                let doc = self
+                    .documents
+                    .get_mut(&doc_ref)
+                    .expect("pane doc present in pool");
+                ed.reload_from_disk(doc)
+            };
+            self.pane_editors.insert(pane, ed);
+            match result {
                 Ok(true) => reloaded += 1,
                 Ok(false) => unchanged += 1,
                 Err(e) => {
-                    let label = match key {
+                    let label = match &doc_ref {
                         crate::buffer_ref::BufferRef::File(p) => p.display().to_string(),
                         crate::buffer_ref::BufferRef::Scratch(id) => {
                             crate::buffer_ref::BufferRef::scratch_label(*id)
@@ -593,7 +625,7 @@ impl App {
     }
 
     fn run_notify_lsp_save(&mut self) {
-        let text = self.editor.buffer.lines.join("\n");
+        let text = self.active_doc().lines.join("\n");
         if let Err(e) = self.lsp.did_save(&text) {
             self.push_toast(Toast::error(format!("lsp didSave: {}", root_cause(&e))));
         }

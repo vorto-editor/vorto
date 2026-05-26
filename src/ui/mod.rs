@@ -90,13 +90,12 @@ pub fn draw(f: &mut Frame, app: &App) {
     for (&id, &rect) in &rects {
         if id == app.active_pane {
             buffer::draw_buffer(f, app, rect);
-        } else if let Some(buf) = app.buffer_for_pane(id) {
-            // `buffer_for_pane` resolves the shared-ref case (panes
-            // pointing at the active ref read straight from
-            // `App.buffer`) so two panes on the same buffer paint the
-            // same live content.
-            let eff = effective_editor_for_buffer(app, &buf.buffer);
-            buffer::draw_buffer_inactive(f, buf, &eff, rect);
+        } else if let (Some(ed), Some(buf)) = (app.editor_for_pane(id), app.buffer_for_pane(id)) {
+            // The pane's session carries its own cursor; the document
+            // is resolved through the pool. Two panes sharing one ref
+            // paint the same live content with independent cursors.
+            let eff = effective_editor_for_buffer(app, buf);
+            buffer::draw_buffer_inactive(f, ed, buf, &eff, rect);
         }
     }
     // Paint dividers between sibling panes and a focus-ring on the

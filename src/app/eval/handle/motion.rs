@@ -31,22 +31,28 @@ pub(super) fn handle_motion(app: &mut App, m: MotionExpr) -> Vec<Cmd> {
             }
         }
         M::Right => {
+            let r = app.editor.doc.clone();
+            let doc = app.documents.get(&r).expect("active doc present");
             for _ in 0..n {
-                app.editor.move_right(allow_after);
+                app.editor.move_right(doc, allow_after);
             }
         }
         M::Up => {
+            let r = app.editor.doc.clone();
+            let doc = app.documents.get(&r).expect("active doc present");
             for _ in 0..n {
-                app.editor.move_up();
+                app.editor.move_up(doc);
             }
         }
         M::Down => {
+            let r = app.editor.doc.clone();
+            let doc = app.documents.get(&r).expect("active doc present");
             for _ in 0..n {
-                app.editor.move_down();
+                app.editor.move_down(doc);
             }
         }
         M::LineStart => app.editor.move_line_start(),
-        M::LineEnd => app.editor.move_line_end(),
+        M::LineEnd => ed_op_ref!(app, move_line_end()),
         // `*` / `#` extract the word under the cursor (buffer
         // read), then ask the runtime to seed the search state
         // and jump. The buffer mutation for the cursor jump
@@ -55,13 +61,17 @@ pub(super) fn handle_motion(app: &mut App, m: MotionExpr) -> Vec<Cmd> {
         M::SearchWordForward => push_word_search(app, &mut cmds, true, true),
         M::SearchWordBack => push_word_search(app, &mut cmds, false, true),
         M::WordForward => {
+            let r = app.editor.doc.clone();
+            let doc = app.documents.get(&r).expect("active doc present");
             for _ in 0..n {
-                app.editor.move_word_forward();
+                app.editor.move_word_forward(doc);
             }
         }
         M::WordBack => {
+            let r = app.editor.doc.clone();
+            let doc = app.documents.get(&r).expect("active doc present");
             for _ in 0..n {
-                app.editor.move_word_backward();
+                app.editor.move_word_backward(doc);
             }
         }
         // Pure motions: ask the buffer for the target and assign.
@@ -82,7 +92,7 @@ pub(super) fn handle_motion(app: &mut App, m: MotionExpr) -> Vec<Cmd> {
         | M::HalfPageUp
         | M::PageDown
         | M::PageUp => {
-            let target = app.editor.buffer.motion_target(app.editor.cursor, resolved, n);
+            let target = app.active_doc().motion_target(app.editor.cursor, resolved, n);
             app.editor.cursor = target;
         }
         // Resolved away by `resolve_motion_pure` — should never
@@ -101,7 +111,7 @@ pub(super) fn handle_motion(app: &mut App, m: MotionExpr) -> Vec<Cmd> {
             if n > 1 {
                 app.goto_line_n_pure(n as usize);
             } else {
-                app.editor.move_file_end();
+                ed_op_ref!(app, move_file_end());
             }
         }
         M::SearchNext => {
@@ -115,13 +125,17 @@ pub(super) fn handle_motion(app: &mut App, m: MotionExpr) -> Vec<Cmd> {
             }
         }
         M::ParagraphForward => {
+            let r = app.editor.doc.clone();
+            let doc = app.documents.get(&r).expect("active doc present");
             for _ in 0..n {
-                app.editor.move_paragraph_forward();
+                app.editor.move_paragraph_forward(doc);
             }
         }
         M::ParagraphBack => {
+            let r = app.editor.doc.clone();
+            let doc = app.documents.get(&r).expect("active doc present");
             for _ in 0..n {
-                app.editor.move_paragraph_backward();
+                app.editor.move_paragraph_backward(doc);
             }
         }
     }

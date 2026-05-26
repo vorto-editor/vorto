@@ -14,7 +14,7 @@ impl App {
     /// any. Returns `None` when the buffer has no path, the language is
     /// unknown, or `comment_token` is unset (e.g. JSON).
     pub fn line_comment_token(&self) -> Option<String> {
-        let path = self.editor.buffer.path.as_deref()?;
+        let path = self.active_doc().path.as_deref()?;
         let lang = self.config.languages.by_path(path)?;
         lang.comment_token.clone()
     }
@@ -23,7 +23,7 @@ impl App {
     /// language, if any. `None` for languages with no native block
     /// comment (e.g. Python, shell).
     pub fn block_comment_tokens(&self) -> Option<(String, String)> {
-        let path = self.editor.buffer.path.as_deref()?;
+        let path = self.active_doc().path.as_deref()?;
         let lang = self.config.languages.by_path(path)?;
         lang.block_comment_token.clone()
     }
@@ -35,7 +35,9 @@ impl App {
         let Some(tok) = self.line_comment_token() else {
             return false;
         };
-        self.editor.toggle_block_comment(&tok, rows);
+        let r = self.editor.doc.clone();
+        let doc = self.documents.get_mut(&r).expect("active doc present");
+        self.editor.toggle_block_comment(doc, &tok, rows);
         true
     }
 
@@ -53,7 +55,7 @@ impl App {
                 let (lo, hi) = range.unwrap_or_else(|| {
                     let lo_row = rows.iter().min().copied().unwrap_or(0);
                     let hi_row = rows.iter().max().copied().unwrap_or(0);
-                    let hi_col = self.editor.buffer.lines[hi_row].chars().count();
+                    let hi_col = self.active_doc().lines[hi_row].chars().count();
                     (
                         Cursor {
                             row: lo_row,
@@ -65,8 +67,10 @@ impl App {
                         },
                     )
                 });
-                let (lo, hi) = trim_blank_edges(&self.editor.buffer.lines, lo, hi);
-                self.editor.toggle_block_wrap(&open, &close, lo, hi);
+                let r = self.editor.doc.clone();
+                let doc = self.documents.get_mut(&r).expect("active doc present");
+                let (lo, hi) = trim_blank_edges(&doc.lines, lo, hi);
+                self.editor.toggle_block_wrap(doc, &open, &close, lo, hi);
                 true
             }
             None => self.apply_line_comment(rows),

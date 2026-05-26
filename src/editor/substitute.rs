@@ -5,7 +5,7 @@
 //! share the empty-pattern-falls-back-to-last-search policy enforced by
 //! the caller.
 
-use super::{Cursor, Editor};
+use super::{Buffer, Cursor, Editor};
 
 /// What rows a substitute applies to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -85,7 +85,7 @@ impl Editor {
     /// Apply a substitute. Returns the count of replacements made plus
     /// the cursor target. Caller is responsible for snapshotting (the
     /// standard `expr_modifies_buffer` path handles that).
-    pub fn substitute(&mut self, args: &SubsArgs<'_>) -> SubsOutcome {
+    pub fn substitute(&mut self, buf: &mut Buffer, args: &SubsArgs<'_>) -> SubsOutcome {
         if args.pattern.is_empty() {
             return SubsOutcome {
                 matches: 0,
@@ -94,7 +94,7 @@ impl Editor {
         }
         let (row_lo, row_hi) = match args.range {
             SubsRange::Current => (self.cursor.row, self.cursor.row),
-            SubsRange::All => (0, self.buffer.lines.len().saturating_sub(1)),
+            SubsRange::All => (0, buf.lines.len().saturating_sub(1)),
         };
 
         let mut matches = 0usize;
@@ -102,7 +102,7 @@ impl Editor {
         let mut last_hit: Option<Cursor> = None;
 
         for row in row_lo..=row_hi {
-            let line = &self.buffer.lines[row];
+            let line = &buf.lines[row];
             let (new_line, count, last_match_byte) =
                 replace_line(line, args.pattern, args.replacement, args.global);
             if count == 0 {
@@ -114,15 +114,15 @@ impl Editor {
                 let col = super::byte_to_char(&new_line, byte_idx);
                 last_hit = Some(Cursor { row, col });
             }
-            self.buffer.lines[row] = new_line;
+            buf.lines[row] = new_line;
         }
 
         if matches > 0 {
             if let Some(c) = last_hit {
                 self.cursor = c;
             }
-            self.clamp_col(false);
-            self.buffer.touch();
+            self.clamp_col(buf, false);
+            buf.touch();
         }
         SubsOutcome {
             matches,
@@ -171,8 +171,8 @@ fn replace_line(line: &str, pat: &str, repl: &str, global: bool) -> (String, usi
 mod tests {
     use super::*;
 
-    fn buf_of(lines: &[&str]) -> Editor {
-        let mut b = Editor::new();
+    fn buf_of(lines: &[&str]) -> super::super::Ed {
+        let mut b = super::super::Ed::new();
         b.buffer.lines = lines.iter().map(|s| s.to_string()).collect();
         b.cursor = Cursor { row: 0, col: 0 };
         b

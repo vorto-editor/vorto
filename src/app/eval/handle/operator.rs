@@ -19,27 +19,29 @@ pub(super) fn handle_op(app: &mut App, op: Operator, target: Target, outer_count
             if matches!(op, Operator::Indent | Operator::Dedent) {
                 let indent = app.indent_settings();
                 let start_row = app.editor.cursor.row;
-                let last = app.editor.buffer.lines.len().saturating_sub(1);
+                let last = app.active_doc().lines.len().saturating_sub(1);
                 let span = outer_count.max(1) as usize - 1;
                 let end_row = start_row.saturating_add(span).min(last);
                 for r in start_row..=end_row {
                     if matches!(op, Operator::Indent) {
-                        app.editor.indent_line(r, indent);
+                        ed_op!(app, indent_line(r, indent));
                     } else {
-                        app.editor.dedent_line(r, indent);
+                        ed_op!(app, dedent_line(r, indent));
                     }
                 }
                 app.editor.cursor.row = start_row;
-                cursor_to_first_non_blank(&mut app.editor);
+                let __r = app.editor.doc.clone();
+                let __doc = app.documents.get(&__r).expect("active doc present");
+                cursor_to_first_non_blank(&mut app.editor, __doc);
             } else if matches!(op, Operator::Comment | Operator::BlockComment) {
                 let rows = comment_target_rows(app, outer_count);
                 apply_comment_op(app, op, &rows, None, &mut cmds);
             } else {
                 for _ in 0..outer_count {
                     match op {
-                        Operator::Delete => app.editor.delete_line(),
+                        Operator::Delete => ed_op!(app, delete_line()),
                         Operator::Yank => {
-                            app.editor.yank_line();
+                            ed_op!(app, yank_line());
                             cmds.push(Cmd::SyncYank);
                             cmds.push(Cmd::ToastInfo("yanked".into()));
                         }
@@ -66,15 +68,18 @@ pub(super) fn handle_op(app: &mut App, op: Operator, target: Target, outer_count
             let inclusive = is_inclusive_motion(resolved);
             for _ in 0..outer_count {
                 let start = app.editor.cursor;
-                let target = app.editor.buffer.motion_target(start, resolved, m.count);
-                // Vim's inclusive motions (`e`, `f<c>`, `t<c>`, …)
-                // include the landing char in the operator range;
-                // `apply_op_range` takes an exclusive end, so push
-                // one past for these.
-                let end = if inclusive {
-                    app.editor.buffer.advance_one(target)
-                } else {
-                    target
+                let end = {
+                    let doc = app.active_doc();
+                    let target = doc.motion_target(start, resolved, m.count);
+                    // Vim's inclusive motions (`e`, `f<c>`, `t<c>`, …)
+                    // include the landing char in the operator range;
+                    // `apply_op_range` takes an exclusive end, so push
+                    // one past for these.
+                    if inclusive {
+                        doc.advance_one(target)
+                    } else {
+                        target
+                    }
                 };
                 apply_op_range(app, op, start, end, &mut cmds);
             }
@@ -87,18 +92,19 @@ pub(super) fn handle_op(app: &mut App, op: Operator, target: Target, outer_count
             // walks forward through successive matches (e.g. `2dgn`).
             let forward = app.search.last_forward ^ reverse;
             for _ in 0..outer_count {
-                let Some((start, end_incl)) = app.search.find_match_range(&app.editor, forward)
+                let Some((start, end_incl)) =
+                    app.search.find_match_range(&app.editor, app.active_doc(), forward)
                 else {
                     cmds.push(Cmd::ToastError("pattern not found".into()));
                     break;
                 };
-                let end = app.editor.buffer.advance_one(end_incl);
+                let end = app.active_doc().advance_one(end_incl);
                 apply_op_range(app, op, start, end, &mut cmds);
             }
         }
         Target::TextObject { scope, object } => {
             for _ in 0..outer_count {
-                match app.editor.text_object_range(scope, object) {
+                match ed_op_ref!(app, text_object_range(scope, object)) {
                     Some((start, end)) => apply_op_range(app, op, start, end, &mut cmds),
                     None => {
                         cmds.push(Cmd::ToastError("no matching object".into()));
@@ -115,14 +121,14 @@ pub(super) fn handle_op(app: &mut App, op: Operator, target: Target, outer_count
 /// motion-target, search-match, and text-object dispatch.
 fn apply_op_range(app: &mut App, op: Operator, start: Cursor, end: Cursor, cmds: &mut Vec<Cmd>) {
     match op {
-        Operator::Delete => app.editor.delete_range(start, end),
+        Operator::Delete => ed_op!(app, delete_range(start, end)),
         Operator::Yank => {
-            app.editor.buffer.yank_range(start, end);
+            app.active_doc_mut().yank_range(start, end);
             cmds.push(Cmd::SyncYank);
             cmds.push(Cmd::ToastInfo("yanked".into()));
         }
         Operator::Change => {
-            app.editor.delete_range(start, end);
+            ed_op!(app, delete_range(start, end));
             cmds.push(Cmd::EnterMode(Mode::Insert));
         }
         Operator::Indent | Operator::Dedent => {
@@ -136,13 +142,15 @@ fn apply_op_range(app: &mut App, op: Operator, start: Cursor, end: Cursor, cmds:
             };
             for r in lo..=hi {
                 if matches!(op, Operator::Indent) {
-                    app.editor.indent_line(r, indent);
+                    ed_op!(app, indent_line(r, indent));
                 } else {
-                    app.editor.dedent_line(r, indent);
+                    ed_op!(app, dedent_line(r, indent));
                 }
             }
             app.editor.cursor.row = lo;
-            cursor_to_first_non_blank(&mut app.editor);
+            let __r = app.editor.doc.clone();
+            let __doc = app.documents.get(&__r).expect("active doc present");
+            cursor_to_first_non_blank(&mut app.editor, __doc);
         }
         Operator::Comment => {
             let (lo, hi) = order_range(start, end);
@@ -196,7 +204,7 @@ fn apply_comment_op(
 fn comment_target_rows(app: &App, count: u32) -> Vec<usize> {
     if app.editor.extra_cursors.is_empty() {
         let start = app.editor.cursor.row;
-        let max = app.editor.buffer.lines.len();
+        let max = app.active_doc().lines.len();
         (0..count as usize)
             .map(|i| start + i)
             .take_while(|&r| r < max)

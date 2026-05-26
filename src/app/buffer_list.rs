@@ -41,7 +41,7 @@ impl App {
     /// `force`. The deleted buffer is *not* stashed — its content
     /// is gone, same as vim's `:bd`.
     pub fn buffer_delete(&mut self, force: bool) -> Result<()> {
-        if !force && self.editor.buffer.dirty {
+        if !force && self.active_doc().dirty {
             self.push_toast(Toast::error("unsaved changes (use :bd!)"));
             return Ok(());
         }
@@ -54,7 +54,8 @@ impl App {
             .rev()
             .find(|r| *r != &current_ref)
             .cloned();
-        // Drop the deleted buffer from all bookkeeping. For
+        // Drop the deleted buffer from all bookkeeping. The document
+        // truly goes away — pull it out of the pool too. For
         // file-backed buffers we also tell every LSP client to
         // forget about the document — `:bd` is the one path where
         // the buffer truly goes away, so the server should release
@@ -63,6 +64,7 @@ impl App {
         // see [`LspCoordinator::detach_current`]).
         self.opened_paths.retain(|r| r != &current_ref);
         self.sleeping.remove(&current_ref);
+        self.documents.remove(&current_ref);
         if let BufferRef::File(path) = &current_ref {
             let uri = crate::lsp::path_to_uri(path);
             self.lsp.close_uri(&uri);
@@ -72,15 +74,13 @@ impl App {
 
         match target {
             Some(BufferRef::Scratch(id)) => {
-                let restored = match self.sleeping.remove(&BufferRef::Scratch(id)) {
-                    Some(b) => b.thaw(),
-                    None => Editor::new(),
-                };
-                self.install_buffer(restored);
+                let key = BufferRef::Scratch(id);
+                self.ensure_doc_pooled(&key, Buffer::new);
+                self.install_buffer(Editor::for_doc(key.clone()));
                 self.current_scratch_id = Some(id);
                 self.open_gen = self.open_gen.wrapping_add(1);
-                self.lsp.set_last_synced_version(self.editor.buffer.version);
-                self.record_opened(BufferRef::Scratch(id));
+                self.lsp.set_last_synced_version(self.active_doc().version);
+                self.record_opened(key);
                 self.push_toast(Toast::info(format!(
                     "deleted, {}",
                     BufferRef::scratch_label(id)
@@ -88,29 +88,33 @@ impl App {
                 Ok(())
             }
             Some(BufferRef::File(path)) => {
-                // Restore from sleeping when available; otherwise
-                // re-read disk. Both paths set up LSP/highlighter.
-                if let Some(b) = self.sleeping.remove(&BufferRef::File(path.clone())) {
-                    self.install_buffer(b.thaw());
+                let key = BufferRef::File(path.clone());
+                // Restore from the pool / sleeping when available;
+                // otherwise re-read disk. Both paths set up LSP/highlighter.
+                if self.documents.contains_key(&key) || self.sleeping.contains_key(&key) {
+                    self.ensure_doc_pooled(&key, Buffer::new);
+                    self.install_buffer(Editor::for_doc(key.clone()));
                     self.open_gen = self.open_gen.wrapping_add(1);
-                    self.lsp.set_last_synced_version(self.editor.buffer.version);
-                    self.record_opened(BufferRef::File(path.clone()));
+                    self.lsp.set_last_synced_version(self.active_doc().version);
+                    self.record_opened(key);
                     self.spawn_engine_worker(&path);
                     self.spawn_vcs_worker();
                     self.spawn_lsp_worker(&path);
                     self.push_toast(Toast::info(format!("deleted, restored {}", path.display())));
                 } else {
-                    // Successor isn't in sleeping (rare — would mean
-                    // it was evicted by MRU cap while being in the
+                    // Successor isn't pooled or sleeping (rare — would
+                    // mean it was evicted by MRU cap while being in the
                     // picker). Fresh-load from disk.
                     let loaded = match Buffer::load(&path) {
                         Ok(b) => b,
                         Err(e) => {
                             let id = self.mint_scratch_id();
-                            self.install_buffer(Editor::new());
+                            let key = BufferRef::Scratch(id);
+                            self.documents.insert(key.clone(), Buffer::new());
+                            self.install_buffer(Editor::for_doc(key.clone()));
                             self.current_scratch_id = Some(id);
                             self.open_gen = self.open_gen.wrapping_add(1);
-                            self.record_opened(BufferRef::Scratch(id));
+                            self.record_opened(key);
                             self.push_toast(Toast::fatal(format!(
                                 "deleted; failed to open {}: {} — using scratch",
                                 path.display(),
@@ -119,11 +123,12 @@ impl App {
                             return Ok(());
                         }
                     };
-                    self.install_buffer(Editor::from_buffer(loaded));
+                    self.documents.insert(key.clone(), loaded);
+                    self.install_buffer(Editor::for_doc(key.clone()));
                     self.current_scratch_id = None;
-                    self.record_opened(BufferRef::File(path.clone()));
+                    self.record_opened(key);
                     self.open_gen = self.open_gen.wrapping_add(1);
-                    self.lsp.set_last_synced_version(self.editor.buffer.version);
+                    self.lsp.set_last_synced_version(self.active_doc().version);
                     self.spawn_engine_worker(&path);
                     self.spawn_vcs_worker();
                     self.spawn_lsp_worker(&path);
@@ -134,10 +139,12 @@ impl App {
             None => {
                 // Nothing left — start a fresh scratch.
                 let id = self.mint_scratch_id();
-                self.install_buffer(Editor::new());
+                let key = BufferRef::Scratch(id);
+                self.documents.insert(key.clone(), Buffer::new());
+                self.install_buffer(Editor::for_doc(key.clone()));
                 self.current_scratch_id = Some(id);
                 self.open_gen = self.open_gen.wrapping_add(1);
-                self.record_opened(BufferRef::Scratch(id));
+                self.record_opened(key);
                 self.push_toast(Toast::info(format!(
                     "deleted, {}",
                     BufferRef::scratch_label(id)
@@ -156,14 +163,14 @@ impl App {
         // Tell every LSP client to release the URIs we had open —
         // covers the active buffer plus all parked / sleeping file
         // buffers. Scratch buffers don't have URIs.
-        if let Some(path) = self.editor.buffer.path.clone() {
+        if let Some(path) = self.active_doc().path.clone() {
             let uri = crate::lsp::path_to_uri(&path);
             self.lsp.close_uri(&uri);
         } else {
             self.lsp.detach_current();
         }
         let file_refs: Vec<std::path::PathBuf> = self
-            .parked_buffers
+            .documents
             .keys()
             .chain(self.sleeping.keys())
             .filter_map(|r| match r {
@@ -176,8 +183,8 @@ impl App {
             self.lsp.close_uri(&uri);
         }
 
-        self.parked_buffers.clear();
-        self.pane_refs.clear();
+        self.documents.clear();
+        self.pane_editors.clear();
         self.sleeping.clear();
         self.opened_paths.clear();
 
@@ -185,11 +192,13 @@ impl App {
         self.layout = PaneLayout::Leaf(self.active_pane);
 
         let id = self.mint_scratch_id();
-        self.install_buffer(Editor::new());
+        let key = BufferRef::Scratch(id);
+        self.documents.insert(key.clone(), Buffer::new());
+        self.install_buffer(Editor::for_doc(key.clone()));
         self.current_scratch_id = Some(id);
         self.open_gen = self.open_gen.wrapping_add(1);
-        self.lsp.set_last_synced_version(self.editor.buffer.version);
-        self.record_opened(BufferRef::Scratch(id));
+        self.lsp.set_last_synced_version(self.active_doc().version);
+        self.record_opened(key);
         self.push_toast(Toast::info("deleted all buffers"));
         Ok(())
     }

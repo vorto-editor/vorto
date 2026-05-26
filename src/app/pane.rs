@@ -1,36 +1,27 @@
-//! Pane layout + buffer-pool boundary.
+//! Pane layout + document-pool boundary.
 //!
 //! ## Design summary
 //!
-//! - **Buffers** are the document model. They are owned at the
-//!   application level — never by a pane. The active pane's buffer is
-//!   held directly in `App.buffer` (a long-standing field referenced
-//!   in many call sites); every other buffer that is currently visible
-//!   in some pane lives in `App.parked_buffers`, keyed by
-//!   [`crate::buffer_ref::BufferRef`]. Hidden buffers (not displayed
-//!   in any pane) stay in the existing `App.sleeping` map.
+//! - **Documents** ([`crate::editor::Buffer`]) are the content model.
+//!   They live in a shared pool, `App.documents`, keyed by
+//!   [`crate::buffer_ref::BufferRef`]. A document is never owned by a
+//!   pane. Documents shown in no pane are evicted to the compressed
+//!   `App.sleeping` map.
 //!
-//! - **Panes** are display regions. A pane carries nothing more than a
-//!   `BufferRef` pointing into the application's buffer pool, so
-//!   `<space>b` from any pane can swap that ref to whatever the user
-//!   picks. The `(PaneId → BufferRef)` mapping lives on `App` in
-//!   `App.pane_refs`; this module just provides the layout tree and
-//!   focus / split helpers.
+//! - **Sessions** ([`Editor`]) are per-pane: each carries a cursor /
+//!   multi-cursor / mode and *names* its document via `Editor::doc`.
+//!   The active pane's session is `App.editor`; every other leaf's
+//!   session lives in `App.pane_editors`, keyed by [`PaneId`].
 //!
-//! - **Tabs** are not implemented yet. The design here keeps tabs
-//!   trivial to add later — each `Tab` would own a [`PaneLayout`],
-//!   a `pane_refs` map, and an `active_pane`; the buffer pool stays
-//!   shared at the `App` level so a buffer can appear in any tab.
+//! - **Panes** are display regions (leaves of [`PaneLayout`]). Two
+//!   panes can show the same document by holding two sessions whose
+//!   `doc` refs are equal — same pooled `Buffer`, independent cursors.
+//!   That's what makes `:split` over one buffer behave like vim's.
 //!
-//! ## Two-pane sharing
-//!
-//! v1 does not support the same buffer being displayed in two panes
-//! at once. The active buffer lives in `App.buffer` while every parked
-//! buffer lives in `App.parked_buffers`; both can't be the same `Buffer`
-//! struct simultaneously. `Self::switch_active_pane_buffer` rejects a
-//! swap that would alias a buffer already shown by another pane. A
-//! future refactor — splitting per-pane viewport state out of `Buffer`
-//! — would lift this restriction.
+//! - **Tabs** are not implemented yet. The design keeps them trivial to
+//!   add later — a `Tab` would own a [`PaneLayout`], a `pane_editors`
+//!   map, and an `active_pane`; the document pool stays shared at the
+//!   `App` level so a document can appear in any tab.
 
 use std::collections::HashMap;
 
@@ -247,29 +238,30 @@ pub const NEXT_PANE_ID_SEED: PaneId = 1;
 
 impl App {
     /// Open a new pane in direction `dir` alongside the currently-active
-    /// pane. The new pane shares the same buffer as the current one
-    /// (vim-style `:split`): no clone, no scratch creation, just a new
-    /// `Leaf` in the tree pointing at the same `BufferRef`. Buffer
-    /// state (cursor, scroll, undo, …) is stored on the `Buffer` itself,
-    /// so the two panes are views onto the exact same content; edits in
-    /// either pane apply to one underlying buffer.
+    /// pane. The new pane shares the same document as the current one
+    /// (vim-style `:split`): no buffer clone, just a new `Leaf` in the
+    /// tree and a new [`Editor`] session whose `doc` names the same
+    /// pooled `BufferRef`. The shared document carries the content; each
+    /// session carries its own cursor, so edits in either pane land on
+    /// one underlying `Buffer` while the cursors stay independent.
     ///
     /// Focus moves to the new pane (matching vim's `:split` behaviour).
-    /// The active pane stays a leaf with no `pane_refs` entry — the
-    /// existing pane gets one pointing at the shared ref so the
-    /// `<active_ref ⇒ App.buffer, else parked>` lookup keeps working.
+    /// The displaced session goes into `pane_editors` keyed by the old
+    /// active pane id.
     pub fn split_window(&mut self, dir: SplitDir) {
         let new_pane_id = self.mint_pane_id();
         let active_pane_id = self.active_pane;
-        let shared_ref = self.active_ref();
-        // The old leaf becomes inactive — record its ref so the
-        // renderer / focus code can resolve it. Since this ref equals
-        // the (new) active ref, no buffer movement is needed; the
-        // `App.buffer` stays put and both panes look it up through the
-        // shared-ref path.
-        self.pane_refs.insert(active_pane_id, shared_ref);
-        // New pane is the ACTIVE one — `pane_refs` only tracks
-        // inactive panes, so nothing to insert for `new_pane_id`.
+        let shared_ref = self.editor.doc.clone();
+        // The new active session references the SAME pooled document
+        // (no buffer clone) and starts at the current cursor, with no
+        // extras / Normal mode. The displaced session — with its own
+        // cursor — becomes the inactive pane, keyed by its pane id. The
+        // two panes now edit one shared `Buffer` through independent
+        // cursors.
+        let mut new_active = Editor::for_doc(shared_ref);
+        new_active.cursor = self.editor.cursor;
+        let displaced = std::mem::replace(&mut self.editor, new_active);
+        self.pane_editors.insert(active_pane_id, displaced);
         let leaf = self
             .layout
             .find_leaf_mut(active_pane_id)
@@ -285,45 +277,39 @@ impl App {
         )));
     }
 
-    /// Look up which buffer (a `&Buffer`) the inactive pane `id` is
-    /// currently showing. Returns `None` when `id` isn't an inactive
-    /// leaf, or when the layout/`parked_buffers` invariant is violated
-    /// (shouldn't happen in practice — exists as a soft failure for
-    /// the renderer rather than a panic). Panes whose ref equals the
-    /// active ref resolve back to `App.buffer`; otherwise we look in
-    /// `parked_buffers`.
-    pub fn buffer_for_pane(&self, id: PaneId) -> Option<&Editor> {
+    /// The session ([`Editor`]) driving pane `id` — the active pane's
+    /// is `App.editor`, every other leaf's lives in `pane_editors`.
+    /// Returns `None` when `id` isn't a known leaf.
+    pub fn editor_for_pane(&self, id: PaneId) -> Option<&Editor> {
         if id == self.active_pane {
             return Some(&self.editor);
         }
-        let pane_ref = self.pane_refs.get(&id)?;
-        if *pane_ref == self.active_ref() {
-            return Some(&self.editor);
-        }
-        self.parked_buffers.get(pane_ref)
+        self.pane_editors.get(&id)
+    }
+
+    /// The document a pane is showing, resolved through its session's
+    /// `doc` ref into the pool. `None` when the pane is unknown or the
+    /// pool invariant is violated (soft failure for the renderer
+    /// rather than a panic).
+    pub fn buffer_for_pane(&self, id: PaneId) -> Option<&crate::editor::Buffer> {
+        let ed = self.editor_for_pane(id)?;
+        self.documents.get(&ed.doc)
     }
 
     /// Does any *inactive* pane currently show `r`? Used when deciding
-    /// whether the buffer currently held in `App.buffer` (or being
-    /// stashed) can move to `sleeping` (gone from every visible pane)
-    /// or has to stay live in `parked_buffers`.
+    /// whether a document leaving the active slot can move to
+    /// `sleeping` (gone from every visible pane) or has to stay live in
+    /// the pool because another pane still renders it.
     pub fn ref_used_by_inactive_pane(&self, r: &BufferRef) -> bool {
-        self.pane_refs.values().any(|v| v == r)
+        self.pane_editors.values().any(|ed| &ed.doc == r)
     }
 
-    /// Close the active pane. Three cases, all preserving the
-    /// `parked_buffers` invariant (entries exist only for refs that
-    /// are shown by some inactive pane AND differ from the active
-    /// ref):
-    ///
-    /// 1. **Closing pane shares its ref with another pane.** Just drop
-    ///    the leaf from the tree — no buffer changes, no stashing.
-    ///    Focus moves to a neighbour; if that neighbour also shares
-    ///    the ref, `App.buffer` stays put.
-    /// 2. **Neighbour shares the closing pane's ref.** Same: focus
-    ///    moves, `App.buffer` stays. The active ref is unchanged.
-    /// 3. **Refs differ.** Stash `App.buffer` to `sleeping`, pull the
-    ///    neighbour's buffer out of `parked_buffers`. Standard swap.
+    /// Close the active pane. Removes the closing pane's session, makes
+    /// a neighbour active by swapping its session into `App.editor`,
+    /// and — if the closed pane's document is no longer shown by any
+    /// remaining session — sleeps that document (moving it out of the
+    /// pool). When another pane still shows it, the document stays live
+    /// in the pool untouched.
     ///
     /// No-op (with a toast) when only one pane is left.
     pub fn close_window(&mut self) {
@@ -339,48 +325,28 @@ impl App {
                 return;
             }
         };
-        let neighbour_ref = self
-            .pane_refs
+        let neighbour_ed = self
+            .pane_editors
             .remove(&neighbor)
-            .expect("neighbour leaf must have a buffer_ref entry");
-        let closing_ref = self.active_ref();
-        if neighbour_ref == closing_ref {
-            // Active and neighbour share the same buffer. The buffer
-            // stays in `App.buffer`; nothing to stash or swap.
-            self.active_pane = neighbor;
-            self.push_toast(Toast::info("pane closed"));
-            return;
-        }
-        // The neighbour points at a different buffer — it was parked,
-        // pull it into the active slot. Whether the closing buffer
-        // goes to sleeping or parked depends on whether any other
-        // inactive pane still references its ref.
-        let neighbour_buf = self
-            .parked_buffers
-            .remove(&neighbour_ref)
-            .expect("neighbour buffer must be parked");
-        let mut closed_buffer = std::mem::replace(&mut self.editor, neighbour_buf);
-        self.current_scratch_id = match &neighbour_ref {
+            .expect("neighbour leaf must have a session");
+        let closing_ref = self.editor.doc.clone();
+        // Make the neighbour active; the closing pane's session is
+        // dropped (its cursor goes away — the document, if still shown,
+        // survives in the pool).
+        self.editor = neighbour_ed;
+        self.active_pane = neighbor;
+        self.current_scratch_id = match &self.editor.doc {
             BufferRef::Scratch(id) => Some(*id),
             _ => None,
         };
-        if self.ref_used_by_inactive_pane(&closing_ref) {
-            // Another pane still shows the closing ref — keep the
-            // buffer live so that pane can read from it. No sleeping
-            // freeze (which would compress and lose the highlighter).
-            self.parked_buffers.insert(closing_ref, closed_buffer);
-        } else {
-            closed_buffer.buffer.highlighter = None;
-            self.sleeping
-                .insert(closing_ref, super::SleepingBuffer::freeze(closed_buffer));
-        }
-        self.active_pane = neighbor;
+        // Retire the closed document when nothing references it anymore.
+        self.retire_doc_if_unreferenced(closing_ref);
         self.lsp.detach_current();
-        self.lsp.set_last_synced_version(self.editor.buffer.version);
+        self.lsp.set_last_synced_version(self.active_doc().version);
         // See `focus_pane` for why we skip the highlighter respawn in
         // the common case.
-        if let Some(path) = self.editor.buffer.path.clone() {
-            if self.editor.buffer.highlighter.is_none() {
+        if let Some(path) = self.active_doc().path.clone() {
+            if self.active_doc().highlighter.is_none() {
                 self.spawn_engine_worker(&path);
             }
             self.spawn_lsp_worker(&path);
@@ -420,67 +386,39 @@ impl App {
         self.layout.leaves().len()
     }
 
-    /// Swap focus to `target`. Two cases:
-    ///
-    /// 1. **Target shares the active buffer's ref.** Just rotate
-    ///    `active_pane`; the underlying buffer stays in `App.buffer`
-    ///    and the renderer's shared-ref path keeps painting the
-    ///    correct content. Cursor / scroll are buffer-level state,
-    ///    so they're naturally shared between the two panes.
-    /// 2. **Target points to a different ref.** Pull its buffer out
-    ///    of `parked_buffers` into `App.buffer`. The previous active
-    ///    buffer goes into `parked_buffers[prev_ref]` (unconditionally
-    ///    — it has to live somewhere live, and any other pane that
-    ///    shares `prev_ref` will look it up there).
+    /// Swap focus to `target`. Sessions are per-pane now, so this is a
+    /// plain swap: the active `App.editor` goes into
+    /// `pane_editors[prev_active]`, and the target pane's session moves
+    /// into `App.editor`. Documents stay put in the pool — when both
+    /// panes share a doc, both sessions just keep naming the same ref,
+    /// each with its own cursor.
     pub(super) fn focus_pane(&mut self, target: PaneId) {
         if target == self.active_pane {
             return;
         }
-        let target_ref = match self.pane_refs.get(&target).cloned() {
-            Some(r) => r,
-            None => return,
+        let Some(target_ed) = self.pane_editors.remove(&target) else {
+            return;
         };
         let prev_id = self.active_pane;
-        let prev_ref = self.active_ref();
-        if target_ref == prev_ref {
-            // Shared ref: nothing to move. Just rotate which leaf is
-            // active. pane_refs only tracks inactive panes, so we
-            // remove the new active's entry and insert the previous
-            // active's entry (pointing at the same shared ref).
-            self.pane_refs.remove(&target);
-            self.pane_refs.insert(prev_id, prev_ref);
-            self.active_pane = target;
-            self.record_opened(target_ref);
-            return;
-        }
-        // Target points elsewhere — full buffer swap.
-        self.pane_refs.remove(&target);
-        let Some(target_buffer) = self.parked_buffers.remove(&target_ref) else {
-            // pane_refs and parked_buffers are out of sync — put the
-            // ref back so we don't lose track of what the pane shows.
-            self.pane_refs.insert(target, target_ref);
-            return;
-        };
-        let prev_buffer = std::mem::replace(&mut self.editor, target_buffer);
+        let target_ref = target_ed.doc.clone();
+        let prev_ed = std::mem::replace(&mut self.editor, target_ed);
+        self.pane_editors.insert(prev_id, prev_ed);
+        self.active_pane = target;
         self.current_scratch_id = match &target_ref {
             BufferRef::Scratch(id) => Some(*id),
             _ => None,
         };
-        self.parked_buffers.insert(prev_ref.clone(), prev_buffer);
-        self.pane_refs.insert(prev_id, prev_ref);
-        self.active_pane = target;
         self.lsp.detach_current();
-        self.lsp.set_last_synced_version(self.editor.buffer.version);
-        // The parked buffer carries its existing highlighter, so the
+        self.lsp.set_last_synced_version(self.active_doc().version);
+        // The pooled document carries its existing highlighter, so the
         // common-case focus swap keeps syntax painted continuously.
-        // Only respawn when the parked copy is missing one (rare —
-        // either the open-time worker hadn't completed by the swap, or
-        // the buffer's grammar wasn't available at open). Respawning
+        // Only respawn when it's missing one (rare — either the
+        // open-time worker hadn't completed by the swap, or the
+        // document's grammar wasn't available at open). Respawning
         // unconditionally would null the highlighter for a few frames
-        // (see `spawn_engine_worker`) and flicker through plain
-        // text.
-        if let Some(path) = self.editor.buffer.path.clone() {
-            if self.editor.buffer.highlighter.is_none() {
+        // (see `spawn_engine_worker`) and flicker through plain text.
+        if let Some(path) = self.active_doc().path.clone() {
+            if self.active_doc().highlighter.is_none() {
                 self.spawn_engine_worker(&path);
             }
             self.spawn_lsp_worker(&path);
@@ -532,5 +470,49 @@ impl App {
         let id = self.next_pane_id;
         self.next_pane_id = self.next_pane_id.saturating_add(1);
         id
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! The new capability Phase B unlocks: one pooled document shown in
+    //! two panes through two sessions with independent cursors. A full
+    //! `App` is heavy to build in a unit test (config + LSP + worker
+    //! channels), so this exercises the storage model directly — a
+    //! `documents` pool plus two `Editor`s naming the same `BufferRef`,
+    //! mirroring exactly what `split_window` sets up.
+
+    use crate::buffer_ref::BufferRef;
+    use crate::editor::{Buffer, Cursor, Editor};
+    use std::collections::HashMap;
+
+    #[test]
+    fn split_shares_document_with_independent_cursors() {
+        let mut documents: HashMap<BufferRef, Buffer> = HashMap::new();
+        let doc_ref = BufferRef::Scratch(0);
+        let mut buf = Buffer::new();
+        buf.lines = vec!["alpha".into(), "beta".into(), "gamma".into()];
+        documents.insert(doc_ref.clone(), buf);
+
+        // Two sessions over the SAME pooled document (the `split_window`
+        // shape: same `doc` ref, independent cursors).
+        let mut a = Editor::for_doc(doc_ref.clone());
+        let mut b = Editor::for_doc(doc_ref.clone());
+        a.cursor = Cursor { row: 0, col: 0 };
+        b.cursor = Cursor { row: 2, col: 0 };
+
+        // Pane A edits the shared document.
+        {
+            let doc = documents.get_mut(&a.doc).unwrap();
+            a.insert_char(doc, 'X');
+        }
+
+        // The edit is visible through pane B's view of the SAME document…
+        let shared = documents.get(&b.doc).unwrap();
+        assert_eq!(shared.lines[0], "Xalpha");
+        // …yet the two panes keep separate cursors: A advanced past the
+        // inserted char, B is untouched on its own row.
+        assert_eq!(a.cursor, Cursor { row: 0, col: 1 });
+        assert_eq!(b.cursor, Cursor { row: 2, col: 0 });
     }
 }

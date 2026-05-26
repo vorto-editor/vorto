@@ -83,7 +83,7 @@ impl App {
             self.completion = None;
             return;
         }
-        let line = &self.editor.buffer.lines[cursor.row];
+        let line = &self.active_doc().lines[cursor.row];
         let prefix = prefix_slice(line, prefix_start.col, cursor.col);
         let state = CompletionState::new(prefix_start, items, &prefix);
         if state.is_empty() {
@@ -169,15 +169,16 @@ impl App {
                 added - removed
             })
             .sum();
-        self.editor.snapshot();
-        let mut lines = std::mem::take(&mut self.editor.buffer.lines);
+        ed_op!(self, snapshot());
+        let doc = self.active_doc_mut();
+        let mut lines = std::mem::take(&mut doc.lines);
         lsp::apply_text_edits(&mut lines, edits);
-        self.editor.buffer.lines = lines;
+        doc.lines = lines;
+        let last = doc.lines.len().saturating_sub(1);
+        doc.bump_version();
+        doc.dirty = true;
         let new_row = (cursor_row as i64 + row_shift).max(0) as usize;
-        let last = self.editor.buffer.lines.len().saturating_sub(1);
         self.editor.cursor.row = new_row.min(last);
-        self.editor.buffer.bump_version();
-        self.editor.buffer.dirty = true;
     }
 
     fn apply_jump_outcome(&mut self, label: &'static str, locations: Vec<Location>) {
@@ -232,12 +233,13 @@ impl App {
         match self.lsp.apply_workspace_edit(edit) {
             Ok(result) => {
                 if !result.current_buffer_edits.is_empty() {
-                    self.editor.snapshot();
-                    let mut lines = std::mem::take(&mut self.editor.buffer.lines);
+                    ed_op!(self, snapshot());
+                    let doc = self.active_doc_mut();
+                    let mut lines = std::mem::take(&mut doc.lines);
                     lsp::apply_text_edits(&mut lines, result.current_buffer_edits);
-                    self.editor.buffer.lines = lines;
-                    self.editor.buffer.bump_version();
-                    self.editor.buffer.dirty = true;
+                    doc.lines = lines;
+                    doc.bump_version();
+                    doc.dirty = true;
                 }
                 self.push_toast(Toast::info(format!(
                     "renamed to {} ({} occurrences in {} files)",
@@ -271,12 +273,13 @@ impl App {
         match self.lsp.apply_workspace_edit(edit) {
             Ok(result) => {
                 if !result.current_buffer_edits.is_empty() {
-                    self.editor.snapshot();
-                    let mut lines = std::mem::take(&mut self.editor.buffer.lines);
+                    ed_op!(self, snapshot());
+                    let doc = self.active_doc_mut();
+                    let mut lines = std::mem::take(&mut doc.lines);
                     lsp::apply_text_edits(&mut lines, result.current_buffer_edits);
-                    self.editor.buffer.lines = lines;
-                    self.editor.buffer.bump_version();
-                    self.editor.buffer.dirty = true;
+                    doc.lines = lines;
+                    doc.bump_version();
+                    doc.dirty = true;
                 }
                 self.push_toast(Toast::info(format!(
                     "{} ({} edits in {} files)",

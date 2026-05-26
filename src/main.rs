@@ -213,7 +213,7 @@ fn run(
     let mut last_shape: Option<CursorShape> = None;
     let mut prev_prompt_open = false;
     while !app.should_quit {
-        app.editor.buffer.refresh_highlights();
+        app.active_doc_mut().refresh_highlights();
         app.tick_toasts();
         // When any modal prompt (fuzzy picker, hover popup, completion,
         // …) just closed, force a full repaint of the next frame. The

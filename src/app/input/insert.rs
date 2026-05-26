@@ -97,7 +97,7 @@ impl App {
                 // recomputed). Punt for v1 — only the primary types
                 // newlines, extras stay put.
                 let indent = self.indent_settings();
-                self.editor.insert_newline(indent);
+                ed_op!(self, insert_newline(indent));
                 self.record_insert_key(InsertKey::Newline);
                 self.cancel_completion();
                 // Newline almost always ends the call argument we were
@@ -138,7 +138,7 @@ impl App {
                 // the line's style), fall through to a literal `\t` so
                 // we don't mix soft-tab spaces into a tab-indented row.
                 let indent = self.indent_settings();
-                let leading_has_tab = self.editor.buffer.lines[self.editor.cursor.row]
+                let leading_has_tab = self.active_doc().lines[self.editor.cursor.row]
                     .chars()
                     .take_while(|c| c.is_whitespace())
                     .any(|c| c == '\t');
@@ -167,28 +167,28 @@ impl App {
             // cursors are merged by `scatter_cursors`.
             KeyCode::Left => {
                 self.recording = None;
-                self.fan_out_move(|b| b.move_left());
+                self.fan_out_move(|b, _doc| b.move_left());
                 self.cancel_completion();
                 self.update_signature_help_on_edit();
                 self.schedule_inline_suggestion();
             }
             KeyCode::Right => {
                 self.recording = None;
-                self.fan_out_move(|b| b.move_right(true));
+                self.fan_out_move(|b, doc| b.move_right(doc, true));
                 self.cancel_completion();
                 self.update_signature_help_on_edit();
                 self.schedule_inline_suggestion();
             }
             KeyCode::Up => {
                 self.recording = None;
-                self.fan_out_move(|b| b.move_up());
+                self.fan_out_move(|b, doc| b.move_up(doc));
                 self.cancel_completion();
                 self.cancel_signature_help();
                 self.schedule_inline_suggestion();
             }
             KeyCode::Down => {
                 self.recording = None;
-                self.fan_out_move(|b| b.move_down());
+                self.fan_out_move(|b, doc| b.move_down(doc));
                 self.cancel_completion();
                 self.cancel_signature_help();
                 self.schedule_inline_suggestion();
@@ -277,16 +277,18 @@ impl App {
     fn fan_out_insert_char(&mut self, ch: char) {
         if self.editor.extra_cursors.is_empty() {
             let indent = self.indent_settings();
-            self.editor.insert_char_smart(ch, indent);
+            ed_op!(self, insert_char_smart(ch, indent));
             return;
         }
         let mut all = collect_cursors(self);
         all.sort_by_key(|(_, c)| std::cmp::Reverse((c.row, c.col)));
         let mut new_positions = vec![Cursor::default(); all.len()];
+        let doc_ref = self.editor.doc.clone();
+        let doc = self.documents.get_mut(&doc_ref).expect("active doc present");
         for i in 0..all.len() {
             let (orig_idx, pos) = all[i];
             self.editor.cursor = pos;
-            self.editor.insert_char(ch);
+            self.editor.insert_char(doc, ch);
             new_positions[orig_idx] = self.editor.cursor;
             for (other_orig_idx, _) in all.iter().take(i) {
                 if new_positions[*other_orig_idx].row == pos.row {
@@ -307,12 +309,14 @@ impl App {
     fn fan_out_backspace(&mut self) {
         if self.editor.extra_cursors.is_empty() {
             let indent = self.indent_settings();
-            self.editor.delete_char_before_smart(indent);
+            ed_op!(self, delete_char_before_smart(indent));
             return;
         }
         let mut all = collect_cursors(self);
         all.sort_by_key(|(_, c)| std::cmp::Reverse((c.row, c.col)));
         let mut new_positions = vec![Cursor::default(); all.len()];
+        let doc_ref = self.editor.doc.clone();
+        let doc = self.documents.get_mut(&doc_ref).expect("active doc present");
         for i in 0..all.len() {
             let (orig_idx, pos) = all[i];
             if pos.col == 0 {
@@ -320,7 +324,7 @@ impl App {
                 // col 0 stay put rather than risk a row collapse.
                 if orig_idx == 0 {
                     self.editor.cursor = pos;
-                    self.editor.delete_char_before();
+                    self.editor.delete_char_before(doc);
                     new_positions[orig_idx] = self.editor.cursor;
                 } else {
                     new_positions[orig_idx] = pos;
@@ -328,7 +332,7 @@ impl App {
                 continue;
             }
             self.editor.cursor = pos;
-            self.editor.delete_char_before();
+            self.editor.delete_char_before(doc);
             new_positions[orig_idx] = self.editor.cursor;
             for (other_orig_idx, _) in all.iter().take(i) {
                 if new_positions[*other_orig_idx].row == pos.row
@@ -350,7 +354,7 @@ impl App {
     fn fan_out_dedent(&mut self) {
         let indent = self.indent_settings();
         if self.editor.extra_cursors.is_empty() {
-            self.editor.dedent_current_line(indent);
+            ed_op!(self, dedent_current_line(indent));
             return;
         }
         let all = collect_cursors(self);
@@ -358,10 +362,12 @@ impl App {
         rows.sort_unstable();
         rows.dedup();
         let mut removed: Vec<(usize, usize)> = Vec::with_capacity(rows.len());
+        let doc_ref = self.editor.doc.clone();
+        let doc = self.documents.get_mut(&doc_ref).expect("active doc present");
         for row in rows {
-            let before = self.editor.buffer.lines[row].chars().count();
-            self.editor.dedent_line(row, indent);
-            let after = self.editor.buffer.lines[row].chars().count();
+            let before = doc.lines[row].chars().count();
+            self.editor.dedent_line(doc, row, indent);
+            let after = doc.lines[row].chars().count();
             removed.push((row, before - after));
         }
         let mut new_positions = vec![Cursor::default(); all.len()];
@@ -382,16 +388,19 @@ impl App {
     /// Apply a cursor motion at the primary cursor and every extra
     /// cursor. Each cursor moves independently; coincident results are
     /// merged by `scatter_cursors`.
-    fn fan_out_move(&mut self, mut f: impl FnMut(&mut Editor)) {
+    fn fan_out_move(&mut self, mut f: impl FnMut(&mut Editor, &crate::editor::Buffer)) {
+        let doc_ref = self.editor.doc.clone();
         if self.editor.extra_cursors.is_empty() {
-            f(&mut self.editor);
+            let doc = self.documents.get(&doc_ref).expect("active doc present");
+            f(&mut self.editor, doc);
             return;
         }
         let all = collect_cursors(self);
         let mut new_positions = vec![Cursor::default(); all.len()];
+        let doc = self.documents.get(&doc_ref).expect("active doc present");
         for (orig_idx, pos) in &all {
             self.editor.cursor = *pos;
-            f(&mut self.editor);
+            f(&mut self.editor, doc);
             new_positions[*orig_idx] = self.editor.cursor;
         }
         scatter_cursors(self, new_positions);
@@ -410,7 +419,7 @@ impl App {
         self.cancel_completion();
         self.cancel_signature_help();
         self.schedule_inline_suggestion();
-        self.editor.insert_text_raw(&s);
+        ed_op!(self, insert_text_raw(&s));
         self.record_insert_key(InsertKey::Paste(s));
     }
 
@@ -458,7 +467,7 @@ impl App {
     /// on a single-letter prefix.
     fn typed_prefix_len(&self) -> usize {
         let cursor = self.editor.cursor;
-        let line = &self.editor.buffer.lines[cursor.row];
+        let line = &self.active_doc().lines[cursor.row];
         let start = identifier_prefix_start(line, cursor.col);
         cursor.col.saturating_sub(start)
     }

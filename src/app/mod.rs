@@ -6,6 +6,38 @@
 //! orchestration, Normal-mode evaluation) is split across sibling
 //! `impl App { ... }` blocks in the submodules below.
 
+/// Call a mutating [`crate::editor::Editor`] op on the active session,
+/// threading the active document out of the pool. Expands to the
+/// resolve-ref-then-`get_mut` dance so the `&mut Buffer` borrow and the
+/// `&mut Editor` borrow stay disjoint field projections of the same
+/// `App`. Use at any `app.editor.<op>(...)` site that mutates the
+/// document. `$app` is the `App` place (e.g. `self` or `app`).
+macro_rules! ed_op {
+    ($app:expr, $method:ident ( $($arg:expr),* $(,)? )) => {{
+        let __doc_ref = $app.editor.doc.clone();
+        let __doc = $app
+            .documents
+            .get_mut(&__doc_ref)
+            .expect("active doc present in pool");
+        $app.editor.$method(__doc, $($arg),*)
+    }};
+}
+
+/// Read-only counterpart to [`ed_op!`] for [`crate::editor::Editor`]
+/// methods that take `&Buffer`. The borrowed document is released at
+/// the end of the expression, so the call's return value must be owned
+/// (e.g. an `Option<(Cursor, Cursor)>`), not a borrow into the buffer.
+macro_rules! ed_op_ref {
+    ($app:expr, $method:ident ( $($arg:expr),* $(,)? )) => {{
+        let __doc_ref = $app.editor.doc.clone();
+        let __doc = $app
+            .documents
+            .get(&__doc_ref)
+            .expect("active doc present in pool");
+        $app.editor.$method(__doc, $($arg),*)
+    }};
+}
+
 mod agent;
 mod buffer_list;
 mod comment;
@@ -79,10 +111,19 @@ pub use crate::prompt::Prompt;
 const MRU_CAP: usize = 64;
 
 pub struct App {
-    /// Active editing session — owns the document (`buffer`), the
-    /// cursor / multi-cursor / mode for this view, and the in-flight
-    /// command token stream.
+    /// Active editing session. *References* its document via
+    /// [`Editor::doc`]; the document itself lives in [`Self::documents`].
+    /// Carries the cursor / multi-cursor / mode for this view and the
+    /// in-flight command token stream. Kept as a dedicated field (rather
+    /// than another entry in `pane_editors`) so the hot path
+    /// `self.editor.cursor` / `.mode` / `.tokens` stays a single field
+    /// access.
     pub editor: Editor,
+    /// The shared document pool. Always contains the document named by
+    /// `self.editor.doc` and by every entry in [`Self::pane_editors`].
+    /// Two panes showing the same buffer name one entry here through
+    /// equal [`BufferRef`]s while keeping independent cursors.
+    pub documents: std::collections::HashMap<BufferRef, crate::editor::Buffer>,
     pub prompt: PromptController,
     pub search: SearchState,
     pub toasts: ToastQueue,
@@ -227,21 +268,17 @@ pub struct App {
     /// active-pane convention.
     pub layout: PaneLayout,
     /// Pane id of the currently-active leaf in [`Self::layout`]. The
-    /// buffer for that pane is `App.buffer`; other leaves' buffers
-    /// live in [`Self::parked_buffers`], looked up via
-    /// [`Self::pane_refs`].
+    /// session for that pane is `App.editor`; other leaves' sessions
+    /// live in [`Self::pane_editors`].
     pub active_pane: PaneId,
-    /// What buffer each *inactive* pane is currently displaying.
-    /// The active pane's ref is derived on demand from `App.buffer`
-    /// via [`Self::active_ref`], so this map only carries the
-    /// non-active leaves of [`Self::layout`]. Used together with
-    /// [`Self::parked_buffers`] to find an inactive pane's content.
-    pub pane_refs: std::collections::HashMap<PaneId, crate::buffer_ref::BufferRef>,
-    /// Live buffer pool for buffers currently visible in an inactive
-    /// pane. Stays uncompressed (unlike [`Self::sleeping`]) so a focus
-    /// swap is instant. Buffers shown nowhere live in `sleeping`
-    /// instead.
-    pub parked_buffers: std::collections::HashMap<crate::buffer_ref::BufferRef, Editor>,
+    /// Per-pane editing sessions for every *inactive* leaf of
+    /// [`Self::layout`], keyed by [`PaneId`]. The active pane's session
+    /// is `App.editor` and is NOT also stored here. Keying by pane (not
+    /// by buffer ref) is what lets two panes show the same document with
+    /// independent cursors — each `Editor` carries its own cursor and
+    /// names its document through `.doc`. The documents themselves live
+    /// in [`Self::documents`].
+    pub pane_editors: std::collections::HashMap<PaneId, Editor>,
     /// Counter for [`Self::mint_pane_id`]. Monotonic — never reused so
     /// a sleeping pane snapshot can't be confused with a fresh one.
     pub next_pane_id: PaneId,
@@ -307,8 +344,11 @@ impl App {
                 let _ = preview_emit_tx.send(AppEvent::PreviewReady(entry));
             }),
         );
+        let mut documents = HashMap::new();
+        documents.insert(BufferRef::Scratch(0), crate::editor::Buffer::new());
         Self {
             editor: Editor::new(),
+            documents,
             prompt: PromptController::new(),
             search: SearchState::default(),
             toasts: ToastQueue::new(),
@@ -346,10 +386,9 @@ impl App {
             clipboard: None,
             layout: PaneLayout::Leaf(pane::INITIAL_PANE_ID),
             active_pane: pane::INITIAL_PANE_ID,
-            // pane_refs only tracks inactive panes — the initial layout
-            // has just the active pane, so this starts empty.
-            pane_refs: HashMap::new(),
-            parked_buffers: HashMap::new(),
+            // pane_editors only tracks inactive panes — the initial
+            // layout has just the active pane, so this starts empty.
+            pane_editors: HashMap::new(),
             next_pane_id: pane::NEXT_PANE_ID_SEED,
             last_pane_rects: RefCell::new(PaneRectMap::default()),
             asked_grammars: std::collections::HashSet::new(),
@@ -375,6 +414,22 @@ impl App {
         }
     }
 
+    /// The document the active session ([`Self::editor`]) is editing.
+    /// Panics if the pool invariant is broken (the active doc must
+    /// always be present).
+    pub fn active_doc(&self) -> &crate::editor::Buffer {
+        self.documents
+            .get(&self.editor.doc)
+            .expect("active doc present in pool")
+    }
+
+    /// Mutable counterpart to [`Self::active_doc`].
+    pub fn active_doc_mut(&mut self) -> &mut crate::editor::Buffer {
+        self.documents
+            .get_mut(&self.editor.doc)
+            .expect("active doc present in pool")
+    }
+
     /// Current selection range, if the editor is in any visual mode and
     /// an anchor is set. Returns `None` otherwise.
     pub fn selection(&self) -> Option<Selection> {
@@ -386,13 +441,14 @@ impl App {
     /// char-wise selection is inclusive (vim-style), so it's advanced one
     /// char to match what visual `y` would capture.
     pub fn selection_text(&self) -> Option<String> {
+        let doc = self.active_doc();
         Some(match self.selection()? {
             Selection::Char { from, to } => {
-                let end = self.editor.buffer.advance_one(to);
-                self.editor.buffer.range_text(from, end)
+                let end = doc.advance_one(to);
+                doc.range_text(from, end)
             }
-            Selection::Line { from_row, to_row } => self.editor.buffer.lines_text(from_row, to_row),
-            Selection::Block { r0, c0, r1, c1 } => self.editor.buffer.block_text(r0, c0, r1, c1),
+            Selection::Line { from_row, to_row } => doc.lines_text(from_row, to_row),
+            Selection::Block { r0, c0, r1, c1 } => doc.block_text(r0, c0, r1, c1),
         })
     }
 
@@ -423,7 +479,7 @@ impl App {
         // Only wake during the in-flight phase. Settled entries
         // (Instant = None) sit in the cache purely to detect future
         // scope changes; they shouldn't keep the loop spinning.
-        match self.editor.buffer.indent_anim.get() {
+        match self.active_doc().indent_anim.get() {
             Some((Some(_), _, _)) => Some(std::time::Duration::from_millis(16)),
             _ => None,
         }
@@ -468,7 +524,7 @@ impl App {
     /// renderer all agree.
     pub fn char_col_visual(&self, row: usize, char_col: usize) -> usize {
         let tab_width = self.effective_editor().tab_width.max(1);
-        let Some(line) = self.editor.buffer.lines.get(row) else {
+        let Some(line) = self.active_doc().lines.get(row) else {
             return 0;
         };
         crate::text_width::visual_col_of(line, char_col, tab_width)
@@ -484,7 +540,7 @@ impl App {
     /// scroll` undercounts whenever any earlier visible row carries a
     /// diagnostic.
     pub fn visual_row_offset(&self, row: usize) -> Option<u16> {
-        let scroll = self.editor.buffer.scroll.get();
+        let scroll = self.active_doc().scroll.get();
         if row < scroll {
             return None;
         }
@@ -589,11 +645,15 @@ impl App {
             // — Copilot already supplies its own indentation for each
             // continuation row, and `insert_newline`'s reindent would
             // stack on top of it.
-            self.editor.insert_text_raw(&text);
+            let r = self.editor.doc.clone();
+            let doc = self.documents.get_mut(&r).expect("active doc present");
+            self.editor.insert_text_raw(doc, &text);
         } else {
             let indent = self.indent_settings();
+            let r = self.editor.doc.clone();
+            let doc = self.documents.get_mut(&r).expect("active doc present");
             for c in text.chars() {
-                self.editor.insert_char_smart(c, indent);
+                self.editor.insert_char_smart(doc, c, indent);
             }
         }
         true
@@ -618,7 +678,7 @@ impl App {
     /// defaults are returned as-is.
     pub fn effective_editor(&self) -> EditorConfig {
         let base = self.config.editor;
-        let Some(path) = self.editor.buffer.path.as_ref() else {
+        let Some(path) = self.active_doc().path.as_ref() else {
             return base;
         };
         let Some(ext) = path.extension().and_then(|e| e.to_str()) else {
