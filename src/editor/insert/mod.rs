@@ -504,8 +504,8 @@ impl Editor {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::Ed;
+    use super::*;
 
     fn settings() -> IndentSettings {
         IndentSettings {

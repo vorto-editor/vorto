@@ -184,8 +184,7 @@ impl Editor {
             Scope::Inner => (start, end),
             Scope::Around => {
                 let mut ae = end;
-                while ae + 1 < buf.lines.len()
-                    && is_blank_line(&buf.lines[ae + 1]) != target_blank
+                while ae + 1 < buf.lines.len() && is_blank_line(&buf.lines[ae + 1]) != target_blank
                 {
                     ae += 1;
                 }

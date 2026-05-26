@@ -380,7 +380,11 @@ impl App {
 /// Per-row char-count snapshot, used to spot what a single fan-out
 /// step did to the buffer.
 fn line_chars(app: &App) -> Vec<usize> {
-    app.active_doc().lines.iter().map(|l| l.chars().count()).collect()
+    app.active_doc()
+        .lines
+        .iter()
+        .map(|l| l.chars().count())
+        .collect()
 }
 
 /// Apply the buffer diff between `before` and `after` to the cursors

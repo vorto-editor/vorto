@@ -89,7 +89,9 @@ impl App {
         // genuinely idle. Other modes leave the toast alone — the user
         // is in the middle of input and shouldn't have side effects on
         // mode-exit Esc.
-        if matches!(self.editor.mode, Mode::Normal) && key.code == KeyCode::Esc && self.toasts.has_fatal()
+        if matches!(self.editor.mode, Mode::Normal)
+            && key.code == KeyCode::Esc
+            && self.toasts.has_fatal()
         {
             self.toasts.dismiss_fatal();
             return Ok(());
@@ -107,7 +109,12 @@ impl App {
         }
 
         // Normal mode: tokenize → classify → evaluate.
-        match eval::tokenize(&self.config.keymap, &self.editor.tokens, self.editor.mode, key) {
+        match eval::tokenize(
+            &self.config.keymap,
+            &self.editor.tokens,
+            self.editor.mode,
+            key,
+        ) {
             Some(t) => self.editor.tokens.push(t),
             None => {
                 self.editor.tokens.clear();
