@@ -101,6 +101,15 @@ impl App {
             return self.replay_last_change(count, ctx);
         }
 
+        // Jump-class motions record the pre-jump position so `Ctrl-O`
+        // can return. Only the synchronous in-buffer ones are caught
+        // here; search / LSP / picker / buffer-switch jumps record at
+        // their own landing sites (so async LSP jumps only record when
+        // they actually land, and pickers record cross-file origins).
+        if expr_records_jump(&expr) {
+            self.record_jump();
+        }
+
         let modifies = expr_modifies_buffer(&expr);
         let snapshot = if modifies { Some(expr.clone()) } else { None };
         let cmds = if should_fan_out(&expr) && !self.editor.extra_cursors.is_empty() {
@@ -180,6 +189,30 @@ impl App {
                 Ok(())
             }
         }
+    }
+}
+
+/// True for expressions that move the cursor far enough within the
+/// current buffer to count as a "jump" for the jumplist — vim's set of
+/// jump motions, minus the ones (`/`, `n`, `gn`, `gd`, …) that land
+/// through a dedicated runtime path which records there instead.
+fn expr_records_jump(expr: &Expr) -> bool {
+    use DirectKind as D;
+    use MotionKind as M;
+    match expr {
+        Expr::Motion(m) => matches!(
+            m.motion,
+            M::FileStart
+                | M::FileEnd
+                | M::BracketMatch
+                | M::ParagraphBack
+                | M::ParagraphForward
+                | M::ViewportTop
+                | M::ViewportMiddle
+                | M::ViewportBottom
+        ),
+        Expr::Direct { kind, .. } => matches!(kind, D::GotoLine | D::SelectWholeBuffer),
+        _ => false,
     }
 }
 

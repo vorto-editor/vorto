@@ -39,6 +39,11 @@ pub enum FuzzyKind {
     Diagnostics {
         workspace: bool,
     },
+    /// `:jumps` / `<space>j` — fuzzy picker over the jump history. Same
+    /// data shape as [`Locations`] (display strings + a parallel
+    /// `Vec<Location>` on the prompt controller); submit fires
+    /// `JumpToLocation`. Split out only so the picker title differs.
+    Jumps,
 }
 
 #[derive(Debug, Clone)]
@@ -127,6 +132,23 @@ impl Finder {
     pub fn buffers(items: Vec<String>) -> Self {
         let mut f = Self {
             kind: FuzzyKind::Buffers,
+            query: String::new(),
+            items,
+            file_lines: Vec::new(),
+            matches: Vec::new(),
+            selected: 0,
+            cursor: 0,
+        };
+        f.refilter();
+        f
+    }
+
+    /// Build a [`FuzzyKind::Jumps`] picker — identical plumbing to
+    /// [`Self::locations`] (parallel `Vec<Location>` on the caller),
+    /// only the `kind` differs so the title reads "jumps".
+    pub fn jumps(items: Vec<String>) -> Self {
+        let mut f = Self {
+            kind: FuzzyKind::Jumps,
             query: String::new(),
             items,
             file_lines: Vec::new(),

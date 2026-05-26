@@ -140,6 +140,16 @@ pub enum Cmd {
     /// that `App::buffer` carries) and seeds `App::jump_state`.
     StartJumpLabel,
 
+    // ── Jump history (jumplist) ──────────────────────────────
+    /// `Ctrl-O` — step `count` entries back through the jump history.
+    JumpBack {
+        count: u32,
+    },
+    /// `Ctrl-I` / `Tab` — step `count` entries forward.
+    JumpForward {
+        count: u32,
+    },
+
     // ── Selection ────────────────────────────────────────────
     /// `gA` — select the whole buffer. Pins the visual anchor at
     /// (0, 0), enters Visual-line, lands the cursor on the last row.

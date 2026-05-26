@@ -374,6 +374,13 @@ impl PromptController {
         self.state = Prompt::Fuzzy(Finder::locations(items));
     }
 
+    /// Open the jump-history picker. Same `Location` side-channel as
+    /// [`Self::open_locations`]; submit fires `JumpToLocation`.
+    pub fn open_jumps(&mut self, items: Vec<String>, locations: Vec<Location>) {
+        self.locations = locations;
+        self.state = Prompt::Fuzzy(Finder::jumps(items));
+    }
+
     /// `<space>d` / `<space>D` — diagnostics picker. Same `Location`
     /// side-channel as references; only the picker kind (and therefore
     /// the title / formatting) differs.
@@ -1089,7 +1096,7 @@ impl PromptController {
                 PromptOutcome::OpenRelativeFile(finder.items[sel.idx].clone())
             }
             FuzzyKind::Lines => PromptOutcome::GotoLine(sel.idx),
-            FuzzyKind::Locations | FuzzyKind::Diagnostics { .. } => {
+            FuzzyKind::Locations | FuzzyKind::Jumps | FuzzyKind::Diagnostics { .. } => {
                 let loc = self.locations.get(sel.idx).cloned();
                 self.locations.clear();
                 match loc {

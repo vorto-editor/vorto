@@ -381,6 +381,12 @@ pub const LEADER_DEFAULTS: &[Binding] = {
             label: "buffer picker",
         },
         Binding {
+            key: KeyCode::Char('j'),
+            aliases: &[],
+            token: Dir(D::JumpList),
+            label: "jump history",
+        },
+        Binding {
             key: KeyCode::Char('e'),
             aliases: &[],
             token: Dir(D::OpenPrompt(PromptKind::Explorer)),
@@ -850,6 +856,18 @@ impl Keymap {
         ] {
             self.bind_initial(KeySig::new(KeyCode::Char(ch), ctrl), Motion(m));
         }
+
+        // Jumplist navigation. `Ctrl-O` steps back, `Ctrl-I` forward —
+        // matching vim. `Tab` is bound to forward too: it's the same byte
+        // as `Ctrl-I` on legacy terminals, and the binding keeps the two
+        // equivalent under the Kitty protocol (where they arrive
+        // distinctly) so muscle memory works either way.
+        self.bind_initial(KeySig::new(KeyCode::Char('o'), ctrl), Direct(D::JumpBack));
+        self.bind_initial(
+            KeySig::new(KeyCode::Char('i'), ctrl),
+            Direct(D::JumpForward),
+        );
+        self.bind_initial(KeySig::new(KeyCode::Tab, none), Direct(D::JumpForward));
 
         // Multi-cursor: `+` adds a cursor at the next word match, `-`
         // removes the most recently added one. Bare keys (no Ctrl) so

@@ -63,7 +63,7 @@ mod workers;
 pub use completion::CompletionState;
 pub use copilot::{CopilotAuthState, CopilotPending};
 
-pub use jump::JumpState;
+pub use jump::{JumpList, JumpState};
 pub use lsp_coordinator::{LspCoordinator, LspEventOutcome};
 pub use pane::{PaneContent, PaneId, PaneLayout, PaneRect, PaneRectMap, SplitDir};
 pub use signature::{SignatureState, SignatureTrigger};
@@ -239,6 +239,15 @@ pub struct App {
     /// it's `Some`, the input dispatcher routes every key to
     /// [`App::handle_jump_key`] and the UI renders the label overlay.
     pub jump_state: Option<JumpState>,
+    /// Cross-buffer jump history (vim's jumplist). `Ctrl-O` / `Ctrl-I`
+    /// walk it; `:jumps` / `<space>j` open a picker over it. App-global
+    /// rather than per-`Editor` because a buffer switch replaces
+    /// `self.editor` wholesale.
+    pub jumps: JumpList,
+    /// True while a `Ctrl-O` / `Ctrl-I` / picker jump is in flight, so
+    /// the buffer-switch and cursor moves it performs aren't themselves
+    /// recorded as new jump origins.
+    pub navigating_jumplist: bool,
     /// Active LSP completion popup, if any. `Some` between a successful
     /// `textDocument/completion` response and the user accepting,
     /// dismissing, or invalidating it (cursor row change / backspace
@@ -400,6 +409,8 @@ impl App {
             recording: None,
             visual_g_pending: false,
             jump_state: None,
+            jumps: JumpList::default(),
+            navigating_jumplist: false,
             completion: None,
             signature: None,
             inline_suggestion: SuggestionState::default(),

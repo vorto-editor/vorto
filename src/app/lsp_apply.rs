@@ -310,7 +310,7 @@ impl App {
 /// Render a `path:line:col` label for an LSP `Location`. Used to
 /// populate the references picker. Falls back to the URI when the path
 /// can't be made relative.
-fn format_location_label(loc: &Location, root: &Path) -> String {
+pub(super) fn format_location_label(loc: &Location, root: &Path) -> String {
     let path = match lsp::uri_to_path(&loc.uri) {
         Some(p) => p,
         None => return loc.uri.clone(),

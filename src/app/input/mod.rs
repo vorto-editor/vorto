@@ -246,6 +246,7 @@ impl App {
             // from a keymap — fall through to a no-op rather than a fresh
             // empty picker that would do nothing useful on submit.
             PromptKind::Fuzzy(FuzzyKind::Locations) => {}
+            PromptKind::Fuzzy(FuzzyKind::Jumps) => self.open_jump_list(),
             PromptKind::Fuzzy(FuzzyKind::WorkspaceSearch) => self.open_workspace_search(),
             PromptKind::Fuzzy(FuzzyKind::Diagnostics { workspace }) => {
                 self.open_diagnostics_picker(workspace)

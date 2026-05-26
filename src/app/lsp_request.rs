@@ -592,6 +592,9 @@ impl App {
     pub(super) fn jump_to_location(&mut self, loc: &crate::lsp::Location) -> Result<()> {
         let path = lsp::uri_to_path(&loc.uri)
             .ok_or_else(|| anyhow::anyhow!("unsupported uri scheme: {}", loc.uri))?;
+        // Record where we're leaving from so `Ctrl-O` can return — covers
+        // `gd`/`gr`/picker jumps. A no-op while navigating the jumplist.
+        self.record_jump();
         let need_open = match &self.active_doc().path {
             Some(p) => p.canonicalize().ok() != path.canonicalize().ok(),
             None => true,

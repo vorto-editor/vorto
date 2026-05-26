@@ -229,7 +229,7 @@ fn render_match<'a>(
         FuzzyKind::Files { .. } | FuzzyKind::Buffers => {
             chars.iter().rposition(|c| *c == '/').map(|i| i + 1)
         }
-        FuzzyKind::Locations | FuzzyKind::WorkspaceSearch => {
+        FuzzyKind::Locations | FuzzyKind::Jumps | FuzzyKind::WorkspaceSearch => {
             let path_end = chars.iter().position(|c| *c == ':').unwrap_or(chars.len());
             chars[..path_end]
                 .iter()

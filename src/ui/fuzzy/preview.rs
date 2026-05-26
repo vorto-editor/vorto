@@ -39,7 +39,7 @@ pub(super) fn draw_fuzzy_preview(f: &mut Frame, app: &App, finder: &Finder, area
             let body = super::split_with_header(f, area, &label, header_style);
             preview_from_buffer(f, app, body, sel.idx);
         }
-        FuzzyKind::Locations | FuzzyKind::Diagnostics { .. } => {
+        FuzzyKind::Locations | FuzzyKind::Jumps | FuzzyKind::Diagnostics { .. } => {
             let Some(loc) = app.prompt.locations().get(sel.idx) else {
                 return;
             };

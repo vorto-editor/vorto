@@ -26,6 +26,9 @@ impl App {
                 if self.active_doc().path.is_none() && self.current_scratch_id == Some(id) {
                     return Ok(());
                 }
+                // Switching to a scratch buffer is a jump (the File arm
+                // records via `open_path`; this arm has no such path).
+                self.record_jump();
                 self.lsp.detach_current();
                 let key = BufferRef::Scratch(id);
                 // Ensure the target document is in the pool — another
@@ -147,6 +150,9 @@ impl App {
     ///    away. Wake the compressed snapshot into the pool.
     /// 3. **Fresh disk read** as fallback.
     pub fn open_path(&mut self, path: &Path) -> Result<()> {
+        // Leaving the current buffer is a jump — record the origin so
+        // `Ctrl-O` returns here. No-op while navigating the jumplist.
+        self.record_jump();
         let path = self.absolutize(path);
         let canon = path.canonicalize().unwrap_or_else(|_| path.clone());
         let key = BufferRef::File(canon);
