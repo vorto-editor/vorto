@@ -33,7 +33,7 @@ pub(super) fn draw_signature(f: &mut Frame, app: &App, buf_area: Rect) {
     // first char of the first arg, some servers return null).
     let active_param = sig.active_parameter.or(state.help.active_parameter);
 
-    let row = app.buffer.cursor.row;
+    let row = app.editor.cursor.row;
     let Some(rel_y) = app.visual_row_offset(row) else {
         return;
     };

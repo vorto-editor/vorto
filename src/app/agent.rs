@@ -94,20 +94,20 @@ impl App {
     /// snapshotted to a temp file first (the agent runs in a separate
     /// process and can't see vorto's in-memory edits).
     fn agent_file_target(&self) -> Result<AgentContext, String> {
-        if let Some(p) = &self.buffer.path
-            && !self.buffer.dirty
+        if let Some(p) = &self.editor.buffer.path
+            && !self.editor.buffer.dirty
         {
             return Ok(AgentContext::File(self.display_agent_path(p)));
         }
         let name = self
-            .buffer
+            .editor.buffer
             .path
             .as_ref()
             .and_then(|p| p.file_name())
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_else(|| "scratch".to_string());
         let p = self
-            .write_agent_temp(&name, &self.buffer.lines.join("\n"))
+            .write_agent_temp(&name, &self.editor.buffer.lines.join("\n"))
             .map_err(|e| format!("couldn't stage buffer for the agent: {e}"))?;
         Ok(AgentContext::File(self.display_agent_path(&p)))
     }
@@ -121,7 +121,7 @@ impl App {
             "no selection — select text in visual mode, then run :agent".to_string()
         })?;
         let origin = self
-            .buffer
+            .editor.buffer
             .path
             .as_ref()
             .map(|p| self.display_agent_path(p));

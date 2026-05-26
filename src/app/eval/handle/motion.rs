@@ -12,7 +12,7 @@ use crate::mode::Mode;
 pub(super) fn handle_motion(app: &mut App, m: MotionExpr) -> Vec<Cmd> {
     use MotionKind as M;
     let mut cmds = Vec::new();
-    let allow_after = matches!(app.buffer.mode, Mode::Insert);
+    let allow_after = matches!(app.editor.mode, Mode::Insert);
     let n = m.count;
 
     let (resolved, last_find_update) = resolve_motion_pure(m.motion, app.last_find);
@@ -27,26 +27,26 @@ pub(super) fn handle_motion(app: &mut App, m: MotionExpr) -> Vec<Cmd> {
     match resolved {
         M::Left => {
             for _ in 0..n {
-                app.buffer.move_left();
+                app.editor.move_left();
             }
         }
         M::Right => {
             for _ in 0..n {
-                app.buffer.move_right(allow_after);
+                app.editor.move_right(allow_after);
             }
         }
         M::Up => {
             for _ in 0..n {
-                app.buffer.move_up();
+                app.editor.move_up();
             }
         }
         M::Down => {
             for _ in 0..n {
-                app.buffer.move_down();
+                app.editor.move_down();
             }
         }
-        M::LineStart => app.buffer.move_line_start(),
-        M::LineEnd => app.buffer.move_line_end(),
+        M::LineStart => app.editor.move_line_start(),
+        M::LineEnd => app.editor.move_line_end(),
         // `*` / `#` extract the word under the cursor (buffer
         // read), then ask the runtime to seed the search state
         // and jump. The buffer mutation for the cursor jump
@@ -56,12 +56,12 @@ pub(super) fn handle_motion(app: &mut App, m: MotionExpr) -> Vec<Cmd> {
         M::SearchWordBack => push_word_search(app, &mut cmds, false, true),
         M::WordForward => {
             for _ in 0..n {
-                app.buffer.move_word_forward();
+                app.editor.move_word_forward();
             }
         }
         M::WordBack => {
             for _ in 0..n {
-                app.buffer.move_word_backward();
+                app.editor.move_word_backward();
             }
         }
         // Pure motions: ask the buffer for the target and assign.
@@ -82,8 +82,8 @@ pub(super) fn handle_motion(app: &mut App, m: MotionExpr) -> Vec<Cmd> {
         | M::HalfPageUp
         | M::PageDown
         | M::PageUp => {
-            let target = app.buffer.motion_target(app.buffer.cursor, resolved, n);
-            app.buffer.cursor = target;
+            let target = app.editor.buffer.motion_target(app.editor.cursor, resolved, n);
+            app.editor.cursor = target;
         }
         // Resolved away by `resolve_motion_pure` — should never
         // reach the match arm.
@@ -93,7 +93,7 @@ pub(super) fn handle_motion(app: &mut App, m: MotionExpr) -> Vec<Cmd> {
             if n > 1 {
                 app.goto_line_n_pure(n as usize);
             } else {
-                app.buffer.move_file_start();
+                app.editor.move_file_start();
             }
         }
         // `G` with no count goes to file end; `20G` to line 20.
@@ -101,7 +101,7 @@ pub(super) fn handle_motion(app: &mut App, m: MotionExpr) -> Vec<Cmd> {
             if n > 1 {
                 app.goto_line_n_pure(n as usize);
             } else {
-                app.buffer.move_file_end();
+                app.editor.move_file_end();
             }
         }
         M::SearchNext => {
@@ -116,12 +116,12 @@ pub(super) fn handle_motion(app: &mut App, m: MotionExpr) -> Vec<Cmd> {
         }
         M::ParagraphForward => {
             for _ in 0..n {
-                app.buffer.move_paragraph_forward();
+                app.editor.move_paragraph_forward();
             }
         }
         M::ParagraphBack => {
             for _ in 0..n {
-                app.buffer.move_paragraph_backward();
+                app.editor.move_paragraph_backward();
             }
         }
     }

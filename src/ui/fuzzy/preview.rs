@@ -53,7 +53,7 @@ pub(super) fn draw_fuzzy_preview(f: &mut Frame, app: &App, finder: &Finder, area
             // before falling through to disk — that way `:e new.rs`
             // followed by a switch keeps previewing the typed-but-
             // never-saved content, instead of "(cannot read file)".
-            if app.buffer.path.as_deref() == Some(path.as_path()) {
+            if app.editor.buffer.path.as_deref() == Some(path.as_path()) {
                 preview_from_buffer(f, app, body, row);
                 return;
             }
@@ -61,7 +61,7 @@ pub(super) fn draw_fuzzy_preview(f: &mut Frame, app: &App, finder: &Finder, area
                 if let crate::buffer_ref::BufferRef::File(p) = key
                     && p == &path
                 {
-                    preview_from_parked_buffer(f, body, buf, row);
+                    preview_from_parked_buffer(f, body, &buf.buffer, row);
                     return;
                 }
             }
@@ -117,7 +117,7 @@ pub(super) fn draw_fuzzy_preview(f: &mut Frame, app: &App, finder: &Finder, area
 /// the live scratch id so multiple `:new` scratches don't all collapse
 /// to `[scratch]`.
 fn buffer_label(app: &App) -> String {
-    match app.buffer.path.as_deref() {
+    match app.editor.buffer.path.as_deref() {
         Some(p) => display_path(app, p),
         None => crate::buffer_ref::BufferRef::scratch_label(app.current_scratch_id.unwrap_or(0)),
     }
@@ -135,11 +135,11 @@ fn display_path(app: &App, path: &std::path::Path) -> String {
 /// Render a Lines-kind preview using the current buffer and its existing
 /// highlighter (no file I/O needed).
 fn preview_from_buffer(f: &mut Frame, app: &App, area: Rect, target_row: usize) {
-    let lines = &app.buffer.lines;
+    let lines = &app.editor.buffer.lines;
     let height = area.height as usize;
     let (scroll, end) = preview_scroll(lines.len(), target_row, height);
     let captures = app
-        .buffer
+        .editor.buffer
         .highlighter
         .as_ref()
         .map(|h| h.captures_in_rows(scroll, end.saturating_sub(1)))

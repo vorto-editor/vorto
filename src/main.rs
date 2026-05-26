@@ -213,7 +213,7 @@ fn run(
     let mut last_shape: Option<CursorShape> = None;
     let mut prev_prompt_open = false;
     while !app.should_quit {
-        app.buffer.refresh_highlights();
+        app.editor.buffer.refresh_highlights();
         app.tick_toasts();
         // When any modal prompt (fuzzy picker, hover popup, completion,
         // …) just closed, force a full repaint of the next frame. The
@@ -231,7 +231,7 @@ fn run(
         }
         prev_prompt_open = now_open;
         terminal.draw(|f| ui::draw(f, app))?;
-        let shape = app.config.cursor_shapes.for_mode(app.buffer.mode);
+        let shape = app.config.cursor_shapes.for_mode(app.editor.mode);
         if last_shape != Some(shape) {
             let mut out = io::stdout();
             out.write_all(cursor_ansi(shape, app.config.cursor_shapes.blinking))?;

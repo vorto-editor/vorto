@@ -76,8 +76,8 @@ pub(super) fn compute_indent_guides(
     if last_visible <= scroll || indent_width == 0 {
         return map;
     }
-    let cursor_row = app.buffer.cursor.row;
-    let lines = &app.buffer.lines;
+    let cursor_row = app.editor.cursor.row;
+    let lines = &app.editor.buffer.lines;
     let line_count = lines.len();
     if line_count == 0 {
         return map;
@@ -166,7 +166,7 @@ pub(super) fn compute_indent_guides(
         // the active col on the header row.
         let s = lo_active.saturating_sub(1);
         let (anim_top, anim_bot) = animation_envelope(
-            &app.buffer.indent_anim,
+            &app.editor.buffer.indent_anim,
             (s, hi_active, ac),
             cursor_row,
             animation,
@@ -356,7 +356,7 @@ pub(super) fn active_scope_range(
     tab_width: usize,
     indent_width: usize,
 ) -> Option<(usize, usize, usize)> {
-    if let Some(h) = app.buffer.highlighter.as_ref() {
+    if let Some(h) = app.editor.buffer.highlighter.as_ref() {
         let scopes = h.indent_scopes_in_rows(cursor_row, cursor_row);
         // Innermost = smallest span containing the cursor.
         // Header (start) row counts as inside so moving from

@@ -54,7 +54,7 @@ impl App {
     /// and assigns labels. Cancels (with a status message) when there
     /// is nothing in the viewport to label.
     pub(super) fn start_jump_label(&mut self) {
-        let targets = collect_jump_targets(&self.buffer);
+        let targets = collect_jump_targets(&self.editor.buffer);
         if targets.is_empty() {
             self.push_toast(Toast::info("no jump targets"));
             return;
@@ -70,7 +70,7 @@ impl App {
     /// Handle a key while jump-label mode is active. Always consumes
     /// the key (the caller routes here unconditionally when
     /// `self.jump_state` is `Some`). Returns silently — state changes
-    /// are mutations to `self.jump_state` / `self.buffer.cursor`.
+    /// are mutations to `self.jump_state` / `self.editor.cursor`.
     pub(super) fn handle_jump_key(&mut self, key: KeyEvent) {
         // Esc / Ctrl-C / Ctrl-G — cancel.
         if key.code == KeyCode::Esc
@@ -121,7 +121,7 @@ impl App {
     }
 
     fn finish_jump(&mut self, pos: Cursor) {
-        self.buffer.cursor = pos;
+        self.editor.cursor = pos;
         self.jump_state = None;
         // The "jump: type label" hint is left to expire on its own —
         // wiping it would also wipe unrelated toasts the user might

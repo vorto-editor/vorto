@@ -59,16 +59,6 @@ use crate::vcs::{self, LineStatus};
 #[derive(Default)]
 pub struct Buffer {
     pub lines: Vec<String>,
-    pub cursor: Cursor,
-    /// Vim editing mode for this buffer's view. Lives on the buffer
-    /// (like `cursor` / `scroll`) so each buffer keeps its own mode and
-    /// a non-buffer pane simply has none. Defaults to `Normal`.
-    pub mode: Mode,
-    /// Additional cursor positions for multi-cursor editing. The primary
-    /// cursor lives in `cursor`; extras are *only* the non-primary ones,
-    /// stored in insertion order so a pop semantic ("remove last added")
-    /// is a simple `pop()`. Empty in the single-cursor common case.
-    pub extra_cursors: Vec<Cursor>,
     pub path: Option<PathBuf>,
     pub dirty: bool,
     pub yank: String,
@@ -208,6 +198,120 @@ impl Default for IndentSettings {
     }
 }
 
+/// Per-pane editing session. Owns its [`Buffer`] (the document) plus the
+/// cursor / multi-cursor / mode state that's specific to *this* view of
+/// the document, and the in-flight command token stream.
+#[derive(Default)]
+pub struct Editor {
+    /// The document this session is editing.
+    pub buffer: Buffer,
+    /// Primary cursor.
+    pub cursor: Cursor,
+    /// Additional cursor positions for multi-cursor editing. The primary
+    /// cursor lives in `cursor`; extras are *only* the non-primary ones,
+    /// stored in insertion order so a pop semantic ("remove last added")
+    /// is a simple `pop()`. Empty in the single-cursor common case.
+    pub extra_cursors: Vec<Cursor>,
+    /// Vim editing mode for this view. Defaults to `Normal`.
+    pub mode: Mode,
+    /// Accumulated command tokens since the last command fired. Cleared
+    /// on Complete dispatch or Invalid parse.
+    pub tokens: Vec<crate::action::Token>,
+}
+
+impl Editor {
+    /// Fresh session over an empty scratch buffer.
+    pub fn new() -> Self {
+        Self {
+            buffer: Buffer::new(),
+            cursor: Cursor::default(),
+            extra_cursors: Vec::new(),
+            mode: Mode::default(),
+            tokens: Vec::new(),
+        }
+    }
+
+    /// Wrap an already-built [`Buffer`] in a fresh session (cursor at the
+    /// origin, no extras, Normal mode).
+    pub fn from_buffer(buffer: Buffer) -> Self {
+        Self {
+            buffer,
+            cursor: Cursor::default(),
+            extra_cursors: Vec::new(),
+            mode: Mode::default(),
+            tokens: Vec::new(),
+        }
+    }
+
+    /// Load a file into a fresh session. Companion to
+    /// [`Buffer::load`] for callers that want the session wrapper in
+    /// one step; the app's open path builds the `Buffer` first and
+    /// wraps it via [`Editor::from_buffer`].
+    #[allow(dead_code)]
+    pub fn load(path: &Path) -> Result<Self> {
+        Ok(Self::from_buffer(Buffer::load(path)?))
+    }
+
+    /// Re-read `self.buffer.path` from disk and replace the buffer
+    /// contents in place. Caller is responsible for the dirty-vs-force
+    /// decision — this method always reloads.
+    ///
+    /// Returns:
+    /// - `Ok(true)` when the on-disk content differed and the buffer
+    ///   was rewritten (undo snapshot taken, version bumped, cursor
+    ///   clamped, highlighter refreshed).
+    /// - `Ok(false)` when disk matched the buffer — only `disk_meta`
+    ///   is refreshed (mtime alone may have moved), nothing else
+    ///   moves so undo history stays intact.
+    /// - `Err(_)` when the read failed or no path is attached.
+    pub fn reload_from_disk(&mut self) -> Result<bool> {
+        let path = self
+            .buffer
+            .path
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("no file name"))?;
+        let text = fs::read_to_string(&path)?;
+        let mut lines: Vec<String> = text.split('\n').map(|s| s.to_string()).collect();
+        if lines.is_empty() {
+            lines.push(String::new());
+        }
+        if lines == self.buffer.lines {
+            self.buffer.disk_meta = FileMeta::of(&path);
+            return Ok(false);
+        }
+        self.snapshot();
+        self.buffer.lines = lines;
+        self.buffer.dirty = false;
+        self.buffer.version = self.buffer.version.wrapping_add(1);
+        self.buffer.vcs_base = vcs::head_blob_lines(&path);
+        *self.buffer.vcs_diff.borrow_mut() = None;
+        self.buffer.disk_meta = FileMeta::of(&path);
+
+        // Clamp every cursor (primary + extras) into the possibly-shrunk
+        // buffer. Done inline instead of going through `clamp_col` so
+        // we can fix `row` first — `clamp_col` reads `current_line` off
+        // the primary cursor's row, which would panic if `row` were
+        // still past the new end.
+        let last_row = self.buffer.lines.len().saturating_sub(1);
+        let clamp_one = |c: &mut Cursor, lines: &[String]| {
+            if c.row > last_row {
+                c.row = last_row;
+            }
+            let row_len = lines.get(c.row).map(|s| s.chars().count()).unwrap_or(0);
+            if c.col > row_len {
+                c.col = row_len;
+            }
+        };
+        clamp_one(&mut self.cursor, &self.buffer.lines);
+        for c in &mut self.extra_cursors {
+            clamp_one(c, &self.buffer.lines);
+        }
+
+        self.buffer.refresh_highlights();
+        Ok(true)
+    }
+}
+
 impl Buffer {
     pub fn new() -> Self {
         Self {
@@ -225,9 +329,6 @@ impl Buffer {
         let disk_meta = FileMeta::of(path);
         Ok(Self {
             lines,
-            cursor: Cursor::default(),
-            mode: Mode::default(),
-            extra_cursors: Vec::new(),
             path: Some(path.to_path_buf()),
             dirty: false,
             yank: String::new(),
@@ -291,64 +392,6 @@ impl Buffer {
         }
         let source = self.lines.join("\n");
         h.refresh(&source, self.version);
-    }
-
-    /// Re-read `self.path` from disk and replace the buffer contents
-    /// in place. Caller is responsible for the dirty-vs-force decision
-    /// — this method always reloads.
-    ///
-    /// Returns:
-    /// - `Ok(true)` when the on-disk content differed and the buffer
-    ///   was rewritten (undo snapshot taken, version bumped, cursor
-    ///   clamped, highlighter refreshed).
-    /// - `Ok(false)` when disk matched the buffer — only `disk_meta`
-    ///   is refreshed (mtime alone may have moved), nothing else
-    ///   moves so undo history stays intact.
-    /// - `Err(_)` when the read failed or no path is attached.
-    pub fn reload_from_disk(&mut self) -> Result<bool> {
-        let path = self
-            .path
-            .clone()
-            .ok_or_else(|| anyhow::anyhow!("no file name"))?;
-        let text = fs::read_to_string(&path)?;
-        let mut lines: Vec<String> = text.split('\n').map(|s| s.to_string()).collect();
-        if lines.is_empty() {
-            lines.push(String::new());
-        }
-        if lines == self.lines {
-            self.disk_meta = FileMeta::of(&path);
-            return Ok(false);
-        }
-        self.snapshot();
-        self.lines = lines;
-        self.dirty = false;
-        self.version = self.version.wrapping_add(1);
-        self.vcs_base = vcs::head_blob_lines(&path);
-        *self.vcs_diff.borrow_mut() = None;
-        self.disk_meta = FileMeta::of(&path);
-
-        // Clamp every cursor (primary + extras) into the possibly-shrunk
-        // buffer. Done inline instead of going through `clamp_col` so
-        // we can fix `row` first — `clamp_col` reads `current_line` off
-        // the primary cursor's row, which would panic if `row` were
-        // still past the new end.
-        let last_row = self.lines.len().saturating_sub(1);
-        let clamp_one = |c: &mut Cursor, lines: &[String]| {
-            if c.row > last_row {
-                c.row = last_row;
-            }
-            let row_len = lines.get(c.row).map(|s| s.chars().count()).unwrap_or(0);
-            if c.col > row_len {
-                c.col = row_len;
-            }
-        };
-        clamp_one(&mut self.cursor, &self.lines);
-        for c in &mut self.extra_cursors {
-            clamp_one(c, &self.lines);
-        }
-
-        self.refresh_highlights();
-        Ok(true)
     }
 }
 

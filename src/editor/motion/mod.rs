@@ -10,7 +10,7 @@ mod find;
 mod viewport;
 mod word;
 
-use super::{Buffer, Cursor, is_blank_line};
+use super::{Buffer, Cursor, Editor, is_blank_line};
 use crate::action::MotionKind;
 
 use bracket::bracket_match;
@@ -133,26 +133,6 @@ impl Buffer {
         }
     }
 
-    pub fn move_word_forward(&mut self) {
-        self.cursor = self.peek_word_forward(self.cursor);
-    }
-
-    pub fn move_word_backward(&mut self) {
-        self.cursor = self.peek_word_back(self.cursor);
-    }
-
-    pub fn move_paragraph_forward(&mut self) {
-        self.cursor.row = paragraph_forward_row(&self.lines, self.cursor.row);
-        self.cursor.col = 0;
-        self.clamp_col(false);
-    }
-
-    pub fn move_paragraph_backward(&mut self) {
-        self.cursor.row = paragraph_back_row(&self.lines, self.cursor.row);
-        self.cursor.col = 0;
-        self.clamp_col(false);
-    }
-
     /// Next `w` target. Uses vim's character-class walker — words =
     /// `[A-Za-z0-9_]+`, punctuation = each contiguous run of other
     /// non-whitespace chars, whitespace separates them. We deliberately
@@ -166,6 +146,28 @@ impl Buffer {
     /// Symmetric counterpart of [`peek_word_forward`] for `b`.
     fn peek_word_back(&self, from: Cursor) -> Cursor {
         word_back_char_class(&self.lines, from)
+    }
+}
+
+impl Editor {
+    pub fn move_word_forward(&mut self) {
+        self.cursor = self.buffer.peek_word_forward(self.cursor);
+    }
+
+    pub fn move_word_backward(&mut self) {
+        self.cursor = self.buffer.peek_word_back(self.cursor);
+    }
+
+    pub fn move_paragraph_forward(&mut self) {
+        self.cursor.row = paragraph_forward_row(&self.buffer.lines, self.cursor.row);
+        self.cursor.col = 0;
+        self.clamp_col(false);
+    }
+
+    pub fn move_paragraph_backward(&mut self) {
+        self.cursor.row = paragraph_back_row(&self.buffer.lines, self.cursor.row);
+        self.cursor.col = 0;
+        self.clamp_col(false);
     }
 }
 

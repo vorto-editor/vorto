@@ -3,11 +3,11 @@
 //! motions live in [`super::motion`]; this file is the bare cursor
 //! arithmetic the rest of the editor builds on.
 
-use super::{Buffer, Cursor};
+use super::{Buffer, Cursor, Editor};
 
-impl Buffer {
+impl Editor {
     pub fn current_line(&self) -> &str {
-        &self.lines[self.cursor.row]
+        &self.buffer.lines[self.cursor.row]
     }
 
     pub fn current_line_len(&self) -> usize {
@@ -50,7 +50,7 @@ impl Buffer {
     }
 
     pub fn move_down(&mut self) {
-        if self.cursor.row + 1 < self.lines.len() {
+        if self.cursor.row + 1 < self.buffer.lines.len() {
             self.cursor.row += 1;
             self.clamp_col(false);
         }
@@ -70,11 +70,13 @@ impl Buffer {
     }
 
     pub fn move_file_end(&mut self) {
-        self.cursor.row = self.lines.len().saturating_sub(1);
+        self.cursor.row = self.buffer.lines.len().saturating_sub(1);
         self.cursor.col = 0;
         self.clamp_col(false);
     }
+}
 
+impl Buffer {
     /// Cursor one position past `c` (next char on the line, or first
     /// column of the next line if at line end). Used to turn an
     /// inclusive visual endpoint into the exclusive form `delete_range`

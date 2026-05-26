@@ -5,7 +5,7 @@
 use anyhow::Result;
 
 use crate::buffer_ref::BufferRef;
-use crate::editor::Buffer;
+use crate::editor::{Buffer, Editor};
 
 use super::pane::PaneLayout;
 use super::{App, Toast, root_cause};
@@ -41,7 +41,7 @@ impl App {
     /// `force`. The deleted buffer is *not* stashed — its content
     /// is gone, same as vim's `:bd`.
     pub fn buffer_delete(&mut self, force: bool) -> Result<()> {
-        if !force && self.buffer.dirty {
+        if !force && self.editor.buffer.dirty {
             self.push_toast(Toast::error("unsaved changes (use :bd!)"));
             return Ok(());
         }
@@ -74,12 +74,12 @@ impl App {
             Some(BufferRef::Scratch(id)) => {
                 let restored = match self.sleeping.remove(&BufferRef::Scratch(id)) {
                     Some(b) => b.thaw(),
-                    None => Buffer::new(),
+                    None => Editor::new(),
                 };
                 self.install_buffer(restored);
                 self.current_scratch_id = Some(id);
                 self.open_gen = self.open_gen.wrapping_add(1);
-                self.lsp.set_last_synced_version(self.buffer.version);
+                self.lsp.set_last_synced_version(self.editor.buffer.version);
                 self.record_opened(BufferRef::Scratch(id));
                 self.push_toast(Toast::info(format!(
                     "deleted, {}",
@@ -93,7 +93,7 @@ impl App {
                 if let Some(b) = self.sleeping.remove(&BufferRef::File(path.clone())) {
                     self.install_buffer(b.thaw());
                     self.open_gen = self.open_gen.wrapping_add(1);
-                    self.lsp.set_last_synced_version(self.buffer.version);
+                    self.lsp.set_last_synced_version(self.editor.buffer.version);
                     self.record_opened(BufferRef::File(path.clone()));
                     self.spawn_engine_worker(&path);
                     self.spawn_vcs_worker();
@@ -107,7 +107,7 @@ impl App {
                         Ok(b) => b,
                         Err(e) => {
                             let id = self.mint_scratch_id();
-                            self.install_buffer(Buffer::new());
+                            self.install_buffer(Editor::new());
                             self.current_scratch_id = Some(id);
                             self.open_gen = self.open_gen.wrapping_add(1);
                             self.record_opened(BufferRef::Scratch(id));
@@ -119,11 +119,11 @@ impl App {
                             return Ok(());
                         }
                     };
-                    self.install_buffer(loaded);
+                    self.install_buffer(Editor::from_buffer(loaded));
                     self.current_scratch_id = None;
                     self.record_opened(BufferRef::File(path.clone()));
                     self.open_gen = self.open_gen.wrapping_add(1);
-                    self.lsp.set_last_synced_version(self.buffer.version);
+                    self.lsp.set_last_synced_version(self.editor.buffer.version);
                     self.spawn_engine_worker(&path);
                     self.spawn_vcs_worker();
                     self.spawn_lsp_worker(&path);
@@ -134,7 +134,7 @@ impl App {
             None => {
                 // Nothing left — start a fresh scratch.
                 let id = self.mint_scratch_id();
-                self.install_buffer(Buffer::new());
+                self.install_buffer(Editor::new());
                 self.current_scratch_id = Some(id);
                 self.open_gen = self.open_gen.wrapping_add(1);
                 self.record_opened(BufferRef::Scratch(id));
@@ -156,7 +156,7 @@ impl App {
         // Tell every LSP client to release the URIs we had open —
         // covers the active buffer plus all parked / sleeping file
         // buffers. Scratch buffers don't have URIs.
-        if let Some(path) = self.buffer.path.clone() {
+        if let Some(path) = self.editor.buffer.path.clone() {
             let uri = crate::lsp::path_to_uri(&path);
             self.lsp.close_uri(&uri);
         } else {
@@ -185,10 +185,10 @@ impl App {
         self.layout = PaneLayout::Leaf(self.active_pane);
 
         let id = self.mint_scratch_id();
-        self.install_buffer(Buffer::new());
+        self.install_buffer(Editor::new());
         self.current_scratch_id = Some(id);
         self.open_gen = self.open_gen.wrapping_add(1);
-        self.lsp.set_last_synced_version(self.buffer.version);
+        self.lsp.set_last_synced_version(self.editor.buffer.version);
         self.record_opened(BufferRef::Scratch(id));
         self.push_toast(Toast::info("deleted all buffers"));
         Ok(())

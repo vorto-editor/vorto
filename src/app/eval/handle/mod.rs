@@ -46,7 +46,7 @@ impl App {
     /// themselves.
     pub(super) fn handle_expr(&mut self, expr: Expr, ctx: Ctx) -> Vec<Cmd> {
         if expr_modifies_buffer(&expr) {
-            self.buffer.snapshot();
+            self.editor.snapshot();
         }
         self.handle_expr_no_snapshot(expr, ctx)
     }
@@ -73,10 +73,10 @@ impl App {
     /// both `motion::handle_motion` (`gg`/`G` with a count) and
     /// `direct::handle_direct` (`:goto N`) can share it.
     fn goto_line_n_pure(&mut self, n: usize) {
-        let last = self.buffer.lines.len().saturating_sub(1);
-        self.buffer.cursor.row = n.saturating_sub(1).min(last);
-        self.buffer.cursor.col = 0;
-        self.buffer.clamp_col(false);
+        let last = self.editor.buffer.lines.len().saturating_sub(1);
+        self.editor.cursor.row = n.saturating_sub(1).min(last);
+        self.editor.cursor.col = 0;
+        self.editor.clamp_col(false);
     }
 }
 
@@ -118,7 +118,7 @@ fn resolve_motion_pure(
 /// jump) and `g*` / `g#` (which only seed the pattern) share the
 /// extraction path.
 fn push_word_search(app: &App, cmds: &mut Vec<Cmd>, forward: bool, jump: bool) {
-    match word_under_cursor(&app.buffer) {
+    match word_under_cursor(&app.editor) {
         Some(word) => {
             cmds.push(Cmd::SetSearch {
                 pattern: word,
@@ -137,10 +137,10 @@ fn push_word_search(app: &App, cmds: &mut Vec<Cmd>, forward: bool, jump: bool) {
 /// Move the cursor to the first non-whitespace column on its current
 /// row, falling back to col 0 on an all-blank line. Used after
 /// indent/dedent operators to match vim's landing position.
-fn cursor_to_first_non_blank(buf: &mut crate::editor::Buffer) {
-    let line = buf.current_line();
+fn cursor_to_first_non_blank(ed: &mut crate::editor::Editor) {
+    let line = ed.current_line();
     let col = line.chars().position(|c| !c.is_whitespace()).unwrap_or(0);
-    buf.cursor.col = col;
+    ed.cursor.col = col;
 }
 
 pub(super) fn expr_modifies_buffer(expr: &Expr) -> bool {

@@ -50,15 +50,15 @@ impl App {
             }
             return;
         }
-        match self.buffer.mode {
+        match self.editor.mode {
             Mode::Insert => self.insert_pasted_text(s),
             Mode::Normal => {
                 if s.is_empty() {
                     return;
                 }
-                self.buffer.snapshot();
-                self.buffer.insert_text_raw(&s);
-                self.buffer.clamp_col(false);
+                self.editor.snapshot();
+                self.editor.insert_text_raw(&s);
+                self.editor.clamp_col(false);
             }
             Mode::Visual | Mode::VisualLine | Mode::VisualBlock => {}
         }
@@ -89,7 +89,7 @@ impl App {
         // genuinely idle. Other modes leave the toast alone — the user
         // is in the middle of input and shouldn't have side effects on
         // mode-exit Esc.
-        if matches!(self.buffer.mode, Mode::Normal) && key.code == KeyCode::Esc && self.toasts.has_fatal()
+        if matches!(self.editor.mode, Mode::Normal) && key.code == KeyCode::Esc && self.toasts.has_fatal()
         {
             self.toasts.dismiss_fatal();
             return Ok(());
@@ -98,7 +98,7 @@ impl App {
         // Insert & Visual modes have small enough surfaces that they're
         // handled directly. The token pipeline is Normal-mode only — that
         // is where the rich operator/motion/text-object grammar lives.
-        match self.buffer.mode {
+        match self.editor.mode {
             Mode::Insert => return self.handle_insert_key(key),
             Mode::Visual | Mode::VisualLine | Mode::VisualBlock => {
                 return self.handle_visual_key(key);
@@ -107,20 +107,20 @@ impl App {
         }
 
         // Normal mode: tokenize → classify → evaluate.
-        match eval::tokenize(&self.config.keymap, &self.tokens, self.buffer.mode, key) {
-            Some(t) => self.tokens.push(t),
+        match eval::tokenize(&self.config.keymap, &self.editor.tokens, self.editor.mode, key) {
+            Some(t) => self.editor.tokens.push(t),
             None => {
-                self.tokens.clear();
+                self.editor.tokens.clear();
                 return Ok(());
             }
         }
-        match eval::classify(&self.tokens) {
+        match eval::classify(&self.editor.tokens) {
             eval::Parse::Complete(expr) => {
-                self.tokens.clear();
+                self.editor.tokens.clear();
                 self.evaluate(expr, crate::action::Ctx::default())?;
             }
             eval::Parse::Incomplete => {}
-            eval::Parse::Invalid => self.tokens.clear(),
+            eval::Parse::Invalid => self.editor.tokens.clear(),
         }
         Ok(())
     }
@@ -129,21 +129,21 @@ impl App {
         // Set or clear the visual anchor at the mode boundary. Entering
         // any visual mode pins the anchor to the current cursor;
         // entering Normal/Insert drops it.
-        if mode.is_visual() && !self.buffer.mode.is_visual() {
-            self.visual_anchor = Some(self.buffer.cursor);
+        if mode.is_visual() && !self.editor.mode.is_visual() {
+            self.visual_anchor = Some(self.editor.cursor);
         } else if !mode.is_visual() {
             self.visual_anchor = None;
         }
         if mode == Mode::Normal {
-            self.buffer.clamp_col(false);
+            self.editor.clamp_col(false);
         }
         // Insert-mode entry should immediately queue a debounced
         // inline-completion request so the ghost can surface without
         // requiring the user to type a key first. Insert→Insert
         // re-entry (no-op transitions) is harmless — the schedule call
         // just bumps the deadline back by the debounce window.
-        let entering_insert = mode == Mode::Insert && self.buffer.mode != Mode::Insert;
-        self.buffer.mode = mode;
+        let entering_insert = mode == Mode::Insert && self.editor.mode != Mode::Insert;
+        self.editor.mode = mode;
         if entering_insert {
             self.schedule_inline_suggestion();
         }
@@ -164,7 +164,7 @@ impl App {
                 &self.config.finder.hidden_patterns,
                 self.config.finder.max_items,
             ),
-            PromptKind::Fuzzy(FuzzyKind::Lines) => self.prompt.open_lines(&self.buffer.lines),
+            PromptKind::Fuzzy(FuzzyKind::Lines) => self.prompt.open_lines(&self.editor.buffer.lines),
             PromptKind::Fuzzy(FuzzyKind::Buffers) => self.open_buffer_picker(),
             // `Locations` pickers are built from server results, not opened
             // from a keymap — fall through to a no-op rather than a fresh
@@ -224,7 +224,7 @@ impl App {
                 }
             }
         } else {
-            let uri = match self.buffer.path.as_ref().map(|p| path_to_uri(p)) {
+            let uri = match self.editor.buffer.path.as_ref().map(|p| path_to_uri(p)) {
                 Some(u) => u,
                 None => {
                     self.push_toast(crate::app::Toast::info("no diagnostics"));
@@ -270,13 +270,13 @@ impl App {
     fn open_buffer_picker(&mut self) {
         let cwd = &self.startup_cwd;
         let current_path = self
-            .buffer
+            .editor.buffer
             .path
             .as_ref()
             .and_then(|p| p.canonicalize().ok());
-        let on_scratch = self.buffer.path.is_none();
-        let active_dirty = self.buffer.dirty;
-        let active_vcs_changed = self.buffer.has_vcs_changes();
+        let on_scratch = self.editor.buffer.path.is_none();
+        let active_dirty = self.editor.buffer.dirty;
+        let active_vcs_changed = self.editor.buffer.has_vcs_changes();
         // One `git status` invocation feeds the VCS marker for every
         // non-active File entry in the list — cheaper than diffing
         // each sleeping buffer individually.

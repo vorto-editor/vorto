@@ -95,7 +95,7 @@ pub fn draw(f: &mut Frame, app: &App) {
             // pointing at the active ref read straight from
             // `App.buffer`) so two panes on the same buffer paint the
             // same live content.
-            let eff = effective_editor_for_buffer(app, buf);
+            let eff = effective_editor_for_buffer(app, &buf.buffer);
             buffer::draw_buffer_inactive(f, buf, &eff, rect);
         }
     }

@@ -7,10 +7,10 @@
 //! * **Tree-sitter** for syntactic objects (function/class/parameter),
 //!   via the buffer's attached highlighter and its `textobjects.scm`.
 
-use super::{Buffer, CharClass, Cursor, classify, is_blank_line};
+use super::{CharClass, Cursor, Editor, classify, is_blank_line};
 use crate::action::{Object, Scope};
 
-impl Buffer {
+impl Editor {
     /// Find the cursor range covered by a text object.
     ///
     /// Scope semantics:
@@ -36,7 +36,7 @@ impl Buffer {
 
         let row = self.cursor.row;
         let col = self.cursor.col;
-        let chars: Vec<char> = self.lines[row].chars().collect();
+        let chars: Vec<char> = self.buffer.lines[row].chars().collect();
         let (open, close) = delim(object);
 
         // Find the matching pair on the line.
@@ -62,7 +62,7 @@ impl Buffer {
     /// Tree-sitter backed branch of [`text_object_range`]. `target` is
     /// the textobjects capture name to look up (e.g. `function.inner`).
     fn text_object_range_ts(&self, target: &str) -> Option<(Cursor, Cursor)> {
-        let h = self.highlighter.as_ref()?;
+        let h = self.buffer.highlighter.as_ref()?;
         let (sr, sc, er, ec) = h.find_text_object(target, self.cursor.row, self.cursor.col)?;
         Some((Cursor { row: sr, col: sc }, Cursor { row: er, col: ec }))
     }
@@ -74,7 +74,7 @@ impl Buffer {
     /// if the run ends at end-of-line).
     fn word_object_range(&self, scope: Scope) -> Option<(Cursor, Cursor)> {
         let row = self.cursor.row;
-        let chars: Vec<char> = self.lines[row].chars().collect();
+        let chars: Vec<char> = self.buffer.lines[row].chars().collect();
         if chars.is_empty() {
             return None;
         }
@@ -119,7 +119,7 @@ impl Buffer {
     /// whitespace (or leading at end-of-line) just like `aw`.
     fn big_word_object_range(&self, scope: Scope) -> Option<(Cursor, Cursor)> {
         let row = self.cursor.row;
-        let chars: Vec<char> = self.lines[row].chars().collect();
+        let chars: Vec<char> = self.buffer.lines[row].chars().collect();
         if chars.is_empty() {
             return None;
         }
@@ -164,14 +164,14 @@ impl Buffer {
     /// either a paragraph or a blank run.
     fn paragraph_object_range(&self, scope: Scope) -> (Cursor, Cursor) {
         let row = self.cursor.row;
-        let target_blank = is_blank_line(&self.lines[row]);
+        let target_blank = is_blank_line(&self.buffer.lines[row]);
 
         let mut start = row;
-        while start > 0 && is_blank_line(&self.lines[start - 1]) == target_blank {
+        while start > 0 && is_blank_line(&self.buffer.lines[start - 1]) == target_blank {
             start -= 1;
         }
         let mut end = row;
-        while end + 1 < self.lines.len() && is_blank_line(&self.lines[end + 1]) == target_blank {
+        while end + 1 < self.buffer.lines.len() && is_blank_line(&self.buffer.lines[end + 1]) == target_blank {
             end += 1;
         }
 
@@ -179,8 +179,8 @@ impl Buffer {
             Scope::Inner => (start, end),
             Scope::Around => {
                 let mut ae = end;
-                while ae + 1 < self.lines.len()
-                    && is_blank_line(&self.lines[ae + 1]) != target_blank
+                while ae + 1 < self.buffer.lines.len()
+                    && is_blank_line(&self.buffer.lines[ae + 1]) != target_blank
                 {
                     ae += 1;
                 }
@@ -188,14 +188,14 @@ impl Buffer {
                     (start, ae)
                 } else {
                     let mut as_ = start;
-                    while as_ > 0 && is_blank_line(&self.lines[as_ - 1]) != target_blank {
+                    while as_ > 0 && is_blank_line(&self.buffer.lines[as_ - 1]) != target_blank {
                         as_ -= 1;
                     }
                     (as_, end)
                 }
             }
         };
-        range_for_full_lines(&self.lines, s, e)
+        range_for_full_lines(&self.buffer.lines, s, e)
     }
 }
 

@@ -27,7 +27,7 @@ impl App {
     /// buffer in [`Self::handle_engine_ready`] when the generation
     /// still matches.
     pub(super) fn spawn_engine_worker(&mut self, path: &Path) {
-        self.buffer.highlighter = None;
+        self.editor.buffer.highlighter = None;
         let Some(spec) = self.config.languages.by_path(path).cloned() else {
             return;
         };
@@ -43,8 +43,8 @@ impl App {
         // Snapshot the source we'll parse against. The user might edit
         // the buffer while the worker runs; we recover by re-`refresh`-
         // ing on the main thread when the highlighter arrives.
-        let source = self.buffer.lines.join("\n");
-        let buffer_version = self.buffer.version;
+        let source = self.editor.buffer.lines.join("\n");
+        let buffer_version = self.editor.buffer.version;
         thread::spawn(move || {
             let result = (|| -> Result<Engine> {
                 let mut h = loader.lock().unwrap().engine_for(&spec)?;
@@ -87,7 +87,7 @@ impl App {
             let key = client_key(&lang_name, &lsp_cfg.name);
 
             if self.lsp.has_client(&key) {
-                let text = self.buffer.lines.join("\n");
+                let text = self.editor.buffer.lines.join("\n");
                 if let Err(e) = self.lsp.did_open(&key, &lang_name, path, &text) {
                     self.push_toast(Toast::fatal(format!(
                         "lsp didOpen ({}): {}",
@@ -140,7 +140,7 @@ impl App {
     /// keep it off the open path and let the gutter fill in a frame
     /// later. Reconciled by `open_gen` in [`Self::handle_vcs_base_ready`].
     pub(super) fn spawn_vcs_worker(&mut self) {
-        let Some(path) = self.buffer.path.clone() else {
+        let Some(path) = self.editor.buffer.path.clone() else {
             // Scratch buffer — nothing to diff against.
             return;
         };
@@ -169,11 +169,11 @@ impl App {
         if generation != self.open_gen {
             return;
         }
-        if self.buffer.path.as_deref() != Some(path.as_path()) {
+        if self.editor.buffer.path.as_deref() != Some(path.as_path()) {
             return;
         }
-        self.buffer.vcs_base = base;
-        self.buffer.vcs_diff.borrow_mut().take();
+        self.editor.buffer.vcs_base = base;
+        self.editor.buffer.vcs_diff.borrow_mut().take();
     }
 
     /// Install a freshly-built highlighter on the active buffer. Dropped
@@ -188,14 +188,14 @@ impl App {
                 // The user may have edited the buffer while the worker
                 // was parsing the snapshot we handed it. Re-`refresh`
                 // here so the tree matches the live source.
-                if self.buffer.version != 0 {
-                    let source = self.buffer.lines.join("\n");
-                    h.refresh(&source, self.buffer.version);
+                if self.editor.buffer.version != 0 {
+                    let source = self.editor.buffer.lines.join("\n");
+                    h.refresh(&source, self.editor.buffer.version);
                 }
                 if let Some(msg) = h.warnings.drain(..).next() {
                     self.push_toast(Toast::error(msg));
                 }
-                self.buffer.highlighter = Some(h);
+                self.editor.buffer.highlighter = Some(h);
             }
             Err(e) => {
                 self.push_toast(Toast::fatal(format!("highlight: {}", root_cause(&e))));
@@ -247,7 +247,7 @@ impl App {
         }
         // Re-snapshot the buffer — the user may have edited while the
         // server was initializing.
-        let text = self.buffer.lines.join("\n");
+        let text = self.editor.buffer.lines.join("\n");
         if let Err(e) = self.lsp.did_open(&client_key, &lang, &path, &text) {
             self.push_toast(Toast::fatal(format!(
                 "lsp didOpen ({}): {}",
@@ -255,7 +255,7 @@ impl App {
                 root_cause(&e)
             )));
         }
-        self.lsp.set_last_synced_version(self.buffer.version);
+        self.lsp.set_last_synced_version(self.editor.buffer.version);
     }
 
     /// Insert a freshly-built fuzzy preview into the LRU. `last_preview_

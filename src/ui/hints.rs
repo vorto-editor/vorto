@@ -249,7 +249,7 @@ fn filter_subcommand_items(
 /// stream is mid-sequence. Derives hints by inspecting the trailing
 /// token to figure out which parse context we're in.
 pub(super) fn draw_pending_hints(f: &mut Frame, app: &App, status_area: Rect) {
-    let (name, entries) = match pending_hints(&app.tokens) {
+    let (name, entries) = match pending_hints(&app.editor.tokens) {
         Some(p) => p,
         None => return,
     };

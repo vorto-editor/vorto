@@ -19,8 +19,8 @@ impl App {
             PromptOutcome::RunCommand(line) => self.execute_command(&line),
             PromptOutcome::Search { forward, query } => {
                 self.search.set(query, forward);
-                if let Some(c) = self.search.find_next(&self.buffer, forward) {
-                    self.buffer.cursor = c;
+                if let Some(c) = self.search.find_next(&self.editor, forward) {
+                    self.editor.cursor = c;
                 } else {
                     self.push_toast(Toast::error("pattern not found"));
                 }
@@ -42,9 +42,9 @@ impl App {
                 Ok(())
             }
             PromptOutcome::GotoLine(row) => {
-                self.buffer.cursor.row = row;
-                self.buffer.cursor.col = 0;
-                self.buffer.clamp_col(false);
+                self.editor.cursor.row = row;
+                self.editor.cursor.col = 0;
+                self.editor.clamp_col(false);
                 Ok(())
             }
             PromptOutcome::JumpToLocation(loc) => {

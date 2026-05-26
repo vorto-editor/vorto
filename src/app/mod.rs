@@ -47,7 +47,7 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::mpsc::Sender;
 
-use crate::action::{InsertKey, LastChange, LastFind, Token};
+use crate::action::{InsertKey, LastChange, LastFind};
 
 /// Quiet period after the last input event before a debounced
 /// inline-completion request actually fires. Tuned to feel snappy
@@ -66,7 +66,7 @@ pub struct InsertRecording {
 }
 use crate::config::{Config, EditorConfig};
 use crate::editor::SearchState;
-use crate::editor::{Buffer, Cursor, SuggestionState};
+use crate::editor::{Cursor, Editor, SuggestionState};
 use crate::event::AppEvent;
 use crate::finder::{self, PreviewLru};
 use crate::prompt::PromptController;
@@ -79,13 +79,13 @@ pub use crate::prompt::Prompt;
 const MRU_CAP: usize = 64;
 
 pub struct App {
-    pub buffer: Buffer,
+    /// Active editing session — owns the document (`buffer`), the
+    /// cursor / multi-cursor / mode for this view, and the in-flight
+    /// command token stream.
+    pub editor: Editor,
     pub prompt: PromptController,
     pub search: SearchState,
     pub toasts: ToastQueue,
-    /// Accumulated tokens since the last command fired. Cleared on
-    /// Complete dispatch or Invalid parse.
-    pub tokens: Vec<Token>,
     /// Anchor cursor for visual modes — the position the selection was
     /// started from. `None` outside of any visual mode.
     pub visual_anchor: Option<Cursor>,
@@ -241,7 +241,7 @@ pub struct App {
     /// pane. Stays uncompressed (unlike [`Self::sleeping`]) so a focus
     /// swap is instant. Buffers shown nowhere live in `sleeping`
     /// instead.
-    pub parked_buffers: std::collections::HashMap<crate::buffer_ref::BufferRef, Buffer>,
+    pub parked_buffers: std::collections::HashMap<crate::buffer_ref::BufferRef, Editor>,
     /// Counter for [`Self::mint_pane_id`]. Monotonic — never reused so
     /// a sleeping pane snapshot can't be confused with a fresh one.
     pub next_pane_id: PaneId,
@@ -308,11 +308,10 @@ impl App {
             }),
         );
         Self {
-            buffer: Buffer::new(),
+            editor: Editor::new(),
             prompt: PromptController::new(),
             search: SearchState::default(),
             toasts: ToastQueue::new(),
-            tokens: Vec::new(),
             visual_anchor: None,
             config,
             loader,
@@ -379,7 +378,7 @@ impl App {
     /// Current selection range, if the editor is in any visual mode and
     /// an anchor is set. Returns `None` otherwise.
     pub fn selection(&self) -> Option<Selection> {
-        types::selection(self.buffer.mode, self.visual_anchor, self.buffer.cursor)
+        types::selection(self.editor.mode, self.visual_anchor, self.editor.cursor)
     }
 
     /// The text of the current visual selection, read-only (does not touch
@@ -389,11 +388,11 @@ impl App {
     pub fn selection_text(&self) -> Option<String> {
         Some(match self.selection()? {
             Selection::Char { from, to } => {
-                let end = self.buffer.advance_one(to);
-                self.buffer.range_text(from, end)
+                let end = self.editor.buffer.advance_one(to);
+                self.editor.buffer.range_text(from, end)
             }
-            Selection::Line { from_row, to_row } => self.buffer.lines_text(from_row, to_row),
-            Selection::Block { r0, c0, r1, c1 } => self.buffer.block_text(r0, c0, r1, c1),
+            Selection::Line { from_row, to_row } => self.editor.buffer.lines_text(from_row, to_row),
+            Selection::Block { r0, c0, r1, c1 } => self.editor.buffer.block_text(r0, c0, r1, c1),
         })
     }
 
@@ -424,7 +423,7 @@ impl App {
         // Only wake during the in-flight phase. Settled entries
         // (Instant = None) sit in the cache purely to detect future
         // scope changes; they shouldn't keep the loop spinning.
-        match self.buffer.indent_anim.get() {
+        match self.editor.buffer.indent_anim.get() {
             Some((Some(_), _, _)) => Some(std::time::Duration::from_millis(16)),
             _ => None,
         }
@@ -459,7 +458,7 @@ impl App {
     /// bar and any other consumer can show a position that matches
     /// where the cursor actually sits.
     pub fn cursor_visual_col(&self) -> usize {
-        self.char_col_visual(self.buffer.cursor.row, self.buffer.cursor.col)
+        self.char_col_visual(self.editor.cursor.row, self.editor.cursor.col)
     }
 
     /// Visual column for an arbitrary `(row, char_col)`. Resolves the
@@ -469,7 +468,7 @@ impl App {
     /// renderer all agree.
     pub fn char_col_visual(&self, row: usize, char_col: usize) -> usize {
         let tab_width = self.effective_editor().tab_width.max(1);
-        let Some(line) = self.buffer.lines.get(row) else {
+        let Some(line) = self.editor.buffer.lines.get(row) else {
             return 0;
         };
         crate::text_width::visual_col_of(line, char_col, tab_width)
@@ -485,14 +484,14 @@ impl App {
     /// scroll` undercounts whenever any earlier visible row carries a
     /// diagnostic.
     pub fn visual_row_offset(&self, row: usize) -> Option<u16> {
-        let scroll = self.buffer.scroll.get();
+        let scroll = self.editor.buffer.scroll.get();
         if row < scroll {
             return None;
         }
         // One extra visual row per source row whose diagnostics are
         // surfaced inline. Mirrors `ui::buffer`'s filter: the cursor's
         // row shows any severity, every other row only shows `Error`s.
-        let cursor_row = self.buffer.cursor.row;
+        let cursor_row = self.editor.cursor.row;
         let mut diag_rows: std::collections::HashSet<usize> = std::collections::HashSet::new();
         if let Some(diags) = self.current_diagnostics() {
             for d in diags {
@@ -573,7 +572,7 @@ impl App {
     /// wants, and the next ghost would normally differ anyway.
     pub(super) fn accept_inline_suggestion(&mut self) -> bool {
         let text = match self.inline_suggestion.showing() {
-            Some(s) if s.is_anchored_at(self.buffer.cursor) => s.text.clone(),
+            Some(s) if s.is_anchored_at(self.editor.cursor) => s.text.clone(),
             _ => {
                 self.inline_suggestion.dismiss();
                 return false;
@@ -590,11 +589,11 @@ impl App {
             // — Copilot already supplies its own indentation for each
             // continuation row, and `insert_newline`'s reindent would
             // stack on top of it.
-            self.buffer.insert_text_raw(&text);
+            self.editor.insert_text_raw(&text);
         } else {
             let indent = self.indent_settings();
             for c in text.chars() {
-                self.buffer.insert_char_smart(c, indent);
+                self.editor.insert_char_smart(c, indent);
             }
         }
         true
@@ -619,7 +618,7 @@ impl App {
     /// defaults are returned as-is.
     pub fn effective_editor(&self) -> EditorConfig {
         let base = self.config.editor;
-        let Some(path) = self.buffer.path.as_ref() else {
+        let Some(path) = self.editor.buffer.path.as_ref() else {
             return base;
         };
         let Some(ext) = path.extension().and_then(|e| e.to_str()) else {

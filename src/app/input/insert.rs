@@ -11,7 +11,7 @@ use crate::app::SignatureTrigger;
 use crate::app::completion::{
     AUTO_TRIGGER_MIN_PREFIX_LEN, identifier_prefix_start, is_ident_continue,
 };
-use crate::editor::{Buffer, Cursor};
+use crate::editor::{Cursor, Editor};
 use crate::mode::Mode;
 
 impl App {
@@ -97,7 +97,7 @@ impl App {
                 // recomputed). Punt for v1 — only the primary types
                 // newlines, extras stay put.
                 let indent = self.indent_settings();
-                self.buffer.insert_newline(indent);
+                self.editor.insert_newline(indent);
                 self.record_insert_key(InsertKey::Newline);
                 self.cancel_completion();
                 // Newline almost always ends the call argument we were
@@ -138,7 +138,7 @@ impl App {
                 // the line's style), fall through to a literal `\t` so
                 // we don't mix soft-tab spaces into a tab-indented row.
                 let indent = self.indent_settings();
-                let leading_has_tab = self.buffer.lines[self.buffer.cursor.row]
+                let leading_has_tab = self.editor.buffer.lines[self.editor.cursor.row]
                     .chars()
                     .take_while(|c| c.is_whitespace())
                     .any(|c| c == '\t');
@@ -147,7 +147,7 @@ impl App {
                     self.record_insert_key(InsertKey::Char('\t'));
                 } else {
                     let stop = indent.width.max(1);
-                    let col = self.buffer.cursor.col;
+                    let col = self.editor.cursor.col;
                     let n = stop - (col % stop);
                     for _ in 0..n {
                         self.fan_out_insert_char(' ');
@@ -275,9 +275,9 @@ impl App {
     /// `col += 1` — that one earlier cursor's character index has been
     /// pushed right by the insertion we just did at a lower column.
     fn fan_out_insert_char(&mut self, ch: char) {
-        if self.buffer.extra_cursors.is_empty() {
+        if self.editor.extra_cursors.is_empty() {
             let indent = self.indent_settings();
-            self.buffer.insert_char_smart(ch, indent);
+            self.editor.insert_char_smart(ch, indent);
             return;
         }
         let mut all = collect_cursors(self);
@@ -285,9 +285,9 @@ impl App {
         let mut new_positions = vec![Cursor::default(); all.len()];
         for i in 0..all.len() {
             let (orig_idx, pos) = all[i];
-            self.buffer.cursor = pos;
-            self.buffer.insert_char(ch);
-            new_positions[orig_idx] = self.buffer.cursor;
+            self.editor.cursor = pos;
+            self.editor.insert_char(ch);
+            new_positions[orig_idx] = self.editor.cursor;
             for (other_orig_idx, _) in all.iter().take(i) {
                 if new_positions[*other_orig_idx].row == pos.row {
                     new_positions[*other_orig_idx].col += 1;
@@ -305,9 +305,9 @@ impl App {
     ///     the row collapse on every extra is a separate bookkeeping
     ///     problem we're leaving to v2.
     fn fan_out_backspace(&mut self) {
-        if self.buffer.extra_cursors.is_empty() {
+        if self.editor.extra_cursors.is_empty() {
             let indent = self.indent_settings();
-            self.buffer.delete_char_before_smart(indent);
+            self.editor.delete_char_before_smart(indent);
             return;
         }
         let mut all = collect_cursors(self);
@@ -319,17 +319,17 @@ impl App {
                 // Only the primary performs the line-join; extras at
                 // col 0 stay put rather than risk a row collapse.
                 if orig_idx == 0 {
-                    self.buffer.cursor = pos;
-                    self.buffer.delete_char_before();
-                    new_positions[orig_idx] = self.buffer.cursor;
+                    self.editor.cursor = pos;
+                    self.editor.delete_char_before();
+                    new_positions[orig_idx] = self.editor.cursor;
                 } else {
                     new_positions[orig_idx] = pos;
                 }
                 continue;
             }
-            self.buffer.cursor = pos;
-            self.buffer.delete_char_before();
-            new_positions[orig_idx] = self.buffer.cursor;
+            self.editor.cursor = pos;
+            self.editor.delete_char_before();
+            new_positions[orig_idx] = self.editor.cursor;
             for (other_orig_idx, _) in all.iter().take(i) {
                 if new_positions[*other_orig_idx].row == pos.row
                     && new_positions[*other_orig_idx].col > 0
@@ -349,8 +349,8 @@ impl App {
     /// than the first).
     fn fan_out_dedent(&mut self) {
         let indent = self.indent_settings();
-        if self.buffer.extra_cursors.is_empty() {
-            self.buffer.dedent_current_line(indent);
+        if self.editor.extra_cursors.is_empty() {
+            self.editor.dedent_current_line(indent);
             return;
         }
         let all = collect_cursors(self);
@@ -359,9 +359,9 @@ impl App {
         rows.dedup();
         let mut removed: Vec<(usize, usize)> = Vec::with_capacity(rows.len());
         for row in rows {
-            let before = self.buffer.lines[row].chars().count();
-            self.buffer.dedent_line(row, indent);
-            let after = self.buffer.lines[row].chars().count();
+            let before = self.editor.buffer.lines[row].chars().count();
+            self.editor.dedent_line(row, indent);
+            let after = self.editor.buffer.lines[row].chars().count();
             removed.push((row, before - after));
         }
         let mut new_positions = vec![Cursor::default(); all.len()];
@@ -382,17 +382,17 @@ impl App {
     /// Apply a cursor motion at the primary cursor and every extra
     /// cursor. Each cursor moves independently; coincident results are
     /// merged by `scatter_cursors`.
-    fn fan_out_move(&mut self, mut f: impl FnMut(&mut Buffer)) {
-        if self.buffer.extra_cursors.is_empty() {
-            f(&mut self.buffer);
+    fn fan_out_move(&mut self, mut f: impl FnMut(&mut Editor)) {
+        if self.editor.extra_cursors.is_empty() {
+            f(&mut self.editor);
             return;
         }
         let all = collect_cursors(self);
         let mut new_positions = vec![Cursor::default(); all.len()];
         for (orig_idx, pos) in &all {
-            self.buffer.cursor = *pos;
-            f(&mut self.buffer);
-            new_positions[*orig_idx] = self.buffer.cursor;
+            self.editor.cursor = *pos;
+            f(&mut self.editor);
+            new_positions[*orig_idx] = self.editor.cursor;
         }
         scatter_cursors(self, new_positions);
     }
@@ -410,7 +410,7 @@ impl App {
         self.cancel_completion();
         self.cancel_signature_help();
         self.schedule_inline_suggestion();
-        self.buffer.insert_text_raw(&s);
+        self.editor.insert_text_raw(&s);
         self.record_insert_key(InsertKey::Paste(s));
     }
 
@@ -457,8 +457,8 @@ impl App {
     /// auto-trigger floor so we don't fire `textDocument/completion`
     /// on a single-letter prefix.
     fn typed_prefix_len(&self) -> usize {
-        let cursor = self.buffer.cursor;
-        let line = &self.buffer.lines[cursor.row];
+        let cursor = self.editor.cursor;
+        let line = &self.editor.buffer.lines[cursor.row];
         let start = identifier_prefix_start(line, cursor.col);
         cursor.col.saturating_sub(start)
     }
@@ -481,9 +481,9 @@ impl App {
 /// 1..N go back into `extra_cursors[0..N-1]` so the pop ordering of
 /// `<C-p>` is preserved.
 fn collect_cursors(app: &App) -> Vec<(usize, Cursor)> {
-    std::iter::once((0usize, app.buffer.cursor))
+    std::iter::once((0usize, app.editor.cursor))
         .chain(
-            app.buffer
+            app.editor
                 .extra_cursors
                 .iter()
                 .enumerate()
@@ -498,7 +498,7 @@ fn collect_cursors(app: &App) -> Vec<(usize, Cursor)> {
 /// earlier extra, since coincident cursors are visually indistinguishable
 /// and would just amplify subsequent edits.
 fn scatter_cursors(app: &mut App, positions: Vec<Cursor>) {
-    app.buffer.cursor = positions[0];
+    app.editor.cursor = positions[0];
     let primary = positions[0];
     let mut extras: Vec<Cursor> = Vec::with_capacity(positions.len() - 1);
     for c in positions.into_iter().skip(1) {
@@ -507,5 +507,5 @@ fn scatter_cursors(app: &mut App, positions: Vec<Cursor>) {
         }
         extras.push(c);
     }
-    app.buffer.extra_cursors = extras;
+    app.editor.extra_cursors = extras;
 }
