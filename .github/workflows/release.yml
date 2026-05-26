@@ -55,6 +55,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: dist/*.tar.gz
+          prerelease: ${{ contains(github.ref_name, '-') }}
 
   publish:
     name: publish to crates.io
