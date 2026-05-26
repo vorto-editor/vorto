@@ -5,7 +5,7 @@
 use anyhow::Result;
 
 use crate::buffer_ref::BufferRef;
-use crate::editor::{Buffer, Editor};
+use crate::editor::Buffer;
 
 use super::pane::PaneLayout;
 use super::{App, Toast, root_cause};
@@ -76,7 +76,7 @@ impl App {
             Some(BufferRef::Scratch(id)) => {
                 let key = BufferRef::Scratch(id);
                 self.ensure_doc_pooled(&key, Buffer::new);
-                self.install_buffer(Editor::for_doc(key.clone()));
+                self.install_buffer(key.clone());
                 self.current_scratch_id = Some(id);
                 self.open_gen = self.open_gen.wrapping_add(1);
                 self.lsp.set_last_synced_version(self.active_doc().version);
@@ -93,7 +93,7 @@ impl App {
                 // otherwise re-read disk. Both paths set up LSP/highlighter.
                 if self.documents.contains_key(&key) || self.sleeping.contains_key(&key) {
                     self.ensure_doc_pooled(&key, Buffer::new);
-                    self.install_buffer(Editor::for_doc(key.clone()));
+                    self.install_buffer(key.clone());
                     self.open_gen = self.open_gen.wrapping_add(1);
                     self.lsp.set_last_synced_version(self.active_doc().version);
                     self.record_opened(key);
@@ -111,7 +111,7 @@ impl App {
                             let id = self.mint_scratch_id();
                             let key = BufferRef::Scratch(id);
                             self.documents.insert(key.clone(), Buffer::new());
-                            self.install_buffer(Editor::for_doc(key.clone()));
+                            self.install_buffer(key.clone());
                             self.current_scratch_id = Some(id);
                             self.open_gen = self.open_gen.wrapping_add(1);
                             self.record_opened(key);
@@ -124,7 +124,7 @@ impl App {
                         }
                     };
                     self.documents.insert(key.clone(), loaded);
-                    self.install_buffer(Editor::for_doc(key.clone()));
+                    self.install_buffer(key.clone());
                     self.current_scratch_id = None;
                     self.record_opened(key);
                     self.open_gen = self.open_gen.wrapping_add(1);
@@ -141,7 +141,7 @@ impl App {
                 let id = self.mint_scratch_id();
                 let key = BufferRef::Scratch(id);
                 self.documents.insert(key.clone(), Buffer::new());
-                self.install_buffer(Editor::for_doc(key.clone()));
+                self.install_buffer(key.clone());
                 self.current_scratch_id = Some(id);
                 self.open_gen = self.open_gen.wrapping_add(1);
                 self.record_opened(key);
@@ -201,7 +201,7 @@ impl App {
         let id = self.mint_scratch_id();
         let key = BufferRef::Scratch(id);
         self.documents.insert(key.clone(), Buffer::new());
-        self.install_buffer(Editor::for_doc(key.clone()));
+        self.install_buffer(key.clone());
         self.current_scratch_id = Some(id);
         self.open_gen = self.open_gen.wrapping_add(1);
         self.lsp.set_last_synced_version(self.active_doc().version);

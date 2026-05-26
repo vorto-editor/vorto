@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 
-use crate::editor::{Buffer, Cursor, Editor};
+use crate::editor::Buffer;
 
 use crate::buffer_ref::BufferRef;
 
@@ -39,7 +39,7 @@ impl App {
                 // here — the wrong default would leave the buffer
                 // with an empty `lines` Vec and crash motions.
                 self.ensure_doc_pooled(&key, Buffer::new);
-                self.stash_and_install(Editor::for_doc(key.clone()));
+                self.stash_and_install(key.clone());
                 self.current_scratch_id = Some(id);
                 self.open_gen = self.open_gen.wrapping_add(1);
                 self.lsp.set_last_synced_version(self.active_doc().version);
@@ -78,20 +78,43 @@ impl App {
         self.documents.insert(key.clone(), doc);
     }
 
-    /// Swap the active session for `next` (which must reference a
-    /// document already present in the pool), then retire the document
-    /// the previous session was editing if nothing else references it.
+    /// Switch the active session to the document named by `next` (which
+    /// must already be present in the pool), then retire the document the
+    /// session was previously editing if nothing else references it.
     ///
-    /// The outgoing document goes to `sleeping` (compressed; highlighter
-    /// dropped, rebuilt on restore) when no remaining session — the new
-    /// active one or any inactive pane — names its ref. The version
+    /// The session itself persists across the switch — only its `doc` is
+    /// re-pointed (see [`Self::swap_active_doc`]) — so its jumplist and
+    /// per-buffer cursor memory survive, matching vim's per-window
+    /// jumplist. The outgoing document goes to `sleeping` (compressed;
+    /// highlighter dropped, rebuilt on restore) when no remaining session
+    /// — the active one or any inactive pane — names its ref. The version
     /// counter is preserved so LSP `didChange` sequencing re-anchors
     /// cleanly when the document wakes up again. When some pane still
     /// shows it, it stays live in the pool untouched.
-    pub(super) fn stash_and_install(&mut self, next: Editor) {
+    pub(super) fn stash_and_install(&mut self, next: BufferRef) {
         let prev_ref = self.editor.doc.clone();
-        self.editor = next;
+        self.swap_active_doc(next);
         self.retire_doc_if_unreferenced(prev_ref);
+    }
+
+    /// Re-point the active session at `next` (which must already be
+    /// pooled) without touching document retirement. Stashes the
+    /// outgoing buffer's cursor into this session's `cursor_memory`, then
+    /// restores `next`'s remembered cursor — the origin on a first visit
+    /// — clamped to the incoming document. Multi-cursors and pending
+    /// command tokens are dropped and the mode reset to Normal, matching
+    /// a fresh view; the jumplist and cursor memory ride along on the
+    /// persistent session.
+    fn swap_active_doc(&mut self, next: BufferRef) {
+        let prev = self.editor.doc.clone();
+        if prev != next {
+            self.editor.cursor_memory.insert(prev, self.editor.cursor);
+        }
+        let doc = self
+            .documents
+            .get(&next)
+            .expect("target doc present in pool");
+        self.editor.adopt_doc(next, doc);
     }
 
     /// Move `r`'s document to `sleeping` when no live session (the
@@ -108,29 +131,53 @@ impl App {
         }
     }
 
-    /// Install `next` as the active session without retiring the
-    /// previous document. Used by `:bd` where the deleted buffer is
-    /// supposed to vanish entirely. Callers must have already removed
-    /// the outgoing document from the pool and cleaned up any MRU /
-    /// sleeping entries that refer to it.
-    pub(super) fn install_buffer(&mut self, next: Editor) {
-        // `:bd` removes the outgoing document from the pool. Any inactive
-        // pane still showing it (e.g. after `:split`) would be left with a
-        // dangling `doc` ref and panic on its next render/focus, so move
-        // those sessions onto the successor too — matching vim, where a
-        // window showing a bdeleted buffer switches to the replacement.
+    /// Install the document named by `successor` (already pooled) as the
+    /// active session after a `:bd`, where the deleted buffer is supposed
+    /// to vanish entirely. Callers must have already removed the outgoing
+    /// document from the pool and cleaned up any MRU / sleeping entries
+    /// that refer to it. Unlike [`Self::stash_and_install`] the outgoing
+    /// document is NOT retired to `sleeping` — it's gone for good.
+    pub(super) fn install_buffer(&mut self, successor: BufferRef) {
         let deleted = self.editor.doc.clone();
-        let successor = next.doc.clone();
-        self.editor = next;
+        self.swap_active_doc(successor.clone());
+        // The deleted document is gone for good — purge its remembered
+        // cursor from every session so a later buffer reusing the ref
+        // can't inherit a stale position. (`swap_active_doc` just stashed
+        // it; undo that here.)
+        self.forget_cursor_memory(&deleted);
+        // Any inactive pane still showing the deleted buffer (e.g. after
+        // `:split`) would be left with a dangling `doc` ref and panic on
+        // its next render/focus, so move those sessions onto the
+        // successor too — matching vim, where a window showing a
+        // bdeleted buffer switches to the replacement. Route them through
+        // the same `adopt_doc` normalization as the active session so an
+        // inactive pane doesn't keep stale `mode`/`tokens` (it gets no
+        // input until refocused, and `focus_pane` doesn't normalize) and
+        // restores its own remembered cursor for the successor instead of
+        // snapping to the origin.
         if deleted != successor {
+            let doc = self
+                .documents
+                .get(&successor)
+                .expect("successor doc present in pool");
             for content in self.pane_content.values_mut() {
                 if let crate::app::PaneContent::Editor(ed) = content
                     && ed.doc == deleted
                 {
-                    ed.doc = successor.clone();
-                    ed.cursor = Cursor::default();
-                    ed.extra_cursors.clear();
+                    ed.adopt_doc(successor.clone(), doc);
                 }
+            }
+        }
+    }
+
+    /// Drop `r`'s remembered cursor from every editor session (the active
+    /// one and each inactive pane), so a `:bd`-deleted buffer leaves no
+    /// stale position behind.
+    fn forget_cursor_memory(&mut self, r: &BufferRef) {
+        self.editor.cursor_memory.remove(r);
+        for content in self.pane_content.values_mut() {
+            if let crate::app::PaneContent::Editor(ed) = content {
+                ed.cursor_memory.remove(r);
             }
         }
     }
@@ -159,7 +206,7 @@ impl App {
         if self.documents.contains_key(&key) {
             // Another pane already shows this document live — share it.
             self.lsp.detach_current();
-            self.stash_and_install(Editor::for_doc(key.clone()));
+            self.stash_and_install(key.clone());
             self.current_scratch_id = None;
             self.record_opened(key);
             self.lsp.set_last_synced_version(self.active_doc().version);
@@ -171,7 +218,7 @@ impl App {
         if self.sleeping.contains_key(&key) {
             self.lsp.detach_current();
             self.ensure_doc_pooled(&key, Buffer::new);
-            self.stash_and_install(Editor::for_doc(key.clone()));
+            self.stash_and_install(key.clone());
             self.current_scratch_id = None;
             self.record_opened(key);
             self.open_gen = self.open_gen.wrapping_add(1);
@@ -230,7 +277,7 @@ impl App {
         // Pool the freshly-loaded document under its ref, then point a
         // new active session at it.
         self.documents.insert(key.clone(), loaded);
-        self.stash_and_install(Editor::for_doc(key.clone()));
+        self.stash_and_install(key.clone());
         self.current_scratch_id = None;
         self.record_opened(key);
         // Bump the generation: any in-flight worker thread from a
