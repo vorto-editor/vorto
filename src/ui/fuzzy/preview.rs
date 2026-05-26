@@ -109,6 +109,61 @@ pub(super) fn draw_fuzzy_preview(f: &mut Frame, app: &App, finder: &Finder, area
                 }
             }
         }
+        FuzzyKind::Bookmarks => {
+            // The picker keeps a parallel `Bookmark` slice on the prompt.
+            // File marks preview the file centered on the saved line via
+            // the same active/parked/sleeping/disk cascade as Locations;
+            // scratch marks preview the live (or stashed) buffer, and
+            // fall back to a bare header once the scratch is gone.
+            use crate::buffer_ref::BufferRef;
+            let Some(mark) = app.prompt.bookmark_marks().get(sel.idx) else {
+                return;
+            };
+            let row = mark.line;
+            match &mark.target {
+                BufferRef::File(path) => {
+                    let label = display_path(app, path);
+                    let body = super::split_with_header(f, area, &label, header_style);
+                    if app.active_doc().path.as_deref() == Some(path.as_path()) {
+                        preview_from_buffer(f, app, body, row);
+                        return;
+                    }
+                    for (key, doc) in &app.documents {
+                        if let BufferRef::File(p) = key
+                            && p == path
+                        {
+                            preview_from_parked_buffer(f, body, doc, row);
+                            return;
+                        }
+                    }
+                    for (key, snap) in &app.sleeping {
+                        if let BufferRef::File(p) = key
+                            && p == path
+                        {
+                            preview_from_sleeping(f, body, snap, row);
+                            return;
+                        }
+                    }
+                    preview_from_file(f, app, body, path, row);
+                }
+                BufferRef::Scratch(id) => {
+                    let label = BufferRef::scratch_label(*id);
+                    let key = BufferRef::Scratch(*id);
+                    if app.editor.doc == key {
+                        let body = super::split_with_header(f, area, &label, header_style);
+                        preview_from_buffer(f, app, body, row);
+                    } else if let Some(doc) = app.documents.get(&key) {
+                        let body = super::split_with_header(f, area, &label, header_style);
+                        preview_from_parked_buffer(f, body, doc, row);
+                    } else if let Some(snap) = app.sleeping.get(&key) {
+                        let body = super::split_with_header(f, area, &label, header_style);
+                        preview_from_sleeping(f, body, snap, row);
+                    } else {
+                        let _ = super::split_with_header(f, area, &label, header_style);
+                    }
+                }
+            }
+        }
     }
 }
 

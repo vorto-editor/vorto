@@ -46,8 +46,9 @@ pub use cursor::{CursorShape, CursorShapes};
 pub use editor::{EditorConfig, EditorToml, IndentGuideStyle};
 pub use finder::{FinderConfig, FinderToml};
 pub use keymap::{
-    BRACKET_NEXT_BINDINGS, BRACKET_PREV_BINDINGS, CTRL_W_BINDINGS, GOTO_BINDINGS, KeySig, Keymap,
-    LEADER_DEFAULTS, OBJECT_BINDINGS, OP_PENDING_BINDINGS, WINDOW_BINDINGS, Z_BINDINGS,
+    BOOKMARK_BINDINGS, BRACKET_NEXT_BINDINGS, BRACKET_PREV_BINDINGS, CTRL_W_BINDINGS,
+    GOTO_BINDINGS, KeySig, Keymap, LEADER_DEFAULTS, OBJECT_BINDINGS, OP_PENDING_BINDINGS,
+    WINDOW_BINDINGS, Z_BINDINGS,
 };
 pub use languages::{
     FormatterConfig, Language, LanguageConfig, LanguageRegistry, LspConfig, LspToml,

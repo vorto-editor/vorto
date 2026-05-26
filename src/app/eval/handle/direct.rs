@@ -221,6 +221,8 @@ pub(super) fn handle_direct(app: &mut App, kind: DirectKind, count: u32, ctx: Ct
                 cmds.push(Cmd::ToastInfo(format!("cleared {n} extra cursors")));
             }
         }
+        D::BookmarkAdd => app.add_current_bookmark(),
+        D::BookmarkRemoveCurrent => app.remove_current_bookmark(),
         D::JumpLabel => cmds.push(Cmd::StartJumpLabel),
         D::SelectWholeBuffer => cmds.push(Cmd::SelectWholeBuffer),
         D::SplitWindowHorizontal => cmds.push(Cmd::SplitWindow {

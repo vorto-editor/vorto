@@ -226,6 +226,7 @@ fn format_pending(tokens: &[Token]) -> String {
             Token::ZPrefix => s.push('z'),
             Token::ReplaceCharPrefix => s.push('r'),
             Token::WindowPrefix => s.push('w'),
+            Token::BookmarkPrefix => s.push('m'),
             Token::CtrlWPrefix => s.push_str("<C-w>"),
             Token::BracketPrefix { forward } => s.push(if *forward { ']' } else { '[' }),
             // Surround prefixes always sit after a y/c/d operator

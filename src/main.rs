@@ -1,6 +1,7 @@
 mod action;
 mod agent;
 mod app;
+mod bookmark;
 mod buffer_ref;
 mod config;
 mod copilot;

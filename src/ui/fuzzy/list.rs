@@ -46,38 +46,45 @@ fn severity_color_from_badge(c: char) -> Option<Color> {
     }
 }
 
-pub(super) fn draw_fuzzy_list(f: &mut Frame, finder: &Finder, area: Rect) {
-    // Inside the pane: query line on top, separator, then matches.
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Min(1),
-        ])
-        .split(area);
+pub(super) fn draw_fuzzy_list(f: &mut Frame, finder: &Finder, area: Rect, show_query: bool) {
+    // Inside the pane: an optional query line + separator on top, then the
+    // matches list. The bookmark picker hides the query line in Selection
+    // mode (`show_query == false`), handing the whole pane to the list.
+    let list_rect = if show_query {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(1),
+                Constraint::Length(1),
+                Constraint::Min(1),
+            ])
+            .split(area);
 
-    let query_line = Line::from(vec![
-        Span::styled("› ", Style::default().fg(Color::Yellow)),
-        Span::raw(finder.query.clone()),
-    ]);
-    f.render_widget(Paragraph::new(query_line), chunks[0]);
+        let query_line = Line::from(vec![
+            Span::styled("› ", Style::default().fg(Color::Yellow)),
+            Span::raw(finder.query.clone()),
+        ]);
+        f.render_widget(Paragraph::new(query_line), chunks[0]);
 
-    // Park the terminal cursor at the finder's insertion point so the
-    // user can see where typing/backspace will land. `› ` is two
-    // single-cell glyphs.
-    let col = (2 + finder.cursor) as u16;
-    let x = chunks[0].x + col.min(chunks[0].width.saturating_sub(1));
-    f.set_cursor_position((x, chunks[0].y));
+        // Park the terminal cursor at the finder's insertion point so the
+        // user can see where typing/backspace will land. `› ` is two
+        // single-cell glyphs.
+        let col = (2 + finder.cursor) as u16;
+        let x = chunks[0].x + col.min(chunks[0].width.saturating_sub(1));
+        f.set_cursor_position((x, chunks[0].y));
 
-    let sep = "─".repeat(chunks[1].width as usize);
-    f.render_widget(
-        Paragraph::new(Span::styled(sep, Style::default().fg(Color::DarkGray))),
-        chunks[1],
-    );
+        let sep = "─".repeat(chunks[1].width as usize);
+        f.render_widget(
+            Paragraph::new(Span::styled(sep, Style::default().fg(Color::DarkGray))),
+            chunks[1],
+        );
+        chunks[2]
+    } else {
+        area
+    };
 
-    let list_h = chunks[2].height as usize;
-    let list_w = chunks[2].width as usize;
+    let list_h = list_rect.height as usize;
+    let list_w = list_rect.width as usize;
     // 2 cells reserved at the start of each row for the `> ` / `  `
     // selection marker.
     let inner_w = list_w.saturating_sub(2);
@@ -127,7 +134,7 @@ pub(super) fn draw_fuzzy_list(f: &mut Frame, finder: &Finder, area: Rect) {
             ListItem::new(Line::from(spans))
         })
         .collect();
-    f.render_widget(List::new(items), chunks[2]);
+    f.render_widget(List::new(items), list_rect);
 }
 
 /// Render a `<space>/` row: `path:line`. Path's directory portion is
@@ -229,7 +236,12 @@ fn render_match<'a>(
         FuzzyKind::Files { .. } | FuzzyKind::Buffers => {
             chars.iter().rposition(|c| *c == '/').map(|i| i + 1)
         }
-        FuzzyKind::Locations | FuzzyKind::Jumps | FuzzyKind::WorkspaceSearch => {
+        // `path:line` labels — stop the dir search at the `:line` suffix
+        // so the colon isn't colored as a directory separator.
+        FuzzyKind::Locations
+        | FuzzyKind::Jumps
+        | FuzzyKind::WorkspaceSearch
+        | FuzzyKind::Bookmarks => {
             let path_end = chars.iter().position(|c| *c == ':').unwrap_or(chars.len());
             chars[..path_end]
                 .iter()
