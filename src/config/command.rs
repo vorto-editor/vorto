@@ -69,6 +69,7 @@ pub enum Inline {
     Grammar,
     Agent,
     Theme,
+    Bookmarks,
 }
 
 /// `:copilot` subcommands. Source of truth for completion + the hint
@@ -130,6 +131,28 @@ pub const GRAMMAR_SUBCOMMANDS: &[Subcommand] = &[
         name: "remove",
         aliases: &["rm", "uninstall"],
         description: "remove <name>...",
+    },
+];
+
+/// `:bookmarks` subcommands. Bare `:bookmarks` opens the picker (same as
+/// `list`); `add`/`delete` act on the current buffer, mirroring the
+/// `<space>ma` / `<space>md` keys. `App::run_bookmarks_command` resolves
+/// a token against this list.
+pub const BOOKMARK_SUBCOMMANDS: &[Subcommand] = &[
+    Subcommand {
+        name: "list",
+        aliases: &["ls"],
+        description: "open the bookmark picker (modal)",
+    },
+    Subcommand {
+        name: "add",
+        aliases: &[],
+        description: "bookmark the current buffer at the cursor",
+    },
+    Subcommand {
+        name: "delete",
+        aliases: &["del", "rm"],
+        description: "remove the current buffer's bookmark",
     },
 ];
 
@@ -263,6 +286,13 @@ pub const COMMANDS: &[Command] = &[
         kind: Kind::Direct(DirectKind::JumpList),
     },
     Command {
+        name: "bookmarks",
+        aliases: &["bm"],
+        description: "list / add / delete bookmarks",
+        args: Args::Sub(BOOKMARK_SUBCOMMANDS),
+        kind: Kind::Inline(Inline::Bookmarks),
+    },
+    Command {
         name: "log",
         aliases: &[],
         description: "open debug log file",
@@ -379,6 +409,8 @@ mod tests {
             ("copilot", Inline::Copilot),
             ("grammar", Inline::Grammar),
             ("agent", Inline::Agent),
+            ("bookmarks", Inline::Bookmarks),
+            ("bm", Inline::Bookmarks),
         ] {
             match Command::find(name).map(|c| &c.kind) {
                 Some(Kind::Inline(i)) => assert_eq!(*i, inline),
@@ -407,5 +439,10 @@ mod tests {
         );
         assert_eq!(resolve_subcommand(GRAMMAR_SUBCOMMANDS, "ls"), Some("list"));
         assert_eq!(resolve_subcommand(GRAMMAR_SUBCOMMANDS, "nope"), None);
+        assert_eq!(
+            resolve_subcommand(BOOKMARK_SUBCOMMANDS, "rm"),
+            Some("delete")
+        );
+        assert_eq!(resolve_subcommand(BOOKMARK_SUBCOMMANDS, "ls"), Some("list"));
     }
 }

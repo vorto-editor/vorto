@@ -10,6 +10,46 @@ use crate::bookmark::Bookmark;
 use crate::buffer_ref::BufferRef;
 
 impl App {
+    /// `:bookmarks [list|add|delete]` (alias `:bm`). Bare `:bookmarks`
+    /// opens the picker; `add`/`delete` act on the current buffer, the
+    /// command-line twins of `<space>ma` / `<space>md`. Names/aliases are
+    /// resolved through the unified [`crate::config::BOOKMARK_SUBCOMMANDS`]
+    /// so the hint panel and the dispatcher never drift.
+    pub(super) fn run_bookmarks_command(&mut self, sub: &str) {
+        let sub = sub.trim();
+        let (cmd, rest) = match sub.split_once(char::is_whitespace) {
+            Some((c, r)) => (c, r.trim()),
+            None => (sub, ""),
+        };
+        // Bare `:bookmarks` defaults to the picker.
+        let canonical = if cmd.is_empty() {
+            "list"
+        } else {
+            match crate::config::resolve_subcommand(crate::config::BOOKMARK_SUBCOMMANDS, cmd) {
+                Some(c) => c,
+                None => {
+                    self.push_toast(Toast::error(format!("unknown bookmarks subcommand: {cmd}")));
+                    return;
+                }
+            }
+        };
+        // None of list/add/delete take an argument — they act on the
+        // active buffer. Reject trailing tokens so a typo like
+        // `:bm add foo` surfaces instead of silently marking the buffer.
+        if !rest.is_empty() {
+            self.push_toast(Toast::error(format!(
+                ":bookmarks {canonical} takes no arguments"
+            )));
+            return;
+        }
+        match canonical {
+            "list" => self.open_bookmark_picker(),
+            "add" => self.add_current_bookmark(),
+            "delete" => self.remove_current_bookmark(),
+            _ => unreachable!("canonical comes from BOOKMARK_SUBCOMMANDS"),
+        }
+    }
+
     /// `<space>ma` — bookmark the active buffer at the cursor's row.
     /// De-duplicates by buffer (re-marking a file already in the list is
     /// a no-op), and toasts either way so the keystroke always has
