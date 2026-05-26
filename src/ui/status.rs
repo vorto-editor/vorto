@@ -136,6 +136,20 @@ pub(super) fn draw_command_line(f: &mut Frame, app: &App, area: Rect) {
 }
 
 fn status_label(app: &App) -> (String, Color) {
+    // A focused agent pane shows an agent badge (terminal title if the
+    // agent set one, else the agent name) instead of the editor mode —
+    // input is going to the agent's PTY, not the editor. A live prompt
+    // still wins (it's modal and sits above pane focus).
+    if matches!(app.prompt.state, Prompt::None)
+        && Some(app.active_pane) == app.agent_pane
+        && let Some(session) = app.agent.as_ref()
+    {
+        let label = session
+            .title()
+            .filter(|t| !t.trim().is_empty())
+            .unwrap_or_else(|| session.name.clone());
+        return (label.to_uppercase(), Color::LightGreen);
+    }
     match &app.prompt.state {
         Prompt::None => (app.editor.mode.to_string(), mode_color(app.editor.mode)),
         Prompt::Command(_) => ("COMMAND".into(), Color::Yellow),

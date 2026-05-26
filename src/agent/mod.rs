@@ -8,7 +8,7 @@ mod keys;
 mod session;
 
 pub use keys::encode_key;
-pub use session::AgentSession;
+pub use session::{AgentSession, GridSnapshot};
 
 /// Placeholder substituted with the prompt text in [`AgentSpec::prompt_args`].
 pub const PROMPT_PLACEHOLDER: &str = "{prompt}";

@@ -238,7 +238,17 @@ fn run(
         }
         prev_prompt_open = now_open;
         terminal.draw(|f| ui::draw(f, app))?;
-        let shape = app.config.cursor_shapes.for_mode(app.editor.mode);
+        // Cursor shape follows the focused pane: the editor's per-mode
+        // shape for an editor pane, or the agent terminal's own cursor
+        // shape when the agent pane is focused.
+        let shape = if Some(app.active_pane) == app.agent_pane {
+            app.agent
+                .as_ref()
+                .map(|a| a.cursor_shape())
+                .unwrap_or_else(|| app.config.cursor_shapes.for_mode(app.editor.mode))
+        } else {
+            app.config.cursor_shapes.for_mode(app.editor.mode)
+        };
         if last_shape != Some(shape) {
             let mut out = io::stdout();
             out.write_all(cursor_ansi(shape, app.config.cursor_shapes.blinking))?;
@@ -338,7 +348,7 @@ fn dispatch(app: &mut App, ev: event::AppEvent) -> Result<()> {
             base,
         } => app.handle_vcs_base_ready(generation, path, base),
         event::AppEvent::AgentOutput(bytes) => {
-            if let Some(agent) = app.agent.as_mut() {
+            if let Some(agent) = app.agent.as_ref() {
                 agent.push_output(&bytes);
             }
         }

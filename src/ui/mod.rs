@@ -127,11 +127,17 @@ pub fn draw(f: &mut Frame, app: &App) {
     status::draw_command_line(f, app, chunks[2]);
     toast::draw_toast(f, app, chunks[0]);
 
-    // Only place the editor's terminal cursor when an editor pane is
-    // focused. When the agent pane is active the cursor belongs to the
-    // agent's output (not modelled in Phase C), so leave it be.
+    // Place the terminal cursor for the focused pane. An editor pane
+    // parks it at the buffer cursor; the agent pane parks it at the
+    // emulated terminal's grid cursor (so a full-screen agent shows its
+    // own caret where it expects). Other panes leave the cursor hidden.
     if app.active_pane == app.editor_pane {
         buffer::place_cursor(f, app, active_rect);
+    } else if Some(app.active_pane) == app.agent_pane
+        && let Some(session) = app.agent.as_ref()
+        && let Some(snap) = session.grid_snapshot()
+    {
+        agent_pane::place_agent_cursor(f, &snap, active_rect);
     }
 
     if let Prompt::Command(cp) = &app.prompt.state {

@@ -158,9 +158,13 @@ impl App {
         if ctrl_w || chord_pending {
             return self.drive_window_prefix(key);
         }
-        // Forward to the PTY. `encode_key` returns `None` for keys with
-        // nothing to send (bare modifiers, releases) — drop those.
-        if let (Some(agent), Some(bytes)) = (self.agent.as_ref(), crate::agent::encode_key(&key)) {
+        // Forward to the PTY. `encode_key` consults the emulated
+        // terminal's mode (DECCKM etc.) to pick the cursor-key form, and
+        // returns `None` for keys with nothing to send (bare modifiers,
+        // releases) — drop those.
+        if let Some(agent) = self.agent.as_ref()
+            && let Some(bytes) = crate::agent::encode_key(&key, agent.term_mode())
+        {
             agent.write(&bytes);
         }
         Ok(())

@@ -6,16 +6,21 @@
 //! The encoding is xterm-flavoured: arrows / Home / End as CSI (`ESC [
 //! X`) or SS3 when modified, PageUp/Down/Insert/Delete as `ESC [ N ~`,
 //! F-keys as SS3 / `ESC [ 1 ; m P`, and Ctrl/Alt folded into control
-//! bytes / an ESC prefix. Phase C has no terminal-mode tracking yet, so
-//! cursor keys always go out as CSI (DECCKM normal mode); an app-cursor
-//! hook can be threaded through here in Phase D.
+//! bytes / an ESC prefix. Bare cursor / Home / End keys switch between
+//! CSI (`ESC [ A`) and SS3 (`ESC O A`) form depending on the terminal's
+//! DECCKM (application-cursor) mode, read from the live emulator at the
+//! call site.
 
+use alacritty_terminal::term::TermMode;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-/// Translate a key press into bytes to write to the agent's PTY.
-/// Returns `None` when the key carries nothing to forward (e.g. a bare
-/// modifier press, or a key release under the kitty protocol).
-pub fn encode_key(event: &KeyEvent) -> Option<Vec<u8>> {
+/// Translate a key press into bytes to write to the agent's PTY. `mode`
+/// is the emulated terminal's current mode (DECCKM etc.), used to pick
+/// the CSI-vs-SS3 form of bare cursor keys. Returns `None` when the key
+/// carries nothing to forward (e.g. a bare modifier press, or a key
+/// release under the kitty protocol).
+pub fn encode_key(event: &KeyEvent, mode: TermMode) -> Option<Vec<u8>> {
+    let app_cursor = mode.contains(TermMode::APP_CURSOR);
     use crossterm::event::KeyEventKind;
     // Under the kitty keyboard protocol crossterm also reports Release /
     // Repeat events. Only forward presses (and repeats, which are real
@@ -30,12 +35,12 @@ pub fn encode_key(event: &KeyEvent) -> Option<Vec<u8>> {
 
     match event.code {
         KeyCode::Char(c) => encode_char(c, ctrl, alt),
-        KeyCode::Up => Some(csi_letter(b'A', shift, alt, ctrl)),
-        KeyCode::Down => Some(csi_letter(b'B', shift, alt, ctrl)),
-        KeyCode::Right => Some(csi_letter(b'C', shift, alt, ctrl)),
-        KeyCode::Left => Some(csi_letter(b'D', shift, alt, ctrl)),
-        KeyCode::Home => Some(csi_letter(b'H', shift, alt, ctrl)),
-        KeyCode::End => Some(csi_letter(b'F', shift, alt, ctrl)),
+        KeyCode::Up => Some(cursor_letter(b'A', shift, alt, ctrl, app_cursor)),
+        KeyCode::Down => Some(cursor_letter(b'B', shift, alt, ctrl, app_cursor)),
+        KeyCode::Right => Some(cursor_letter(b'C', shift, alt, ctrl, app_cursor)),
+        KeyCode::Left => Some(cursor_letter(b'D', shift, alt, ctrl, app_cursor)),
+        KeyCode::Home => Some(cursor_letter(b'H', shift, alt, ctrl, app_cursor)),
+        KeyCode::End => Some(cursor_letter(b'F', shift, alt, ctrl, app_cursor)),
         KeyCode::PageUp => Some(csi_tilde(5, shift, alt, ctrl)),
         KeyCode::PageDown => Some(csi_tilde(6, shift, alt, ctrl)),
         KeyCode::Insert => Some(csi_tilde(2, shift, alt, ctrl)),
@@ -76,13 +81,17 @@ fn modifier_code(shift: bool, alt: bool, ctrl: bool) -> u8 {
     1u8 + (shift as u8) + 2 * (alt as u8) + 4 * (ctrl as u8)
 }
 
-/// Cursor / Home / End. Bare goes CSI (`ESC [ X`) — Phase C assumes
-/// DECCKM normal mode. Modified form is CSI with the xterm modifier
-/// code.
-fn csi_letter(letter: u8, shift: bool, alt: bool, ctrl: bool) -> Vec<u8> {
+/// Cursor / Home / End. A modified key always uses the CSI form with the
+/// xterm modifier code (`ESC [ 1 ; m X`). A bare key uses SS3 (`ESC O X`)
+/// when the terminal is in DECCKM application-cursor mode and CSI (`ESC [
+/// X`) otherwise — this is what applications like readline / full-screen
+/// TUIs expect once they set DECCKM.
+fn cursor_letter(letter: u8, shift: bool, alt: bool, ctrl: bool, app_cursor: bool) -> Vec<u8> {
     let m_code = modifier_code(shift, alt, ctrl);
     if m_code > 1 {
         format!("\x1b[1;{}{}", m_code, letter as char).into_bytes()
+    } else if app_cursor {
+        vec![0x1b, b'O', letter]
     } else {
         vec![0x1b, b'[', letter]
     }
@@ -157,10 +166,15 @@ mod tests {
         KeyEvent::new(code, mods)
     }
 
+    /// Encode under DECCKM normal mode (the common case).
+    fn enc(code: KeyCode, mods: KeyModifiers) -> Option<Vec<u8>> {
+        encode_key(&key(code, mods), TermMode::empty())
+    }
+
     #[test]
     fn plain_char_is_its_utf8() {
         assert_eq!(
-            encode_key(&key(KeyCode::Char('a'), KeyModifiers::NONE)),
+            enc(KeyCode::Char('a'), KeyModifiers::NONE),
             Some(b"a".to_vec())
         );
     }
@@ -169,7 +183,7 @@ mod tests {
     fn ctrl_letter_maps_to_control_byte() {
         // Ctrl-C = 0x03.
         assert_eq!(
-            encode_key(&key(KeyCode::Char('c'), KeyModifiers::CONTROL)),
+            enc(KeyCode::Char('c'), KeyModifiers::CONTROL),
             Some(vec![0x03])
         );
     }
@@ -177,7 +191,7 @@ mod tests {
     #[test]
     fn alt_char_gets_esc_prefix() {
         assert_eq!(
-            encode_key(&key(KeyCode::Char('b'), KeyModifiers::ALT)),
+            enc(KeyCode::Char('b'), KeyModifiers::ALT),
             Some(vec![0x1b, b'b'])
         );
     }
@@ -185,20 +199,49 @@ mod tests {
     #[test]
     fn bare_arrows_are_csi() {
         assert_eq!(
-            encode_key(&key(KeyCode::Up, KeyModifiers::NONE)),
+            enc(KeyCode::Up, KeyModifiers::NONE),
             Some(vec![0x1b, b'[', b'A'])
         );
         assert_eq!(
-            encode_key(&key(KeyCode::Left, KeyModifiers::NONE)),
+            enc(KeyCode::Left, KeyModifiers::NONE),
             Some(vec![0x1b, b'[', b'D'])
         );
     }
 
     #[test]
-    fn modified_arrow_carries_xterm_modifier_code() {
-        // Ctrl+Right → ESC [ 1 ; 5 C.
+    fn bare_arrows_under_app_cursor_are_ss3() {
+        // DECCKM set → bare cursor keys use SS3 (`ESC O X`).
+        let m = TermMode::APP_CURSOR;
         assert_eq!(
-            encode_key(&key(KeyCode::Right, KeyModifiers::CONTROL)),
+            encode_key(&key(KeyCode::Up, KeyModifiers::NONE), m),
+            Some(vec![0x1b, b'O', b'A'])
+        );
+        assert_eq!(
+            encode_key(&key(KeyCode::Left, KeyModifiers::NONE), m),
+            Some(vec![0x1b, b'O', b'D'])
+        );
+        assert_eq!(
+            encode_key(&key(KeyCode::Home, KeyModifiers::NONE), m),
+            Some(vec![0x1b, b'O', b'H'])
+        );
+        assert_eq!(
+            encode_key(&key(KeyCode::End, KeyModifiers::NONE), m),
+            Some(vec![0x1b, b'O', b'F'])
+        );
+    }
+
+    #[test]
+    fn modified_arrow_carries_xterm_modifier_code_regardless_of_mode() {
+        // Ctrl+Right → ESC [ 1 ; 5 C, in both normal and app-cursor mode.
+        assert_eq!(
+            enc(KeyCode::Right, KeyModifiers::CONTROL),
+            Some(b"\x1b[1;5C".to_vec())
+        );
+        assert_eq!(
+            encode_key(
+                &key(KeyCode::Right, KeyModifiers::CONTROL),
+                TermMode::APP_CURSOR
+            ),
             Some(b"\x1b[1;5C".to_vec())
         );
     }
@@ -206,19 +249,16 @@ mod tests {
     #[test]
     fn enter_backspace_tab_escape() {
         assert_eq!(
-            encode_key(&key(KeyCode::Enter, KeyModifiers::NONE)),
+            enc(KeyCode::Enter, KeyModifiers::NONE),
             Some(b"\r".to_vec())
         );
         assert_eq!(
-            encode_key(&key(KeyCode::Backspace, KeyModifiers::NONE)),
+            enc(KeyCode::Backspace, KeyModifiers::NONE),
             Some(b"\x7f".to_vec())
         );
+        assert_eq!(enc(KeyCode::Tab, KeyModifiers::NONE), Some(b"\t".to_vec()));
         assert_eq!(
-            encode_key(&key(KeyCode::Tab, KeyModifiers::NONE)),
-            Some(b"\t".to_vec())
-        );
-        assert_eq!(
-            encode_key(&key(KeyCode::Esc, KeyModifiers::NONE)),
+            enc(KeyCode::Esc, KeyModifiers::NONE),
             Some(b"\x1b".to_vec())
         );
     }
@@ -226,7 +266,7 @@ mod tests {
     #[test]
     fn backtab_is_csi_z() {
         assert_eq!(
-            encode_key(&key(KeyCode::BackTab, KeyModifiers::SHIFT)),
+            enc(KeyCode::BackTab, KeyModifiers::SHIFT),
             Some(b"\x1b[Z".to_vec())
         );
     }
@@ -234,7 +274,7 @@ mod tests {
     #[test]
     fn f1_is_ss3() {
         assert_eq!(
-            encode_key(&key(KeyCode::F(1), KeyModifiers::NONE)),
+            enc(KeyCode::F(1), KeyModifiers::NONE),
             Some(vec![0x1b, b'O', b'P'])
         );
     }
@@ -242,7 +282,7 @@ mod tests {
     #[test]
     fn pageup_is_csi_tilde() {
         assert_eq!(
-            encode_key(&key(KeyCode::PageUp, KeyModifiers::NONE)),
+            enc(KeyCode::PageUp, KeyModifiers::NONE),
             Some(b"\x1b[5~".to_vec())
         );
     }
