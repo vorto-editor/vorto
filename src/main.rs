@@ -231,7 +231,7 @@ fn run(
         }
         prev_prompt_open = now_open;
         terminal.draw(|f| ui::draw(f, app))?;
-        let shape = app.config.cursor_shapes.for_mode(app.mode);
+        let shape = app.config.cursor_shapes.for_mode(app.buffer.mode);
         if last_shape != Some(shape) {
             let mut out = io::stdout();
             out.write_all(cursor_ansi(shape, app.config.cursor_shapes.blinking))?;

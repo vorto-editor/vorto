@@ -69,7 +69,6 @@ use crate::editor::SearchState;
 use crate::editor::{Buffer, Cursor, SuggestionState};
 use crate::event::AppEvent;
 use crate::finder::{self, PreviewLru};
-use crate::mode::Mode;
 use crate::prompt::PromptController;
 use crate::syntax::Loader;
 
@@ -81,7 +80,6 @@ const MRU_CAP: usize = 64;
 
 pub struct App {
     pub buffer: Buffer,
-    pub mode: Mode,
     pub prompt: PromptController,
     pub search: SearchState,
     pub toasts: ToastQueue,
@@ -311,7 +309,6 @@ impl App {
         );
         Self {
             buffer: Buffer::new(),
-            mode: Mode::Normal,
             prompt: PromptController::new(),
             search: SearchState::default(),
             toasts: ToastQueue::new(),
@@ -382,7 +379,7 @@ impl App {
     /// Current selection range, if the editor is in any visual mode and
     /// an anchor is set. Returns `None` otherwise.
     pub fn selection(&self) -> Option<Selection> {
-        types::selection(self.mode, self.visual_anchor, self.buffer.cursor)
+        types::selection(self.buffer.mode, self.visual_anchor, self.buffer.cursor)
     }
 
     /// The text of the current visual selection, read-only (does not touch

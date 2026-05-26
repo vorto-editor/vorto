@@ -12,7 +12,7 @@ use crate::mode::Mode;
 pub(super) fn handle_motion(app: &mut App, m: MotionExpr) -> Vec<Cmd> {
     use MotionKind as M;
     let mut cmds = Vec::new();
-    let allow_after = matches!(app.mode, Mode::Insert);
+    let allow_after = matches!(app.buffer.mode, Mode::Insert);
     let n = m.count;
 
     let (resolved, last_find_update) = resolve_motion_pure(m.motion, app.last_find);

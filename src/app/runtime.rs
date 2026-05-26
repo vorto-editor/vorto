@@ -107,7 +107,7 @@ impl App {
     fn run_select_whole_buffer(&mut self) {
         let last = self.buffer.lines.len().saturating_sub(1);
         self.visual_anchor = Some(crate::editor::Cursor { row: 0, col: 0 });
-        self.mode = crate::mode::Mode::VisualLine;
+        self.buffer.mode = crate::mode::Mode::VisualLine;
         self.buffer.cursor = crate::editor::Cursor { row: last, col: 0 };
     }
 
@@ -192,7 +192,7 @@ impl App {
             self.push_toast(Toast::error("pattern not found"));
             return;
         };
-        if !self.mode.is_visual() {
+        if !self.buffer.mode.is_visual() {
             self.buffer.cursor = start;
             self.enter_mode(crate::mode::Mode::Visual);
         }

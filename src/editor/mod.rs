@@ -52,6 +52,7 @@ use std::time::SystemTime;
 
 use anyhow::Result;
 
+use crate::mode::Mode;
 use crate::syntax::Engine;
 use crate::vcs::{self, LineStatus};
 
@@ -59,6 +60,10 @@ use crate::vcs::{self, LineStatus};
 pub struct Buffer {
     pub lines: Vec<String>,
     pub cursor: Cursor,
+    /// Vim editing mode for this buffer's view. Lives on the buffer
+    /// (like `cursor` / `scroll`) so each buffer keeps its own mode and
+    /// a non-buffer pane simply has none. Defaults to `Normal`.
+    pub mode: Mode,
     /// Additional cursor positions for multi-cursor editing. The primary
     /// cursor lives in `cursor`; extras are *only* the non-primary ones,
     /// stored in insertion order so a pop semantic ("remove last added")
@@ -221,6 +226,7 @@ impl Buffer {
         Ok(Self {
             lines,
             cursor: Cursor::default(),
+            mode: Mode::default(),
             extra_cursors: Vec::new(),
             path: Some(path.to_path_buf()),
             dirty: false,
