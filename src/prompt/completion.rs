@@ -52,8 +52,8 @@ impl CommandPrompt {
     /// The visible input is replaced with the chosen candidate so the
     /// user can immediately submit it or keep typing past it.
     ///
-    /// When the cycle has narrowed to a single top-level command that
-    /// takes a second stage (a subcommand set or a path), a separating
+    /// When the prefix uniquely resolves to a single top-level command
+    /// that takes a second stage (a subcommand set or a path), a separating
     /// space is appended and the cycle ends, so the very next Tab — and
     /// the live hint panel — descend straight into that stage instead of
     /// requiring the user to type the space by hand.
@@ -280,12 +280,15 @@ mod tests {
         assert_eq!(cp.input.as_str(), "edit");
     }
 
-    // A command without a second stage never gets a trailing space.
+    // A command that uniquely resolves but has no second stage gets no
+    // trailing space — `log` is the only name starting with "log" and is
+    // `Args::None`, so this exercises the `matches.len() == 1` + `Args::None`
+    // path (unlike an ambiguous prefix, which is rejected earlier).
     #[test]
     fn argless_command_gets_no_space() {
-        let mut cp = typed("quit");
+        let mut cp = typed("log");
         cp.tab(1, Path::new(""));
-        assert_eq!(cp.input.as_str(), "quit");
+        assert_eq!(cp.input.as_str(), "log");
         assert!(cp.completion.is_some());
     }
 }
