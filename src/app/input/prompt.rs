@@ -60,6 +60,7 @@ impl App {
                 Ok(())
             }
             PromptOutcome::GotoLine(row) => {
+                self.record_jump();
                 self.editor.cursor.row = row;
                 self.editor.cursor.col = 0;
                 ed_op_ref!(self, clamp_col(false));

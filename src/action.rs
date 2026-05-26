@@ -385,6 +385,14 @@ pub enum DirectKind {
     /// Cycle to the next pane in tree-traversal order. `Ctrl-W w` /
     /// `<space>w o`.
     CycleWindow,
+    /// `Ctrl-O` — step back through the jump history (vim's jumplist).
+    /// Count walks N entries at once.
+    JumpBack,
+    /// `Ctrl-I` / `Tab` — step forward through the jump history.
+    JumpForward,
+    /// `:jumps` / `<space>j` — open the fuzzy picker over the jump
+    /// history so the user can jump straight to any past position.
+    JumpList,
 }
 
 /// Cardinal direction for [`DirectKind::FocusWindow`]. Re-export of the

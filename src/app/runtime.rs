@@ -74,6 +74,8 @@ impl App {
             }
             Cmd::Quit => self.should_quit = true,
             Cmd::StartJumpLabel => self.start_jump_label(),
+            Cmd::JumpBack { count } => self.jump_back(count),
+            Cmd::JumpForward { count } => self.jump_forward(count),
             Cmd::SelectWholeBuffer => self.run_select_whole_buffer(),
             Cmd::SyncYank => self.sync_yank_to_clipboard(),
             Cmd::SplitWindow { dir } => self.split_window(dir),
@@ -168,6 +170,7 @@ impl App {
         let last_row = self.active_doc().lines.len().saturating_sub(1);
         let row = (target.range.start.line as usize).min(last_row);
         let col = target.range.start.character as usize;
+        self.record_jump();
         self.editor.cursor = crate::editor::Cursor { row, col };
         ed_op_ref!(self, clamp_col(false));
         self.run_scroll(ScrollAnchor::Center);
@@ -179,6 +182,7 @@ impl App {
             .search
             .find_next(&self.editor, self.active_doc(), forward)
         {
+            self.record_jump();
             self.editor.cursor = c;
         } else {
             self.push_toast(Toast::error("pattern not found"));
@@ -200,6 +204,7 @@ impl App {
             return;
         };
         if !self.editor.mode.is_visual() {
+            self.record_jump();
             self.editor.cursor = start;
             self.enter_mode(crate::mode::Mode::Visual);
         }

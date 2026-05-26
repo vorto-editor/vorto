@@ -38,6 +38,8 @@ optional GitHub Copilot — all in a single, dependency-light binary.
 - Multi-cursor: `+` add next match, `Shift-Down` add below, `-` pop,
   `<space>,` clear
 - Jump labels: `gw` (easymotion-style 2-char word jumps)
+- Jump history: `<C-o>` / `<C-i>` (or `Tab`) walk the jumplist;
+  `:jumps` / `<space>j` open a fuzzy picker over it
 - Auto-pair brackets and quotes, language-aware comment toggle
   (`<space>c`), case toggle, line join, repeat with `.`
 - Undo / redo (`u` / `<C-r>`), system clipboard yank/paste via

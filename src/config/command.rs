@@ -256,6 +256,13 @@ pub const COMMANDS: &[Command] = &[
         kind: Kind::Direct(DirectKind::GotoLine),
     },
     Command {
+        name: "jumps",
+        aliases: &[],
+        description: "jump history picker",
+        args: Args::None,
+        kind: Kind::Direct(DirectKind::JumpList),
+    },
+    Command {
         name: "log",
         aliases: &[],
         description: "open debug log file",

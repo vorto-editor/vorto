@@ -232,6 +232,13 @@ pub(super) fn handle_direct(app: &mut App, kind: DirectKind, count: u32, ctx: Ct
         D::CloseWindow => cmds.push(Cmd::CloseWindow),
         D::FocusWindow { dir } => cmds.push(Cmd::FocusWindow { dir }),
         D::CycleWindow => cmds.push(Cmd::CycleWindow),
+        D::JumpBack => cmds.push(Cmd::JumpBack { count }),
+        D::JumpForward => cmds.push(Cmd::JumpForward { count }),
+        D::JumpList => {
+            cmds.push(Cmd::OpenPrompt(PromptKind::Fuzzy(
+                crate::finder::FuzzyKind::Jumps,
+            )));
+        }
     }
     cmds
 }
