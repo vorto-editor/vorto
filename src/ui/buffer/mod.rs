@@ -20,7 +20,10 @@ mod scroll;
 
 use diagnostics::{build_row_diag_summary, build_row_severity, diagnostic_line};
 use indent_guides::{GuideMap, IndentGuide, compute_indent_guides};
-use render_line::{build_jump_overlay, find_matches_in_line, render_line, sign_span, vcs_bar_span};
+use render_line::{
+    bookmark_sign_span, build_jump_overlay, find_matches_in_line, render_line, sign_span,
+    vcs_bar_span,
+};
 use scroll::{compute_col_scroll, compute_scroll};
 
 /// Style patched onto visually-selected text — the active theme's
@@ -109,6 +112,15 @@ pub(super) fn draw_buffer(f: &mut Frame, app: &App, area: Rect) {
         .map(|h| h.captures_in_rows(scroll, last_visible))
         .unwrap_or_default();
     let row_severity = build_row_severity(app, scroll, last_visible);
+    // Rows of the active buffer that carry a harpoon bookmark — drawn
+    // with a sign-column dot (taking priority over the diagnostic sign).
+    let bookmark_rows: std::collections::HashSet<usize> = app
+        .bookmarks
+        .marks
+        .iter()
+        .filter(|m| m.target == app.editor.doc)
+        .map(|m| m.line)
+        .collect();
     let vcs_statuses = app.active_doc().vcs_statuses();
     let cursor_row = app.editor.cursor.row;
     let cursor_col = app.editor.cursor.col;
@@ -165,7 +177,24 @@ pub(super) fn draw_buffer(f: &mut Frame, app: &App, area: Rect) {
         if i == cursor_row {
             cursor_visual_y = visual_y;
         }
-        let mut spans = vec![sign_span(row_severity.get(&i).copied())];
+        // Sign cell: the diagnostic severity sign wins the cell (errors
+        // matter more than a bookmark). On a row that's *both* diagnosed
+        // and bookmarked, the bookmark is signalled by underlining that
+        // sign instead of being hidden; a bookmark with no diagnostic
+        // shows the dot; otherwise the cell is blank.
+        let sev = row_severity.get(&i).copied();
+        let bookmarked = bookmark_rows.contains(&i);
+        let sign = match (sev, bookmarked) {
+            (Some(_), true) => {
+                let mut s = sign_span(sev);
+                s.style = s.style.add_modifier(ratatui::style::Modifier::UNDERLINED);
+                s
+            }
+            (Some(_), false) => sign_span(sev),
+            (None, true) => bookmark_sign_span(),
+            (None, false) => sign_span(None),
+        };
+        let mut spans = vec![sign];
         // Gutter layout: <sign><4-digit num><space><vcs-bar><buffer>.
         // The breathing-room space sits between the number and the
         // bar; cursor column math in `place_cursor` matches.

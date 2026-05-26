@@ -19,8 +19,9 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use crate::action::{DirectKind, Expr, MotionExpr, MotionKind, Operator, Target, Token};
 use crate::config::{
-    BRACKET_NEXT_BINDINGS, BRACKET_PREV_BINDINGS, CTRL_W_BINDINGS, GOTO_BINDINGS, KeySig, Keymap,
-    OBJECT_BINDINGS, OP_PENDING_BINDINGS, WINDOW_BINDINGS, Z_BINDINGS,
+    BOOKMARK_BINDINGS, BRACKET_NEXT_BINDINGS, BRACKET_PREV_BINDINGS, CTRL_W_BINDINGS,
+    GOTO_BINDINGS, KeySig, Keymap, OBJECT_BINDINGS, OP_PENDING_BINDINGS, WINDOW_BINDINGS,
+    Z_BINDINGS,
 };
 use crate::mode::Mode;
 
@@ -60,6 +61,10 @@ enum ParseCtx {
     /// of the keys in `WINDOW_BINDINGS` (split / focus / close /
     /// cycle).
     WindowPending,
+    /// Right after `<space>m` (the bookmark sub-leader). Expecting one
+    /// of the keys in `BOOKMARK_BINDINGS` (`a` add / `d` remove / `m`
+    /// picker).
+    BookmarkPending,
     /// Right after `Ctrl-W`. Expecting one of the keys in
     /// `CTRL_W_BINDINGS` (vim's window-prefix chord — h/j/k/l move
     /// focus, v / s split, c close, w cycle).
@@ -111,6 +116,7 @@ fn context_of(prev: &[Token]) -> ParseCtx {
         Some(FindCharPrefix { .. } | ReplaceCharPrefix) => ParseCtx::CharArgPending,
         Some(ZPrefix) => ParseCtx::ZPending,
         Some(WindowPrefix) => ParseCtx::WindowPending,
+        Some(BookmarkPrefix) => ParseCtx::BookmarkPending,
         Some(CtrlWPrefix) => ParseCtx::CtrlWPending,
         Some(BracketPrefix { .. }) => ParseCtx::BracketPending,
         // After Motion/Direct/Object/SelfDouble the command is already
@@ -219,6 +225,7 @@ pub(in crate::app) fn tokenize(
         ParseCtx::CharArgPending => char_arg_token(code, prev),
         ParseCtx::ZPending => z_pending_token(code),
         ParseCtx::WindowPending => window_pending_token(code),
+        ParseCtx::BookmarkPending => bookmark_pending_token(code),
         ParseCtx::CtrlWPending => ctrl_w_pending_token(code),
         ParseCtx::BracketPending => bracket_pending_token(code, prev),
         ParseCtx::SurroundCharPending => surround_char_token(code),
@@ -261,6 +268,13 @@ fn window_pending_token(code: crossterm::event::KeyCode) -> Option<Token> {
 
 fn ctrl_w_pending_token(code: crossterm::event::KeyCode) -> Option<Token> {
     CTRL_W_BINDINGS
+        .iter()
+        .find(|b| b.matches(code))
+        .map(|b| b.token)
+}
+
+fn bookmark_pending_token(code: crossterm::event::KeyCode) -> Option<Token> {
+    BOOKMARK_BINDINGS
         .iter()
         .find(|b| b.matches(code))
         .map(|b| b.token)
@@ -458,6 +472,12 @@ fn build_expr(tokens: &[Token]) -> Option<Expr> {
             count: outer_count,
         }),
 
+        // Bookmark sub-leader: <space>m a, <space>m d, <space>m m.
+        [LeaderPrefix, BookmarkPrefix, Direct(d)] => Some(Expr::Direct {
+            kind: *d,
+            count: outer_count,
+        }),
+
         // Vim window-prefix chord: <C-w>h, <C-w>v, <C-w>w, ...
         [CtrlWPrefix, Direct(d)] => Some(Expr::Direct {
             kind: *d,
@@ -649,6 +669,7 @@ fn is_valid_prefix(tokens: &[Token]) -> bool {
         [] => true,                             // just counts so far
         [LeaderPrefix] => true,                 // <space> waiting for follower
         [LeaderPrefix, WindowPrefix] => true,   // <space>w waiting for v/h/c/o/arrow
+        [LeaderPrefix, BookmarkPrefix] => true, // <space>m waiting for a/d/m
         [CtrlWPrefix] => true,                  // <C-w> waiting for follower
         [GotoPrefix] => true,                   // g waiting for the second g
         [BracketPrefix { .. }] => true,         // ] or [ waiting for the follower
@@ -724,6 +745,37 @@ mod tests {
 
     fn invalid(toks: &[Token]) -> bool {
         matches!(classify(toks), Parse::Invalid)
+    }
+
+    #[test]
+    fn bookmark_subleader_parses_and_waits() {
+        use crate::action::DirectKind;
+        // `<space>m a` completes to the add action.
+        assert_eq!(
+            complete(&[
+                Token::LeaderPrefix,
+                Token::BookmarkPrefix,
+                Token::Direct(DirectKind::BookmarkAdd),
+            ]),
+            Some(Expr::Direct {
+                kind: DirectKind::BookmarkAdd,
+                count: 1,
+            })
+        );
+        // `<space>m d` completes to remove-here.
+        assert_eq!(
+            complete(&[
+                Token::LeaderPrefix,
+                Token::BookmarkPrefix,
+                Token::Direct(DirectKind::BookmarkRemoveCurrent),
+            ]),
+            Some(Expr::Direct {
+                kind: DirectKind::BookmarkRemoveCurrent,
+                count: 1,
+            })
+        );
+        // `<space>m` alone is a valid in-progress prefix, not an abort.
+        assert!(incomplete(&[Token::LeaderPrefix, Token::BookmarkPrefix]));
     }
 
     #[test]

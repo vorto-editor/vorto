@@ -31,19 +31,34 @@ pub(super) fn draw_fuzzy(f: &mut Frame, app: &App, area: Rect) {
         FuzzyKind::Buffers => " fuzzy: buffers ",
         FuzzyKind::Diagnostics { workspace: false } => " diagnostics ",
         FuzzyKind::Diagnostics { workspace: true } => " diagnostics: workspace ",
+        FuzzyKind::Bookmarks => " bookmarks ",
     };
     let total = finder.matches.len();
     let footer = format!(" {}/{} ", finder.selected + 1, total.max(1));
     // Panel bg + text fg from the active theme, so the picker matches the
     // editor background and its text stays legible (esp. on light themes).
     let panel = Style::default().bg(super::panel_bg()).fg(super::panel_fg());
-    let block = Block::default()
+    let mut block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(super::panel_border_fg()))
         .title(title)
         .title_bottom(Line::from(footer).right_aligned())
         .style(panel)
         .padding(Padding::horizontal(1));
+    // The bookmark picker is an explorer-style modal: its key operations
+    // live on the bottom border (left-aligned), and the query line only
+    // appears while filtering. Both depend on the current Selection/Filter
+    // mode.
+    let bookmark_filtering = matches!(finder.kind, FuzzyKind::Bookmarks)
+        && app.prompt.bookmark_mode() == crate::prompt::BookmarkPickMode::Filter;
+    if matches!(finder.kind, FuzzyKind::Bookmarks) {
+        let hint = if bookmark_filtering {
+            " type to filter · ↵ jump · esc back "
+        } else {
+            " j/k move · d delete · / filter · ↵ jump · esc close "
+        };
+        block = block.title_bottom(Line::from(hint));
+    }
     let inner = block.inner(popup);
     f.render_widget(block, popup);
 
@@ -58,7 +73,11 @@ pub(super) fn draw_fuzzy(f: &mut Frame, app: &App, area: Rect) {
         ])
         .split(inner);
 
-    list::draw_fuzzy_list(f, finder, panes[0]);
+    // Hide the query line in the bookmark picker's Selection mode — it
+    // only makes sense while actually filtering. Every other picker types
+    // to filter, so the query line is always shown.
+    let show_query = !matches!(finder.kind, FuzzyKind::Bookmarks) || bookmark_filtering;
+    list::draw_fuzzy_list(f, finder, panes[0], show_query);
 
     let sep_v: Vec<Line> = (0..panes[1].height)
         .map(|_| Line::from(Span::styled("│", Style::default().fg(Color::DarkGray))))

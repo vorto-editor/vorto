@@ -39,6 +39,7 @@ macro_rules! ed_op_ref {
 }
 
 mod agent;
+mod bookmark;
 mod buffer_list;
 mod comment;
 mod completion;
@@ -211,6 +212,11 @@ pub struct App {
     /// never reused even after a scratch buffer is deleted, so a
     /// stashed sleeping scratch can't be confused with a fresh one.
     pub next_scratch_id: u32,
+    /// Harpoon-style bookmarks for the current project. Loaded at
+    /// startup from the global state file (see [`crate::bookmark`]);
+    /// `<space>ma` adds the current location, `<space>mm` opens the
+    /// picker. File-backed marks persist; scratch marks are session-only.
+    pub bookmarks: crate::bookmark::BookmarkStore,
     /// Sleeping (non-active) buffers, keyed by [`BufferRef`]. When the
     /// user switches away from a buffer we move its state in here so
     /// the unsaved edits, undo history, and cursor position are still
@@ -376,6 +382,9 @@ impl App {
         );
         let mut documents = HashMap::new();
         documents.insert(BufferRef::Scratch(0), crate::editor::Buffer::new());
+        // Load the project's bookmarks before `startup_cwd` is moved
+        // into the struct below.
+        let bookmarks = crate::bookmark::BookmarkStore::load(&startup_cwd);
         Self {
             editor: Editor::new(),
             documents,
@@ -403,6 +412,7 @@ impl App {
             opened_paths: vec![BufferRef::Scratch(0)],
             current_scratch_id: Some(0),
             next_scratch_id: 1,
+            bookmarks,
             sleeping: HashMap::new(),
             last_find: None,
             last_change: None,

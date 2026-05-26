@@ -31,6 +31,14 @@ pub(super) fn vcs_bar_span(status: Option<LineStatus>) -> Span<'static> {
     }
 }
 
+/// Gutter sign for a bookmarked row — a filled dot in the sign column,
+/// shown in place of the diagnostic severity sign on rows carrying a
+/// harpoon bookmark (`<space>m`). Single-width so the gutter layout is
+/// unchanged.
+pub(super) fn bookmark_sign_span() -> Span<'static> {
+    Span::styled("●", Style::default().fg(Color::LightMagenta))
+}
+
 pub(super) fn sign_span(sev: Option<Severity>) -> Span<'static> {
     match sev {
         Some(Severity::Error) => Span::styled("E", Style::default().fg(Color::Red)),

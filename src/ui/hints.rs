@@ -11,8 +11,9 @@ use crate::action::{Operator, Token};
 use crate::app::App;
 use crate::config::{Args, COMMANDS, Command};
 use crate::config::{
-    BRACKET_NEXT_BINDINGS, BRACKET_PREV_BINDINGS, CTRL_W_BINDINGS, GOTO_BINDINGS, LEADER_DEFAULTS,
-    OBJECT_BINDINGS, OP_PENDING_BINDINGS, WINDOW_BINDINGS, Z_BINDINGS,
+    BOOKMARK_BINDINGS, BRACKET_NEXT_BINDINGS, BRACKET_PREV_BINDINGS, CTRL_W_BINDINGS,
+    GOTO_BINDINGS, LEADER_DEFAULTS, OBJECT_BINDINGS, OP_PENDING_BINDINGS, WINDOW_BINDINGS,
+    Z_BINDINGS,
 };
 use crate::prompt::{CommandPrompt, CompletionKind};
 
@@ -46,7 +47,7 @@ fn subcommand_menu(head: &str) -> Option<(String, Vec<(&'static str, &'static st
 }
 
 const PENDING_HINT_WIDTH: u16 = 32;
-const PENDING_HINT_ROWS_MAX: u16 = 12;
+const PENDING_HINT_ROWS_MAX: u16 = 20;
 
 pub(super) fn draw_command_hints(f: &mut Frame, cp: &CommandPrompt, cmd_area: Rect) {
     // Resolve "what list should the panel show right now?" and which
@@ -362,6 +363,13 @@ fn pending_hints(tokens: &[Token]) -> Option<(&'static str, Vec<(String, &'stati
         Token::WindowPrefix => (
             "window",
             WINDOW_BINDINGS
+                .iter()
+                .map(|b| (display_key(b.key), b.label))
+                .collect(),
+        ),
+        Token::BookmarkPrefix => (
+            "bookmark",
+            BOOKMARK_BINDINGS
                 .iter()
                 .map(|b| (display_key(b.key), b.label))
                 .collect(),

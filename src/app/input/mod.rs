@@ -251,6 +251,7 @@ impl App {
             PromptKind::Fuzzy(FuzzyKind::Diagnostics { workspace }) => {
                 self.open_diagnostics_picker(workspace)
             }
+            PromptKind::Fuzzy(FuzzyKind::Bookmarks) => self.open_bookmark_picker(),
             PromptKind::Explorer => self.prompt.open_explorer(
                 &self.startup_cwd,
                 IgnoreOpts::DEFAULT,

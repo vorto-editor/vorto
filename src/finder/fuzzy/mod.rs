@@ -44,6 +44,13 @@ pub enum FuzzyKind {
     /// `Vec<Location>` on the prompt controller); submit fires
     /// `JumpToLocation`. Split out only so the picker title differs.
     Jumps,
+    /// `<space>mm` — harpoon-style bookmark picker. Display strings are
+    /// `path:line` labels; the
+    /// [`PromptController`](crate::prompt::PromptController) keeps a
+    /// parallel `Vec<Bookmark>` side-channel for the jump target (and
+    /// the buffer to delete on `Ctrl-d`). Previewed like
+    /// [`Locations`](Self::Locations), centered on the mark's line.
+    Bookmarks,
 }
 
 #[derive(Debug, Clone)]
@@ -158,6 +165,34 @@ impl Finder {
         };
         f.refilter();
         f
+    }
+
+    /// Build a [`FuzzyKind::Bookmarks`] picker. `items` are the
+    /// `path:line` display strings; the caller stashes a parallel
+    /// `Vec<Bookmark>` on the prompt controller and looks up the
+    /// selected index on submit / delete.
+    pub fn bookmarks(items: Vec<String>) -> Self {
+        let mut f = Self {
+            kind: FuzzyKind::Bookmarks,
+            query: String::new(),
+            items,
+            file_lines: Vec::new(),
+            matches: Vec::new(),
+            selected: 0,
+            cursor: 0,
+        };
+        f.refilter();
+        f
+    }
+
+    /// Remove the item at original index `idx` (an `MatchItem::idx`) and
+    /// refilter. Used by the bookmark picker's `Ctrl-d`; the caller keeps
+    /// its parallel side-channel in sync by removing the same index.
+    pub fn remove_item(&mut self, idx: usize) {
+        if idx < self.items.len() {
+            self.items.remove(idx);
+            self.refilter();
+        }
     }
 
     /// Build a [`FuzzyKind::Locations`] picker. Display strings are

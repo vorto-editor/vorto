@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
+use crate::bookmark::Bookmark;
 use crate::buffer_ref::BufferRef;
 use crate::finder::{ExplorerMode, ExplorerState, Finder, FuzzyKind, IgnoreOpts};
 use crate::lsp::{CodeAction, Location};
@@ -285,6 +286,25 @@ pub enum PromptOutcome {
     /// `:theme` picker — Enter committed the highlighted theme. The
     /// caller keeps it active and writes `theme = "..."` to the config.
     SelectTheme(String),
+    /// `<space>mm` picker — Enter on a mark. The caller switches to the
+    /// mark's buffer and parks the cursor on its line; the picker closes.
+    GotoBookmark(Bookmark),
+    /// `<space>mm` picker — `d` on a mark. The caller drops it from the
+    /// store (and persists); the picker stays open with the row already
+    /// removed from its in-memory list.
+    RemoveBookmark(BufferRef),
+}
+
+/// Interaction mode for the `Fuzzy(Bookmarks)` picker, mirroring the
+/// file explorer: [`Selection`](Self::Selection) is the default where
+/// `j`/`k`/`d`/Enter act on the highlighted row, and `/` switches to
+/// [`Filter`](Self::Filter) where printable keys narrow the list. This
+/// is what makes the bookmark picker behave like `<space>e` rather than
+/// a type-to-filter fuzzy finder.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum BookmarkPickMode {
+    Selection,
+    Filter,
 }
 
 pub struct PromptController {
@@ -296,6 +316,13 @@ pub struct PromptController {
     /// is the buffer to open when the user submits the matching item.
     /// Cleared on submit or cancel.
     buffer_paths: Vec<BufferRef>,
+    /// Side-channel for `Fuzzy(Bookmarks)` pickers — `bookmark_marks[idx]`
+    /// is the jump target / delete subject for the matching item. Cleared
+    /// on submit or cancel.
+    bookmark_marks: Vec<Bookmark>,
+    /// Current mode of the bookmark picker (Selection vs Filter). Reset to
+    /// Selection each time the picker opens.
+    bookmark_mode: BookmarkPickMode,
 }
 
 impl PromptController {
@@ -304,6 +331,8 @@ impl PromptController {
             state: Prompt::None,
             locations: Vec::new(),
             buffer_paths: Vec::new(),
+            bookmark_marks: Vec::new(),
+            bookmark_mode: BookmarkPickMode::Selection,
         }
     }
 
@@ -428,6 +457,13 @@ impl PromptController {
         &self.buffer_paths
     }
 
+    /// Read-only view of the bookmark-picker side-channel. The UI reads
+    /// `bookmark_marks()[idx]` to render the preview for the selected
+    /// mark.
+    pub fn bookmark_marks(&self) -> &[Bookmark] {
+        &self.bookmark_marks
+    }
+
     pub fn open_rename(&mut self) {
         self.state = Prompt::Rename(LineInput::new());
     }
@@ -514,9 +550,143 @@ impl PromptController {
         };
     }
 
+    /// Open the `<space>mm` bookmark picker as a [`FuzzyKind::Bookmarks`]
+    /// finder. `items[i]` is the `path:line` display string for
+    /// `marks[i]` (the jump target / delete subject) — the two stay
+    /// parallel, including across `Ctrl-d` deletes.
+    pub fn open_bookmarks(&mut self, items: Vec<String>, marks: Vec<Bookmark>) {
+        self.bookmark_marks = marks;
+        self.bookmark_mode = BookmarkPickMode::Selection;
+        self.state = Prompt::Fuzzy(Finder::bookmarks(items));
+    }
+
+    /// The bookmark picker's current mode — the renderer uses it to show
+    /// the query line only while filtering and to label the footer.
+    pub fn bookmark_mode(&self) -> BookmarkPickMode {
+        self.bookmark_mode
+    }
+
+    /// Key handling for the `Fuzzy(Bookmarks)` picker, modeled on the file
+    /// explorer: Selection mode is the default (navigate + `d` delete +
+    /// Enter jump), `/` switches to Filter mode (printable keys narrow the
+    /// fuzzy match set), and Esc peels Filter → Selection → close.
+    fn handle_bookmark_key(&mut self, key: KeyEvent) -> PromptOutcome {
+        let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+        if ctrl && key.code == KeyCode::Char('c') {
+            self.close();
+            return PromptOutcome::Cancelled;
+        }
+        match self.bookmark_mode {
+            BookmarkPickMode::Selection => match key.code {
+                KeyCode::Esc => {
+                    self.close();
+                    PromptOutcome::Cancelled
+                }
+                KeyCode::Enter => self.submit(),
+                KeyCode::Char('j') | KeyCode::Down => {
+                    self.finder_next();
+                    PromptOutcome::Nothing
+                }
+                KeyCode::Char('k') | KeyCode::Up => {
+                    self.finder_prev();
+                    PromptOutcome::Nothing
+                }
+                KeyCode::Char('n') if ctrl => {
+                    self.finder_next();
+                    PromptOutcome::Nothing
+                }
+                KeyCode::Char('p') if ctrl => {
+                    self.finder_prev();
+                    PromptOutcome::Nothing
+                }
+                KeyCode::Char('/') => {
+                    self.bookmark_mode = BookmarkPickMode::Filter;
+                    PromptOutcome::Nothing
+                }
+                KeyCode::Char('d') | KeyCode::Char('x') => self.delete_selected_bookmark(),
+                _ => PromptOutcome::Nothing,
+            },
+            BookmarkPickMode::Filter => match key.code {
+                // Esc leaves the filter input but keeps the picker open
+                // (and the query in effect); a second Esc — now in
+                // Selection — closes.
+                KeyCode::Esc => {
+                    self.bookmark_mode = BookmarkPickMode::Selection;
+                    PromptOutcome::Nothing
+                }
+                KeyCode::Enter => self.submit(),
+                KeyCode::Up => {
+                    self.finder_prev();
+                    PromptOutcome::Nothing
+                }
+                KeyCode::Down => {
+                    self.finder_next();
+                    PromptOutcome::Nothing
+                }
+                KeyCode::Char('n') if ctrl => {
+                    self.finder_next();
+                    PromptOutcome::Nothing
+                }
+                KeyCode::Char('p') if ctrl => {
+                    self.finder_prev();
+                    PromptOutcome::Nothing
+                }
+                // Everything else edits the fuzzy query.
+                _ => {
+                    if let Prompt::Fuzzy(finder) = &mut self.state {
+                        finder.apply_line_key(key);
+                    }
+                    PromptOutcome::Nothing
+                }
+            },
+        }
+    }
+
+    fn finder_next(&mut self) {
+        if let Prompt::Fuzzy(finder) = &mut self.state {
+            finder.next();
+        }
+    }
+
+    fn finder_prev(&mut self) {
+        if let Prompt::Fuzzy(finder) = &mut self.state {
+            finder.prev();
+        }
+    }
+
+    /// Remove the highlighted mark from the bookmark picker (Selection
+    /// mode `d`): drop it from the finder's item list and the parallel
+    /// side-channel, then ask the caller to drop it from the store. The
+    /// picker stays open.
+    fn delete_selected_bookmark(&mut self) -> PromptOutcome {
+        let idx = match &self.state {
+            Prompt::Fuzzy(finder) => finder.selection().map(|s| s.idx),
+            _ => None,
+        };
+        let Some(idx) = idx else {
+            return PromptOutcome::Nothing;
+        };
+        let Some(target) = self.bookmark_marks.get(idx).map(|m| m.target.clone()) else {
+            return PromptOutcome::Nothing;
+        };
+        if let Prompt::Fuzzy(finder) = &mut self.state {
+            finder.remove_item(idx);
+        }
+        self.bookmark_marks.remove(idx);
+        PromptOutcome::RemoveBookmark(target)
+    }
+
     pub fn handle_key(&mut self, key: KeyEvent, root: &Path) -> PromptOutcome {
         let ctrl_c =
             key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c');
+
+        // Bookmark picker: an Explorer-style Selection/Filter widget
+        // built on the fuzzy finder (so it keeps the preview pane). Owns
+        // all of its keys — `j`/`k`/`d`/Enter in Selection, `/` to filter
+        // — so it never reaches the generic close/submit path below.
+        if matches!(&self.state, Prompt::Fuzzy(f) if f.kind == FuzzyKind::Bookmarks) {
+            return self.handle_bookmark_key(key);
+        }
 
         // Explorer steals Esc/Enter ahead of the generic close/submit
         // path so its sub-modes can carry their own meaning: Esc may
@@ -1043,6 +1213,7 @@ impl PromptController {
         self.state = Prompt::None;
         self.locations.clear();
         self.buffer_paths.clear();
+        self.bookmark_marks.clear();
     }
 
     fn submit(&mut self) -> PromptOutcome {
@@ -1129,6 +1300,14 @@ impl PromptController {
                 self.buffer_paths.clear();
                 match r {
                     Some(r) => PromptOutcome::OpenBuffer(r),
+                    None => PromptOutcome::Nothing,
+                }
+            }
+            FuzzyKind::Bookmarks => {
+                let mark = self.bookmark_marks.get(sel.idx).cloned();
+                self.bookmark_marks.clear();
+                match mark {
+                    Some(mark) => PromptOutcome::GotoBookmark(mark),
                     None => PromptOutcome::Nothing,
                 }
             }
@@ -1496,5 +1675,99 @@ mod theme_picker_tests {
             PromptOutcome::Cancelled
         ));
         assert!(matches!(pc.state, Prompt::None));
+    }
+}
+
+#[cfg(test)]
+mod bookmark_picker_tests {
+    use super::*;
+    use crate::buffer_ref::BufferRef;
+
+    fn fixture() -> (Vec<Bookmark>, Vec<String>) {
+        let marks = vec![
+            Bookmark {
+                target: BufferRef::File("src/a.rs".into()),
+                line: 0,
+            },
+            Bookmark {
+                target: BufferRef::File("src/b.rs".into()),
+                line: 9,
+            },
+            Bookmark {
+                target: BufferRef::Scratch(2),
+                line: 3,
+            },
+        ];
+        let labels = vec![
+            "src/a.rs:1".into(),
+            "src/b.rs:10".into(),
+            "[scratch 2]:4".into(),
+        ];
+        (marks, labels)
+    }
+
+    fn key(c: char) -> KeyEvent {
+        KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE)
+    }
+    fn code(c: KeyCode) -> KeyEvent {
+        KeyEvent::new(c, KeyModifiers::NONE)
+    }
+    fn press(pc: &mut PromptController, k: KeyEvent) -> PromptOutcome {
+        pc.handle_key(k, Path::new(""))
+    }
+
+    #[test]
+    fn selection_j_then_enter_jumps_highlighted_mark() {
+        let mut pc = PromptController::new();
+        let (m, l) = fixture();
+        pc.open_bookmarks(l, m);
+        // Selection mode is the default — `j` moves the cursor.
+        press(&mut pc, key('j')); // → row 1
+        match press(&mut pc, code(KeyCode::Enter)) {
+            PromptOutcome::GotoBookmark(b) => {
+                assert_eq!(b.target, BufferRef::File("src/b.rs".into()));
+                assert_eq!(b.line, 9);
+            }
+            _ => panic!("expected GotoBookmark"),
+        }
+        assert!(matches!(pc.state, Prompt::None));
+    }
+
+    #[test]
+    fn d_removes_mark_and_stays_open() {
+        let mut pc = PromptController::new();
+        let (m, l) = fixture();
+        pc.open_bookmarks(l, m);
+        // Selection-mode `d` deletes (no Ctrl), explorer-style.
+        match press(&mut pc, key('d')) {
+            PromptOutcome::RemoveBookmark(t) => {
+                assert_eq!(t, BufferRef::File("src/a.rs".into()))
+            }
+            _ => panic!("expected RemoveBookmark"),
+        }
+        // Picker stays open (still a fuzzy finder) and the side-channel
+        // shrank in lockstep with the finder's items.
+        assert!(matches!(pc.state, Prompt::Fuzzy(_)));
+        assert_eq!(pc.bookmark_marks.len(), 2);
+        assert_eq!(
+            pc.bookmark_marks[0].target,
+            BufferRef::File("src/b.rs".into())
+        );
+    }
+
+    #[test]
+    fn slash_filters_then_enter_jumps_the_match() {
+        let mut pc = PromptController::new();
+        let (m, l) = fixture();
+        pc.open_bookmarks(l, m);
+        // `/` enters Filter mode; only "[scratch 2]:4" matches "scratch".
+        press(&mut pc, key('/'));
+        for c in "scratch".chars() {
+            press(&mut pc, key(c));
+        }
+        match press(&mut pc, code(KeyCode::Enter)) {
+            PromptOutcome::GotoBookmark(b) => assert_eq!(b.target, BufferRef::Scratch(2)),
+            _ => panic!("expected GotoBookmark(scratch)"),
+        }
     }
 }

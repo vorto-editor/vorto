@@ -116,6 +116,14 @@ impl App {
                 self.select_agent(name);
                 Ok(())
             }
+            PromptOutcome::GotoBookmark(mark) => {
+                self.goto_bookmark(&mark);
+                Ok(())
+            }
+            PromptOutcome::RemoveBookmark(target) => {
+                self.remove_bookmark(&target);
+                Ok(())
+            }
         }
     }
 }

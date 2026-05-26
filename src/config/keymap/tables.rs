@@ -453,6 +453,14 @@ pub const LEADER_DEFAULTS: &[Binding] = {
             token: Dir(D::MultiCursorClear),
             label: "clear extra cursors",
         },
+        // `<space>m` — harpoon "bookmark" sub-leader. The follow-up key
+        // resolves through `BOOKMARK_BINDINGS` (a add / d remove / m pick).
+        Binding {
+            key: KeyCode::Char('m'),
+            aliases: &[],
+            token: Token::BookmarkPrefix,
+            label: "bookmark …",
+        },
         // `<space>w` — sub-leader for window/pane operations. The
         // follow-up key resolves through `WINDOW_BINDINGS`.
         Binding {
@@ -621,6 +629,37 @@ pub const WINDOW_BINDINGS: &[Binding] = {
                 dir: FocusDir::Down,
             }),
             label: "focus down",
+        },
+    ]
+};
+
+/// Keys valid in the `BookmarkPending` context (right after `<space>m`).
+/// The harpoon sub-leader: `a` marks the current location, `d` removes
+/// the current buffer's mark, `m` opens the picker. Same source-of-truth
+/// pattern as [`WINDOW_BINDINGS`] — referenced by both the parser
+/// (`bookmark_pending_token`) and the which-key hint renderer.
+pub const BOOKMARK_BINDINGS: &[Binding] = {
+    use crate::action::{DirectKind as D, PromptKind};
+    use crate::finder::FuzzyKind;
+    use Token::Direct as Dir;
+    &[
+        Binding {
+            key: KeyCode::Char('a'),
+            aliases: &[],
+            token: Dir(D::BookmarkAdd),
+            label: "add bookmark here",
+        },
+        Binding {
+            key: KeyCode::Char('d'),
+            aliases: &[],
+            token: Dir(D::BookmarkRemoveCurrent),
+            label: "remove bookmark here",
+        },
+        Binding {
+            key: KeyCode::Char('m'),
+            aliases: &[],
+            token: Dir(D::OpenPrompt(PromptKind::Fuzzy(FuzzyKind::Bookmarks))),
+            label: "bookmark picker",
         },
     ]
 };

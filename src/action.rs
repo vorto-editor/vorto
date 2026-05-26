@@ -53,6 +53,11 @@ pub enum Token {
     ///
     /// [`WindowPrefix`]: Token::WindowPrefix
     CtrlWPrefix,
+    /// `<space>m` — the harpoon "bookmark" sub-leader. Tokenization
+    /// transitions to a bookmark-pending state so the next key resolves
+    /// against `BOOKMARK_BINDINGS` (`a` add / `d` remove-here / `m`
+    /// picker). Same shape as [`WindowPrefix`](Token::WindowPrefix).
+    BookmarkPrefix,
     /// `]` / `[` — bracket-prefix for next/previous-style jumps
     /// (`]d` / `[d` for diagnostics, room for `]c` / `[c` etc.).
     /// Direction is baked into the prefix so the body bindings can
@@ -354,6 +359,12 @@ pub enum DirectKind {
     MultiCursorPop,
     /// `<space>,` — drop every extra cursor and keep only primary.
     MultiCursorClear,
+    /// `<space>ma` — bookmark the active buffer at the cursor's row
+    /// (harpoon-style). De-dups by buffer; persisted for file-backed
+    /// buffers, session-only for scratch.
+    BookmarkAdd,
+    /// `<space>md` — remove the active buffer's bookmark, if any.
+    BookmarkRemoveCurrent,
     /// `gw` — easymotion / hop-style two-character label jump. Computes
     /// jump targets at every visible word start, overlays a 2-char label
     /// on each, and waits for the user to type the label. After the
