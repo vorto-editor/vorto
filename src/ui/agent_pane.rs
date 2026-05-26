@@ -77,10 +77,15 @@ pub(super) fn draw_agent_pane(f: &mut Frame, app: &App, area: Rect, _active: boo
 /// Place the terminal cursor at the agent grid's cursor when the agent
 /// pane is focused. Called from the top-level UI orchestrator after the
 /// frame is painted (only the focused pane gets a hardware cursor).
+///
+/// The caret is shown unconditionally — we ignore the agent's DECTCEM
+/// (`?25h`/`?25l`) visibility on purpose. A focused agent pane mirrors a
+/// focused editor pane, whose caret is always visible; agents that blink
+/// their cursor by toggling DECTCEM, or that idle with it hidden while
+/// drawing their own caret (e.g. `claude`), would otherwise flicker or
+/// show no caret at all. `codex` and friends that keep the cursor shown
+/// land in the same place.
 pub(super) fn place_agent_cursor(f: &mut Frame, snap: &GridSnapshot, area: Rect) {
-    if !snap.cursor_visible {
-        return;
-    }
     let max_rows = (area.height as usize).min(snap.rows);
     let max_cols = (area.width as usize).min(snap.cols);
     if snap.cursor_col >= max_cols || snap.cursor_row >= max_rows {

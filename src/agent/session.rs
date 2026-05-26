@@ -118,16 +118,16 @@ pub struct GridCell {
 }
 
 /// What the renderer needs to paint a frame of the agent terminal: the
-/// visible cells plus cursor position / visibility. (The cursor *shape*
-/// is read separately by the main loop via
-/// [`AgentSession::cursor_shape`] for DECSCUSR.)
+/// visible cells plus the grid cursor position. (The cursor *shape* is
+/// read separately by the main loop via [`AgentSession::cursor_shape`]
+/// for DECSCUSR.) Cursor *visibility* is deliberately not carried — the
+/// focused agent pane always shows its caret; see [`AgentSession::grid_snapshot`].
 pub struct GridSnapshot {
     pub cols: usize,
     pub rows: usize,
     pub cells: Vec<GridCell>,
     pub cursor_row: usize,
     pub cursor_col: usize,
-    pub cursor_visible: bool,
 }
 
 /// A live agent process attached to a PTY. One per `App`; the pane that
@@ -313,12 +313,16 @@ impl AgentSession {
             });
         }
 
+        // The agent owns the next write position via the grid cursor. We
+        // surface its location but *not* its DECTCEM visibility: the agent
+        // pane mirrors an editor pane, whose caret is always shown while
+        // focused. Apps that blink their cursor by toggling `?25h`/`?25l`
+        // (or idle with it hidden, like `claude`) would otherwise leave the
+        // focused pane with no caret at all. The renderer only paints this
+        // cursor for the focused pane, so an unfocused agent shows none.
         let cursor = content.cursor;
         let cursor_row = cursor.point.line.0.max(0) as usize;
         let cursor_col = cursor.point.column.0;
-        let cursor_visible = !matches!(cursor.shape, TermCursorShape::Hidden)
-            && cursor_row < rows
-            && cursor_col < cols;
 
         Some(GridSnapshot {
             cols,
@@ -326,7 +330,6 @@ impl AgentSession {
             cells,
             cursor_row,
             cursor_col,
-            cursor_visible,
         })
     }
 
@@ -487,6 +490,29 @@ mod tests {
         assert!(lines[0].starts_with("hi"), "row 0 = {:?}", lines[0]);
         // CSI row/col are 1-based: row 2 col 3 → grid row 1, col 2.
         assert_eq!(lines[1].as_bytes()[2], b'X', "row 1 = {:?}", lines[1]);
+        session.kill();
+    }
+
+    #[test]
+    fn grid_cursor_is_reported_even_when_the_agent_hides_it() {
+        // Agents like `claude` blink/hide the cursor via DECTCEM (`?25l`).
+        // The focused agent pane shows its caret regardless, so the
+        // snapshot must keep reporting the grid cursor position after a
+        // hide — it carries no visibility flag to suppress it.
+        let (tx, _rx) = std::sync::mpsc::channel();
+        let cwd = std::env::current_dir().unwrap();
+        let Ok(mut session) = AgentSession::spawn(&cat_spec(), &cwd, tx) else {
+            return;
+        };
+        session.resize(20, 5);
+        // Move to row 2 col 3 (1-based), write "X" (cursor advances to
+        // col 4), then hide the cursor with DECTCEM reset.
+        session.push_output(b"\x1b[2;3HX\x1b[?25l");
+        let snap = session.grid_snapshot().unwrap();
+        // Grid coords are 0-based: row 2 → 1, and the caret sits one past
+        // the written "X" at col 3.
+        assert_eq!(snap.cursor_row, 1, "cursor row tracked through ?25l");
+        assert_eq!(snap.cursor_col, 3, "cursor col tracked through ?25l");
         session.kill();
     }
 
