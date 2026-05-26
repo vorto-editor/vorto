@@ -261,14 +261,14 @@ impl App {
     /// one underlying `Buffer` while the cursors stay independent.
     ///
     /// Focus moves to the new pane (matching vim's `:split` behaviour).
-    /// The displaced session goes into `pane_editors` keyed by the old
-    /// active pane id.
+    /// The displaced session goes into `pane_content` (as
+    /// `PaneContent::Editor`) keyed by the old active pane id.
     pub fn split_window(&mut self, dir: SplitDir) {
         // Splitting clones the *editor* view, so it operates on the
         // active editor pane. The agent pane has no editor session to
         // displace — splitting it would corrupt the `editor_pane`
         // invariant — so jump focus back to the editor first.
-        if self.active_pane == self.agent_pane.unwrap_or(u32::MAX) {
+        if Some(self.active_pane) == self.agent_pane {
             self.active_pane = self.editor_pane;
         }
         self.split_window_quiet(dir);

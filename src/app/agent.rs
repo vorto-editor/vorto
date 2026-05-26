@@ -197,10 +197,15 @@ impl App {
         }
 
         // Deliver the prompt by writing to the PTY (best-effort). A
-        // trailing newline submits it. The agent enables bracketed paste
-        // itself; we keep this simple and write the raw bytes.
+        // Wrap it in bracketed-paste markers — we are the terminal, so we
+        // emit them — so a multi-line prompt (e.g. an `@selection` code
+        // block) arrives as one paste instead of line-by-line Enter
+        // keystrokes; agents in bracketed-paste mode honour it. A trailing
+        // CR submits.
         if let (Some(p), Some(agent)) = (prompt.as_deref(), self.agent.as_ref()) {
+            agent.write(b"\x1b[200~");
             agent.write(p.as_bytes());
+            agent.write(b"\x1b[201~");
             agent.write(b"\r");
             self.push_toast(Toast::info(format!("sent prompt to {}", spec.name)));
         }

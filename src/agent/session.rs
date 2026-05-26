@@ -297,8 +297,9 @@ impl AgentSession {
                 continue;
             }
             let cell: &Cell = indexed.cell;
-            // Skip the trailing half of a wide character and empty cells
-            // with no styling — they'd just paint default-on-default.
+            // Skip the trailing half of a wide character — the spacer cell
+            // carries no glyph of its own. Default blank cells are kept;
+            // they paint as cleared space, which is what we want.
             if cell.flags.contains(Flags::WIDE_CHAR_SPACER) {
                 continue;
             }
