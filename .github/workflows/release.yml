@@ -6,12 +6,19 @@ on:
       - "v*"
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
+  ci:
+    name: ci
+    uses: ./.github/workflows/ci.yml
+
   build:
     name: build (${{ matrix.target }})
+    needs: ci
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
