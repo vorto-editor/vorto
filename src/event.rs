@@ -81,4 +81,14 @@ pub enum AppEvent {
         path: PathBuf,
         base: Option<Vec<String>>,
     },
+    /// A chunk of output read from the in-app agent's PTY (see
+    /// [`crate::agent::AgentSession`]). The main loop appends it to the
+    /// session's retained buffer and redraws. Chunks are sent as the
+    /// reader thread receives them; coalescing is left to the OS pipe
+    /// buffering.
+    AgentOutput(Vec<u8>),
+    /// The agent process exited / its PTY closed (reader thread saw
+    /// EOF). The main loop marks the session exited so the renderer can
+    /// show an `[exited]` marker.
+    AgentExited,
 }

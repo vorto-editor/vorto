@@ -25,3 +25,4 @@ include_dir = "0.7"
 arboard = "3"
 time = { version = "0.3", features = ["formatting", "local-offset"] }
 unicode-width = "0.2"
+portable-pty = "0.9"

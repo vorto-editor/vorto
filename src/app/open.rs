@@ -120,8 +120,10 @@ impl App {
         let successor = next.doc.clone();
         self.editor = next;
         if deleted != successor {
-            for ed in self.pane_editors.values_mut() {
-                if ed.doc == deleted {
+            for content in self.pane_content.values_mut() {
+                if let crate::app::PaneContent::Editor(ed) = content
+                    && ed.doc == deleted
+                {
                     ed.doc = successor.clone();
                     ed.cursor = Cursor::default();
                     ed.extra_cursors.clear();
@@ -292,8 +294,10 @@ impl App {
             if self.editor.doc == old_ref {
                 self.editor.doc = new_ref.clone();
             }
-            for ed in self.pane_editors.values_mut() {
-                if ed.doc == old_ref {
+            for content in self.pane_content.values_mut() {
+                if let crate::app::PaneContent::Editor(ed) = content
+                    && ed.doc == old_ref
+                {
                     ed.doc = new_ref.clone();
                 }
             }

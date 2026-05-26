@@ -77,6 +77,15 @@ impl App {
             return Ok(());
         }
 
+        // Agent pane focused: route input to the agent's PTY, reserving
+        // Ctrl-W (and any in-flight Ctrl-W chord) for window navigation
+        // so the user can move focus back out. Sits above the global
+        // Ctrl-C panic button — Ctrl-C must reach the agent (interrupt),
+        // not quit vorto.
+        if Some(self.active_pane) == self.agent_pane {
+            return self.handle_agent_key(key);
+        }
+
         // Global panic button.
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
             self.should_quit = true;
@@ -115,6 +124,56 @@ impl App {
             self.editor.mode,
             key,
         ) {
+            Some(t) => self.editor.tokens.push(t),
+            None => {
+                self.editor.tokens.clear();
+                return Ok(());
+            }
+        }
+        match eval::classify(&self.editor.tokens) {
+            eval::Parse::Complete(expr) => {
+                self.editor.tokens.clear();
+                self.evaluate(expr, crate::action::Ctx::default())?;
+            }
+            eval::Parse::Incomplete => {}
+            eval::Parse::Invalid => self.editor.tokens.clear(),
+        }
+        Ok(())
+    }
+
+    /// Handle a key while the agent pane is focused. Ctrl-W (and the
+    /// rest of an in-flight Ctrl-W chord) is reserved for window
+    /// navigation — it drives the Normal-mode window-prefix grammar
+    /// against the editor session so `Ctrl-W h/j/k/l/w` can move focus
+    /// back out to an editor pane. Every other key is encoded to its
+    /// terminal byte sequence and written to the agent's PTY.
+    fn handle_agent_key(&mut self, key: KeyEvent) -> Result<()> {
+        let ctrl_w = key.modifiers.contains(KeyModifiers::CONTROL)
+            && matches!(key.code, KeyCode::Char('w') | KeyCode::Char('W'));
+        // A mid-flight chord lives in `editor.tokens` (a `CtrlWPrefix`
+        // pushed on a prior key). Continue consuming it here so the
+        // follower (`h`, `w`, …) lands on focus navigation instead of
+        // the PTY.
+        let chord_pending = !self.editor.tokens.is_empty();
+        if ctrl_w || chord_pending {
+            return self.drive_window_prefix(key);
+        }
+        // Forward to the PTY. `encode_key` returns `None` for keys with
+        // nothing to send (bare modifiers, releases) — drop those.
+        if let (Some(agent), Some(bytes)) = (self.agent.as_ref(), crate::agent::encode_key(&key)) {
+            agent.write(&bytes);
+        }
+        Ok(())
+    }
+
+    /// Feed `key` through the Normal-mode window-prefix token pipeline.
+    /// Forces `Mode::Normal` semantics (the only tokens this can yield
+    /// are the `Ctrl-W` window chord), so the agent pane's focus moves
+    /// resolve exactly like they do from an editor pane. Tokens
+    /// accumulate in `editor.tokens` across keys until the chord
+    /// completes or is rejected.
+    fn drive_window_prefix(&mut self, key: KeyEvent) -> Result<()> {
+        match eval::tokenize(&self.config.keymap, &self.editor.tokens, Mode::Normal, key) {
             Some(t) => self.editor.tokens.push(t),
             None => {
                 self.editor.tokens.clear();

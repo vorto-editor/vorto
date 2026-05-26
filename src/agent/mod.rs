@@ -1,12 +1,14 @@
 //! AI-agent launcher domain types, shared between the config layer
 //! (which resolves the agent catalog + default) and the `:agent` command
-//! (which picks a backend and opens a pane). Pure data + the
-//! [`Multiplexer`] abstraction; no `App` dependency, so it stays
-//! unit-testable.
+//! (which opens an in-app pane). The agent runs in a PTY *inside* vorto
+//! ([`session::AgentSession`]); keystrokes are encoded to terminal byte
+//! sequences by [`keys::encode_key`].
 
-mod mux;
+mod keys;
+mod session;
 
-pub use mux::{Multiplexer, detect};
+pub use keys::encode_key;
+pub use session::AgentSession;
 
 /// Placeholder substituted with the prompt text in [`AgentSpec::prompt_args`].
 pub const PROMPT_PLACEHOLDER: &str = "{prompt}";
@@ -29,18 +31,6 @@ pub struct AgentSpec {
     /// aider wants `["--message", "{prompt}"]`. Empty → the agent takes no
     /// launch-time prompt, so a prompted `:agent` opens it bare.
     pub prompt_args: Vec<String>,
-}
-
-impl AgentSpec {
-    /// The launch-time argv tail that passes `prompt` to the agent,
-    /// substituting [`PROMPT_PLACEHOLDER`] in [`Self::prompt_args`]. Empty
-    /// when the agent declares no `prompt_args`.
-    pub fn prompt_argv(&self, prompt: &str) -> Vec<String> {
-        self.prompt_args
-            .iter()
-            .map(|a| a.replace(PROMPT_PLACEHOLDER, prompt))
-            .collect()
-    }
 }
 
 /// Default `prompt_args` for an agent that doesn't specify its own: pass

@@ -18,6 +18,7 @@
 //!   which-key panel that appears while an operator is pending.
 //! - [`fuzzy`] — the fuzzy picker popup with its source-preview pane.
 
+mod agent_pane;
 mod agent_picker;
 mod buffer;
 mod code_action;
@@ -39,7 +40,7 @@ use ratatui::style::{Color, Style};
 use ratatui::text::Span;
 use ratatui::widgets::Paragraph;
 
-use crate::app::{App, PaneId, PaneLayout, PaneRect, Prompt, SplitDir};
+use crate::app::{App, PaneContent, PaneId, PaneLayout, PaneRect, Prompt, SplitDir};
 
 /// Shared overlay panel background — `Color::Reset` so floating widgets
 /// (command hints, pending-op hints, toasts, completion, hover,
@@ -88,14 +89,35 @@ pub fn draw(f: &mut Frame, app: &App) {
     }
     let active_rect = rects.get(&app.active_pane).copied().unwrap_or(chunks[0]);
     for (&id, &rect) in &rects {
-        if id == app.active_pane {
-            buffer::draw_buffer(f, app, rect);
-        } else if let (Some(ed), Some(buf)) = (app.editor_for_pane(id), app.buffer_for_pane(id)) {
-            // The pane's session carries its own cursor; the document
-            // is resolved through the pool. Two panes sharing one ref
-            // paint the same live content with independent cursors.
-            let eff = effective_editor_for_buffer(app, buf);
-            buffer::draw_buffer_inactive(f, ed, buf, &eff, rect);
+        if id == app.editor_pane {
+            // `App.editor` backs this leaf. Full active renderer when
+            // it's the focused pane; the lighter inactive renderer when
+            // focus is elsewhere (e.g. the agent pane is active).
+            if id == app.active_pane {
+                buffer::draw_buffer(f, app, rect);
+            } else {
+                let eff = app.effective_editor();
+                buffer::draw_buffer_inactive(f, &app.editor, app.active_doc(), &eff, rect);
+            }
+        } else {
+            match app.pane_content.get(&id) {
+                Some(PaneContent::Agent) => {
+                    agent_pane::draw_agent_pane(f, app, rect, id == app.active_pane);
+                }
+                Some(PaneContent::Editor(_)) => {
+                    if let (Some(ed), Some(buf)) =
+                        (app.editor_for_pane(id), app.buffer_for_pane(id))
+                    {
+                        // The pane's session carries its own cursor; the
+                        // document is resolved through the pool. Two panes
+                        // sharing one ref paint the same live content with
+                        // independent cursors.
+                        let eff = effective_editor_for_buffer(app, buf);
+                        buffer::draw_buffer_inactive(f, ed, buf, &eff, rect);
+                    }
+                }
+                None => {}
+            }
         }
     }
     // Paint dividers between sibling panes and a focus-ring on the
@@ -105,7 +127,12 @@ pub fn draw(f: &mut Frame, app: &App) {
     status::draw_command_line(f, app, chunks[2]);
     toast::draw_toast(f, app, chunks[0]);
 
-    buffer::place_cursor(f, app, active_rect);
+    // Only place the editor's terminal cursor when an editor pane is
+    // focused. When the agent pane is active the cursor belongs to the
+    // agent's output (not modelled in Phase C), so leave it be.
+    if app.active_pane == app.editor_pane {
+        buffer::place_cursor(f, app, active_rect);
+    }
 
     if let Prompt::Command(cp) = &app.prompt.state {
         hints::draw_command_hints(f, cp, chunks[2]);

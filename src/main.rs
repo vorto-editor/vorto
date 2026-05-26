@@ -191,6 +191,13 @@ fn main() -> Result<()> {
 
     let result = run(&mut terminal, &mut app, &event_rx);
 
+    // Kill the single agent process on the quit path. `Drop` would also
+    // do this when `app` falls out of scope, but doing it explicitly
+    // here means the child is reaped before we tear down the terminal.
+    if let Some(agent) = app.agent.as_mut() {
+        agent.kill();
+    }
+
     disable_raw_mode()?;
     let _ = execute!(terminal.backend_mut(), DisableBracketedPaste);
     if kbd_enhanced {
@@ -330,6 +337,16 @@ fn dispatch(app: &mut App, ev: event::AppEvent) -> Result<()> {
             path,
             base,
         } => app.handle_vcs_base_ready(generation, path, base),
+        event::AppEvent::AgentOutput(bytes) => {
+            if let Some(agent) = app.agent.as_mut() {
+                agent.push_output(&bytes);
+            }
+        }
+        event::AppEvent::AgentExited => {
+            if let Some(agent) = app.agent.as_mut() {
+                agent.mark_exited();
+            }
+        }
     }
     Ok(())
 }
