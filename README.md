@@ -196,6 +196,43 @@ Configuration lives under `$XDG_CONFIG_HOME/vorto/` (typically
 - `grammars/` — installed tree-sitter `.so` libraries
 - `queries/<lang>/` — installed `highlights.scm`, `indents.scm`,
   `textobjects.scm`
+- `themes/<name>.toml` — color themes (see below)
+
+### Themes
+
+`:theme` opens a filterable picker (`/` to filter, `j`/`k` to move) that
+previews each theme live on the current buffer as you move the cursor;
+Enter applies and saves `theme = "<name>"` to `config.toml`, Esc reverts.
+
+Themes are Helix-compatible TOML — a flat scope → color map with an
+optional `[palette]`, so most Helix theme files drop in unchanged:
+
+```toml
+# ~/.config/vorto/themes/mytheme.toml
+keyword           = "mauve"
+"function.macro"  = { fg = "mauve", modifiers = ["bold"] }
+comment           = { fg = "#6c7086", modifiers = ["italic"] }
+"ui.selection"    = { bg = "#313244" }
+
+[palette]            # must come last (a TOML table header captures the
+mauve = "#cba6f7"    # keys after it)
+```
+
+Color values are a `[palette]` name, a `#rrggbb` (or `#rgb`) hex literal,
+or an ANSI color name. Scopes cover tree-sitter highlight captures
+(`keyword`, `function.method`, …) and editor chrome — `ui.background`
+(paints the whole editor; a theme that sets it recolors the background,
+one that omits it keeps the terminal's), `ui.selection`, `ui.linenr`,
+`ui.statusline`, `ui.popup`, ….
+
+Built-in themes: `ansi` (terminal palette), the Catppuccin flavors
+(`catppuccin-latte`, `-frappe`, `-macchiato`, `-mocha`), `tokyonight`,
+`nord`, `dracula`, `onedark`/`onelight`, `rose-pine`, `gruvbox-dark`/
+`-light`, `everforest-dark`/`-light`, `kanagawa`, `solarized-dark`/
+`-light`, `ayu-dark`/`-mirage`/`-light`, and `monokai-pro`.
+A file in `themes/` shadows a built-in of the same name. The special
+theme `ansi` uses your terminal's own 16-color palette and is always
+available. Set the startup theme with `theme = "<name>"` in `config.toml`.
 
 See the [documentation site](https://docs.vorto-editor.dev/) for the
 full configuration reference.

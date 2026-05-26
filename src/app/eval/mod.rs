@@ -78,6 +78,7 @@ impl App {
                         Inline::Copilot => self.run_copilot_command(rest),
                         Inline::Grammar => self.run_grammar_command(rest),
                         Inline::Agent => self.run_agent_command(rest),
+                        Inline::Theme => self.run_theme_command(rest),
                     }
                     Ok(())
                 }

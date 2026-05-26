@@ -116,15 +116,22 @@ pub(super) fn draw_completion(f: &mut Frame, app: &App, buf_area: Rect) {
     f.render_widget(Clear, area);
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(super::PANEL_BORDER_FG))
+        .border_style(Style::default().fg(super::panel_border_fg()))
         .padding(Padding::horizontal(1))
-        .style(Style::default().bg(super::PANEL_BG));
+        .style(Style::default().bg(super::panel_bg()));
     let inner = block.inner(area);
     f.render_widget(block, area);
 
     let body_h = inner.height as usize;
     let scroll = state.selected.saturating_sub(body_h.saturating_sub(1));
     let inner_w = inner.width as usize;
+
+    // Resolve the selected-row bg once for the whole frame rather than
+    // re-reading the active-theme `RwLock` inside the per-row closure.
+    let sel_bg = crate::theme::active()
+        .ui_menu_selected()
+        .bg
+        .unwrap_or(Color::DarkGray);
 
     let items: Vec<ListItem> = state
         .filtered
@@ -160,9 +167,7 @@ pub(super) fn draw_completion(f: &mut Frame, app: &App, buf_area: Rect) {
             let label = truncate(&item.label, label_room);
             let detail_text = truncate(detail, detail_room);
             let row_style = if is_sel {
-                Style::default()
-                    .bg(Color::DarkGray)
-                    .add_modifier(Modifier::BOLD)
+                Style::default().bg(sel_bg).add_modifier(Modifier::BOLD)
             } else {
                 Style::default()
             };
@@ -278,9 +283,9 @@ fn draw_detail_popup(
     f.render_widget(Clear, area);
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(super::PANEL_BORDER_FG))
+        .border_style(Style::default().fg(super::panel_border_fg()))
         .padding(Padding::horizontal(1))
-        .style(Style::default().bg(super::PANEL_BG));
+        .style(Style::default().bg(super::panel_bg()));
     let inner = block.inner(area);
     f.render_widget(block, area);
 

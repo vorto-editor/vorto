@@ -125,6 +125,24 @@ pub enum Prompt {
         agents: Vec<String>,
         selected: usize,
     },
+    /// `:theme` — filterable theme picker with **live preview**. Modeled
+    /// on [`Self::GrammarList`]'s filter/navigation, but every selection
+    /// change emits [`PromptOutcome::PreviewTheme`] so the App swaps the
+    /// active theme as the cursor moves; Enter
+    /// ([`PromptOutcome::SelectTheme`]) commits + persists, Esc cancels
+    /// (the App reverts to the theme that was active when the picker
+    /// opened). `/` toggles the live filter, same as the grammar modal.
+    ThemePicker {
+        /// Theme names (bundled ∪ user), sorted; `ansi` included.
+        themes: Vec<String>,
+        /// Index into the *visible* (filtered) projection — see
+        /// [`theme_visible_indices`].
+        selected: usize,
+        /// Live filter text. Empty shows every theme.
+        query: String,
+        /// `/` filter input is live; printable keys edit `query`.
+        filtering: bool,
+    },
 }
 
 /// One grammar entry in the `:grammar` modal.
@@ -159,6 +177,23 @@ pub(crate) fn grammar_visible_indices(rows: &[GrammarRow], query: &str) -> Vec<u
     rows.iter()
         .enumerate()
         .filter(|(_, r)| r.name.to_lowercase().contains(&needle))
+        .map(|(i, _)| i)
+        .collect()
+}
+
+/// Indices into `themes` matching `query` (case-insensitive substring,
+/// order preserved). Empty query matches everything. The theme-picker
+/// twin of [`grammar_visible_indices`]; shared by the renderer and key
+/// handler so the visible projection can't drift.
+pub(crate) fn theme_visible_indices(themes: &[String], query: &str) -> Vec<usize> {
+    if query.is_empty() {
+        return (0..themes.len()).collect();
+    }
+    let needle = query.to_lowercase();
+    themes
+        .iter()
+        .enumerate()
+        .filter(|(_, name)| name.to_lowercase().contains(&needle))
         .map(|(i, _)| i)
         .collect()
 }
@@ -243,6 +278,13 @@ pub enum PromptOutcome {
     /// `:agent` picker — Enter on the highlighted agent. The caller
     /// launches it and persists it as the default (first time only).
     SelectAgent(String),
+    /// `:theme` picker — the highlighted theme changed (navigation or a
+    /// filter edit). The caller swaps the active theme for live preview
+    /// *without* persisting; the picker stays open.
+    PreviewTheme(String),
+    /// `:theme` picker — Enter committed the highlighted theme. The
+    /// caller keeps it active and writes `theme = "..."` to the config.
+    SelectTheme(String),
 }
 
 pub struct PromptController {
@@ -451,6 +493,20 @@ impl PromptController {
         };
     }
 
+    /// Open the `:theme` picker. `selected` starts on the currently
+    /// active theme (`current`) when it's in the list, so the cursor
+    /// lands on what's already applied and arrowing away previews
+    /// alternatives.
+    pub fn open_theme_picker(&mut self, themes: Vec<String>, current: &str) {
+        let selected = themes.iter().position(|t| t == current).unwrap_or(0);
+        self.state = Prompt::ThemePicker {
+            themes,
+            selected,
+            query: String::new(),
+            filtering: false,
+        };
+    }
+
     pub fn handle_key(&mut self, key: KeyEvent, root: &Path) -> PromptOutcome {
         let ctrl_c =
             key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c');
@@ -596,6 +652,87 @@ impl PromptController {
             return PromptOutcome::Nothing;
         }
 
+        // `:theme` picker. Like the grammar modal it owns `/` (filter)
+        // and, while filtering, the printable keys — but every selection
+        // change emits `PreviewTheme` so the App swaps the active theme as
+        // the cursor moves. Enter commits (`SelectTheme`); Esc peels back
+        // filter input → non-empty query → the modal (reverting handled by
+        // the App on `Cancelled`).
+        if let Prompt::ThemePicker {
+            themes,
+            selected,
+            query,
+            filtering,
+        } = &mut self.state
+        {
+            let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+
+            if ctrl_c {
+                self.close();
+                return PromptOutcome::Cancelled;
+            }
+
+            if key.code == KeyCode::Esc {
+                if *filtering {
+                    *filtering = false;
+                    return PromptOutcome::Nothing;
+                } else if !query.is_empty() {
+                    query.clear();
+                    *selected = 0;
+                    // fall through to re-preview the new top match
+                } else {
+                    self.close();
+                    return PromptOutcome::Cancelled;
+                }
+            } else {
+                let visible = theme_visible_indices(themes, query);
+                let last = visible.len().saturating_sub(1);
+                match key.code {
+                    // Navigation works in both modes (never types).
+                    KeyCode::Up => *selected = selected.saturating_sub(1),
+                    KeyCode::Down => *selected = (*selected + 1).min(last),
+                    KeyCode::Char('p') if ctrl => *selected = selected.saturating_sub(1),
+                    KeyCode::Char('n') if ctrl => *selected = (*selected + 1).min(last),
+                    // Enter commits in either mode.
+                    KeyCode::Enter => {
+                        let name = visible.get(*selected).and_then(|&i| themes.get(i)).cloned();
+                        self.close();
+                        return name
+                            .map(PromptOutcome::SelectTheme)
+                            .unwrap_or(PromptOutcome::Cancelled);
+                    }
+                    // While filtering, printable keys edit the query.
+                    _ if *filtering => match key.code {
+                        KeyCode::Backspace => {
+                            query.pop();
+                            *selected = 0;
+                        }
+                        KeyCode::Char(c) if !ctrl => {
+                            query.push(c);
+                            *selected = 0;
+                        }
+                        _ => return PromptOutcome::Nothing,
+                    },
+                    // Selection-mode vim motions + `/` to filter.
+                    KeyCode::Char('k') => *selected = selected.saturating_sub(1),
+                    KeyCode::Char('j') => *selected = (*selected + 1).min(last),
+                    KeyCode::Char('/') => {
+                        *filtering = true;
+                        return PromptOutcome::Nothing;
+                    }
+                    _ => return PromptOutcome::Nothing,
+                }
+            }
+
+            // Any path that moved the selection (or cleared the filter)
+            // previews whatever is now highlighted.
+            let visible = theme_visible_indices(themes, query);
+            let name = visible.get(*selected).and_then(|&i| themes.get(i)).cloned();
+            return name
+                .map(PromptOutcome::PreviewTheme)
+                .unwrap_or(PromptOutcome::Nothing);
+        }
+
         // Open-time "install this grammar?" confirmation. `y` installs,
         // `n`/Esc/Ctrl-C decline; the arrow keys (or `h`/`l`/Tab) move
         // between the Yes/No buttons and Enter acts on the highlighted
@@ -721,11 +858,12 @@ impl PromptController {
             }
             Prompt::Explorer(_)
             | Prompt::GrammarList { .. }
-            | Prompt::GrammarInstallConfirm { .. } => {
-                // All three are fully handled by their early intercepts
-                // above (they own Esc/Enter and per-key dispatch).
-                // Reaching this arm means the early branch didn't match —
-                // which shouldn't happen — but stay defensive.
+            | Prompt::GrammarInstallConfirm { .. }
+            | Prompt::ThemePicker { .. } => {
+                // All fully handled by their early intercepts above (they
+                // own Esc/Enter and per-key dispatch). Reaching this arm
+                // means the early branch didn't match — which shouldn't
+                // happen — but stay defensive.
                 PromptOutcome::Nothing
             }
             Prompt::Hover { scroll, .. } | Prompt::LspStatus { scroll, .. } => {
@@ -917,7 +1055,8 @@ impl PromptController {
             // future caller that bypasses the key path — no-op.
             Prompt::Explorer(_)
             | Prompt::GrammarList { .. }
-            | Prompt::GrammarInstallConfirm { .. } => PromptOutcome::Nothing,
+            | Prompt::GrammarInstallConfirm { .. }
+            | Prompt::ThemePicker { .. } => PromptOutcome::Nothing,
             Prompt::CodeActionMenu {
                 mut actions,
                 selected,
@@ -1231,5 +1370,124 @@ mod grammar_filter_tests {
             panic!("expected grammar list");
         };
         assert_eq!(query, "i");
+    }
+}
+
+#[cfg(test)]
+mod theme_picker_tests {
+    use super::*;
+
+    fn themes() -> Vec<String> {
+        ["ansi", "catppuccin-mocha", "gruvbox-dark"]
+            .into_iter()
+            .map(str::to_string)
+            .collect()
+    }
+
+    fn key(c: char) -> KeyEvent {
+        KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE)
+    }
+    fn code(c: KeyCode) -> KeyEvent {
+        KeyEvent::new(c, KeyModifiers::NONE)
+    }
+    fn press(pc: &mut PromptController, k: KeyEvent) -> PromptOutcome {
+        pc.handle_key(k, Path::new(""))
+    }
+
+    #[test]
+    fn opens_on_current_theme() {
+        let mut pc = PromptController::new();
+        pc.open_theme_picker(themes(), "catppuccin-mocha");
+        let Prompt::ThemePicker { selected, .. } = &pc.state else {
+            panic!("expected theme picker");
+        };
+        assert_eq!(*selected, 1);
+    }
+
+    #[test]
+    fn navigation_previews_the_new_selection() {
+        let mut pc = PromptController::new();
+        pc.open_theme_picker(themes(), "ansi"); // selected = 0
+        match press(&mut pc, key('j')) {
+            PromptOutcome::PreviewTheme(name) => assert_eq!(name, "catppuccin-mocha"),
+            _ => panic!("expected PreviewTheme(catppuccin-mocha)"),
+        }
+        // Ctrl-N moves down too.
+        let ctrl_n = KeyEvent::new(KeyCode::Char('n'), KeyModifiers::CONTROL);
+        match press(&mut pc, ctrl_n) {
+            PromptOutcome::PreviewTheme(name) => assert_eq!(name, "gruvbox-dark"),
+            _ => panic!("expected PreviewTheme(gruvbox-dark)"),
+        }
+        // Clamps at the end.
+        match press(&mut pc, key('j')) {
+            PromptOutcome::PreviewTheme(name) => assert_eq!(name, "gruvbox-dark"),
+            _ => panic!("expected PreviewTheme(gruvbox-dark) at tail"),
+        }
+    }
+
+    #[test]
+    fn enter_commits_and_closes() {
+        let mut pc = PromptController::new();
+        pc.open_theme_picker(themes(), "ansi");
+        press(&mut pc, key('j')); // → catppuccin-mocha
+        match press(&mut pc, code(KeyCode::Enter)) {
+            PromptOutcome::SelectTheme(name) => assert_eq!(name, "catppuccin-mocha"),
+            _ => panic!("expected SelectTheme"),
+        }
+        assert!(matches!(pc.state, Prompt::None));
+    }
+
+    #[test]
+    fn esc_cancels() {
+        let mut pc = PromptController::new();
+        pc.open_theme_picker(themes(), "ansi");
+        assert!(matches!(
+            press(&mut pc, code(KeyCode::Esc)),
+            PromptOutcome::Cancelled
+        ));
+        assert!(matches!(pc.state, Prompt::None));
+    }
+
+    #[test]
+    fn filter_narrows_and_previews_top_match() {
+        let mut pc = PromptController::new();
+        pc.open_theme_picker(themes(), "ansi");
+        press(&mut pc, key('/'));
+        // Typing "gru" narrows to gruvbox-dark and previews it.
+        press(&mut pc, key('g'));
+        press(&mut pc, key('r'));
+        match press(&mut pc, key('u')) {
+            PromptOutcome::PreviewTheme(name) => assert_eq!(name, "gruvbox-dark"),
+            _ => panic!("expected PreviewTheme(gruvbox-dark) while filtering"),
+        }
+        // Enter from the filter commits the highlighted match.
+        match press(&mut pc, code(KeyCode::Enter)) {
+            PromptOutcome::SelectTheme(name) => assert_eq!(name, "gruvbox-dark"),
+            _ => panic!("expected SelectTheme(gruvbox-dark)"),
+        }
+    }
+
+    #[test]
+    fn esc_peels_filter_then_query_then_closes() {
+        let mut pc = PromptController::new();
+        pc.open_theme_picker(themes(), "ansi");
+        press(&mut pc, key('/'));
+        press(&mut pc, key('c'));
+        // First Esc leaves the input, query stays.
+        assert!(matches!(
+            press(&mut pc, code(KeyCode::Esc)),
+            PromptOutcome::Nothing
+        ));
+        // Second Esc clears the query — previews the new top match.
+        assert!(matches!(
+            press(&mut pc, code(KeyCode::Esc)),
+            PromptOutcome::PreviewTheme(_)
+        ));
+        // Third Esc closes.
+        assert!(matches!(
+            press(&mut pc, code(KeyCode::Esc)),
+            PromptOutcome::Cancelled
+        ));
+        assert!(matches!(pc.state, Prompt::None));
     }
 }

@@ -23,15 +23,20 @@ use indent_guides::{GuideMap, IndentGuide, compute_indent_guides};
 use render_line::{build_jump_overlay, find_matches_in_line, render_line, sign_span, vcs_bar_span};
 use scroll::{compute_col_scroll, compute_scroll};
 
-/// Color used to paint visually-selected text. ANSI bright-black so the
-/// shade follows the user's terminal theme (color 8 in the palette).
-pub(super) const SEL_BG: Color = Color::DarkGray;
+/// Style patched onto visually-selected text — the active theme's
+/// `ui.selection`, or ANSI bright-black bg (color 8, follows the user's
+/// terminal theme) when the theme doesn't set one.
+pub(super) fn sel_style() -> Style {
+    crate::theme::active().ui_selection()
+}
 
-/// Background used to highlight every visible match of the active
-/// search pattern (vim's `hlsearch`). ANSI bright-black (the terminal's
-/// dim gray) so it sits underneath text without competing with a
+/// Style patched onto every visible match of the active search pattern
+/// (vim's `hlsearch`) — the active theme's `ui.search`, defaulting to
+/// ANSI bright-black bg so it sits under text without competing with a
 /// visual selection.
-pub(super) const SEARCH_HIT_BG: Color = Color::DarkGray;
+pub(super) fn search_style() -> Style {
+    crate::theme::active().ui_search()
+}
 
 /// Background used to render each extra-cursor cell. ANSI regular
 /// yellow (palette slot 3) so the cell picks up the user's terminal
@@ -151,6 +156,8 @@ pub(super) fn draw_buffer(f: &mut Frame, app: &App, area: Rect) {
         area.width
             .saturating_sub(GUTTER_SIGN_WIDTH + 5 + GUTTER_VCS_WIDTH) as usize;
     let col_scroll = compute_col_scroll(app, inner_text_width, tab_width);
+    // One theme handle for the whole gutter pass (cheap Arc clone).
+    let theme = crate::theme::active();
     for (i, line) in app.active_doc().lines.iter().enumerate().skip(scroll) {
         if visual_y as usize >= height {
             break;
@@ -163,13 +170,14 @@ pub(super) fn draw_buffer(f: &mut Frame, app: &App, area: Rect) {
         // The breathing-room space sits between the number and the
         // bar; cursor column math in `place_cursor` matches.
         let num = format!("{:>4} ", i + 1);
-        // The cursor's row gets the terminal's default foreground
-        // (`Color::Reset`) so the number stays in sync with whatever
-        // color the terminal paints the cursor itself.
+        // Cursor row vs. the rest, from the active theme
+        // (`ui.linenr.selected` / `ui.linenr`). Defaults preserve the old
+        // look: the cursor row tracks the terminal fg (`Reset`), others
+        // dim gray.
         let num_style = if i == cursor_row {
-            Style::default().fg(Color::Reset)
+            theme.ui_linenr_selected()
         } else {
-            Style::default().fg(Color::DarkGray)
+            theme.ui_linenr()
         };
         spans.push(Span::styled(num, num_style));
         let vcs_status = vcs_statuses.get(i).copied().flatten();
@@ -252,7 +260,18 @@ pub(super) fn draw_buffer(f: &mut Frame, app: &App, area: Rect) {
     }
 
     app.active_doc().cursor_visual_y.set(cursor_visual_y);
-    f.render_widget(Paragraph::new(visible), area);
+    f.render_widget(with_background(Paragraph::new(visible), &theme), area);
+}
+
+/// Apply the theme's `ui.background` as the paragraph's base bg, so the
+/// whole viewport (gutter, text, and blank cells past the content) picks
+/// up the editor background. Themes that don't set one (e.g. `ansi`)
+/// leave the terminal's own background showing through.
+fn with_background<'a>(para: Paragraph<'a>, theme: &crate::theme::Theme) -> Paragraph<'a> {
+    match theme.ui_background() {
+        Some(style) => para.style(style),
+        None => para,
+    }
 }
 
 pub(super) fn place_cursor(f: &mut Frame, app: &App, buf_area: Rect) {
@@ -361,5 +380,8 @@ pub(super) fn draw_buffer_inactive(
         ));
         visible.push(Line::from(spans));
     }
-    f.render_widget(Paragraph::new(visible), area);
+    f.render_widget(
+        with_background(Paragraph::new(visible), &crate::theme::active()),
+        area,
+    );
 }

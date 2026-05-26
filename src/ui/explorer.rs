@@ -60,11 +60,13 @@ pub(super) fn draw_explorer(f: &mut Frame, app: &App, area: Rect) {
     let total = state.visible.len();
     let position = if total == 0 { 0 } else { state.selected + 1 };
     let footer = format!(" {}/{} ", position, total.max(1));
+    let panel = Style::default().bg(super::panel_bg()).fg(super::panel_fg());
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(super::PANEL_BORDER_FG))
+        .border_style(Style::default().fg(super::panel_border_fg()))
         .title(" explorer ")
         .title_bottom(Line::from(footer).right_aligned())
+        .style(panel)
         .padding(Padding::horizontal(1));
     let inner = block.inner(popup);
     f.render_widget(block, popup);
@@ -90,6 +92,10 @@ pub(super) fn draw_explorer(f: &mut Frame, app: &App, area: Rect) {
     // don't shine through past the new content. Same reasoning as the
     // fuzzy popup.
     f.render_widget(Clear, panes[2]);
+    f.render_widget(
+        Block::default().style(Style::default().bg(super::panel_bg())),
+        panes[2],
+    );
     draw_preview(f, app, state, panes[2]);
 
     // Pending file-op modals (add / delete / rename / move) float on
@@ -114,8 +120,9 @@ fn draw_action_modal(f: &mut Frame, state: &ExplorerState, area: Rect) {
     f.render_widget(Clear, modal);
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(super::PANEL_BORDER_FG))
+        .border_style(Style::default().fg(super::panel_border_fg()))
         .title(format!(" {title} "))
+        .style(Style::default().bg(super::panel_bg()).fg(super::panel_fg()))
         .padding(Padding::horizontal(1));
     let inner = block.inner(modal);
     f.render_widget(block, modal);

@@ -57,6 +57,14 @@ pub(super) fn draw_agent_pane(f: &mut Frame, app: &App, area: Rect, _active: boo
     // can't write outside the pane or read past the grid.
     let max_rows = (area.height as usize).min(snap.rows);
     let max_cols = (area.width as usize).min(snap.cols);
+    // The terminal's "default" fg/bg (alacritty's Foreground/Background)
+    // follow the active theme's `ui.background`, so the pane blends with a
+    // themed editor instead of showing the host terminal's own default.
+    // Resolved once per frame; `None` (e.g. the `ansi` theme) keeps the
+    // host default. The program's explicit 16 ANSI colors are untouched.
+    let bg_style = crate::theme::active().ui_background();
+    let def_fg = bg_style.and_then(|s| s.fg);
+    let def_bg = bg_style.and_then(|s| s.bg);
     let buf = f.buffer_mut();
     for cell in &snap.cells {
         if cell.row >= max_rows || cell.col >= max_cols {
@@ -64,7 +72,7 @@ pub(super) fn draw_agent_pane(f: &mut Frame, app: &App, area: Rect, _active: boo
         }
         let x = area.x + cell.col as u16;
         let y = area.y + cell.row as u16;
-        let style = cell_style(cell.fg, cell.bg, cell.flags);
+        let style = cell_style(cell.fg, cell.bg, cell.flags, def_fg, def_bg);
         // A space with default styling is left as the cleared cell; any
         // glyph or styled cell is painted.
         let target = &mut buf[(x, y)];
@@ -99,18 +107,37 @@ pub(super) fn place_agent_cursor(f: &mut Frame, snap: &GridSnapshot, area: Rect)
 /// Map a cell's fg/bg colors and attribute flags to a ratatui [`Style`].
 /// Inverse swaps fg/bg; bold/italic/dim/underline/strikeout map to the
 /// equivalent ratatui modifiers; hidden blanks the cell out.
-fn cell_style(fg: AnsiColor, bg: AnsiColor, flags: Flags) -> Style {
+fn cell_style(
+    fg: AnsiColor,
+    bg: AnsiColor,
+    flags: Flags,
+    def_fg: Option<Color>,
+    def_bg: Option<Color>,
+) -> Style {
     let mut fg = map_color(fg);
     let mut bg = map_color(bg);
+
+    // `Color::Reset` is alacritty's "use the terminal default" sentinel
+    // (see `map_named`). Substitute the theme's default fg/bg per slot —
+    // before the inverse swap so each maps to the right default — so the
+    // pane tracks the editor theme. Left as `Reset` when the theme sets
+    // none, deferring to the host terminal.
+    if fg == Color::Reset
+        && let Some(c) = def_fg
+    {
+        fg = c;
+    }
+    if bg == Color::Reset
+        && let Some(c) = def_bg
+    {
+        bg = c;
+    }
 
     if flags.contains(Flags::INVERSE) {
         std::mem::swap(&mut fg, &mut bg);
     }
 
     let mut style = Style::default();
-    // `Color::Reset` means "use the terminal default"; leaving it off the
-    // style entirely lets ratatui's own default through, but setting it
-    // explicitly is harmless and keeps inverse swaps coherent.
     style = style.fg(fg).bg(bg);
 
     let mut modifier = Modifier::empty();
@@ -217,6 +244,8 @@ mod tests {
             AnsiColor::Named(NamedColor::Red),
             AnsiColor::Named(NamedColor::Blue),
             Flags::INVERSE,
+            None,
+            None,
         );
         assert_eq!(style.fg, Some(Color::Blue));
         assert_eq!(style.bg, Some(Color::Red));
@@ -228,8 +257,54 @@ mod tests {
             AnsiColor::Named(NamedColor::Foreground),
             AnsiColor::Named(NamedColor::Background),
             Flags::BOLD | Flags::ITALIC,
+            None,
+            None,
         );
         assert!(style.add_modifier.contains(Modifier::BOLD));
         assert!(style.add_modifier.contains(Modifier::ITALIC));
+    }
+
+    #[test]
+    fn default_slots_take_theme_colors_when_set() {
+        // Foreground/Background map to `Reset`, then get substituted with
+        // the theme's default fg/bg (here red/blue). Explicit ANSI colors
+        // are untouched.
+        let style = cell_style(
+            AnsiColor::Named(NamedColor::Foreground),
+            AnsiColor::Named(NamedColor::Background),
+            Flags::empty(),
+            Some(Color::Red),
+            Some(Color::Blue),
+        );
+        assert_eq!(style.fg, Some(Color::Red));
+        assert_eq!(style.bg, Some(Color::Blue));
+    }
+
+    #[test]
+    fn default_slots_stay_reset_without_theme() {
+        let style = cell_style(
+            AnsiColor::Named(NamedColor::Foreground),
+            AnsiColor::Named(NamedColor::Background),
+            Flags::empty(),
+            None,
+            None,
+        );
+        assert_eq!(style.fg, Some(Color::Reset));
+        assert_eq!(style.bg, Some(Color::Reset));
+    }
+
+    #[test]
+    fn explicit_ansi_color_ignores_theme_default() {
+        // A program-emitted ANSI red stays the host palette's red even
+        // when the theme sets a default fg.
+        let style = cell_style(
+            AnsiColor::Named(NamedColor::Red),
+            AnsiColor::Named(NamedColor::Background),
+            Flags::empty(),
+            Some(Color::Rgb(1, 2, 3)),
+            Some(Color::Rgb(4, 5, 6)),
+        );
+        assert_eq!(style.fg, Some(Color::Red));
+        assert_eq!(style.bg, Some(Color::Rgb(4, 5, 6)));
     }
 }

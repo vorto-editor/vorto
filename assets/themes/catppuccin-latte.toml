@@ -1,0 +1,83 @@
+# Catppuccin Latte (light) — official Helix mapping, Latte palette.
+
+# ── Syntax ───────────────────────────────────────────────────────────
+keyword            = "mauve"
+include            = "mauve"
+conditional        = "mauve"
+repeat             = "mauve"
+exception          = "mauve"
+namespace          = { fg = "yellow", modifiers = ["italic"] }
+"function"         = "blue"
+"function.macro"   = "mauve"
+"function.builtin" = "blue"
+method             = "blue"
+constructor        = "sapphire"
+type               = "yellow"
+"type.builtin"     = "yellow"
+string             = "green"
+"string.escape"    = "pink"
+character          = "teal"
+number             = "peach"
+boolean            = "peach"
+constant           = "peach"
+"constant.builtin" = "peach"
+comment            = { fg = "overlay2", modifiers = ["italic"] }
+parameter          = { fg = "maroon", modifiers = ["italic"] }
+"variable.parameter" = { fg = "maroon", modifiers = ["italic"] }
+"variable.builtin"   = "red"
+property           = "blue"
+field              = "blue"
+label              = "sapphire"
+operator           = "sky"
+"punctuation.bracket"   = "overlay2"
+"punctuation.delimiter" = "overlay2"
+"punctuation.special"   = "sky"
+attribute          = "yellow"
+tag                = "blue"
+"markup.heading"        = { fg = "blue", modifiers = ["bold"] }
+"markup.heading.marker" = "mauve"
+"markup.list"           = "teal"
+"markup.raw"            = "green"
+"markup.link.url"       = { fg = "blue", modifiers = ["underlined"] }
+"markup.link.label"     = "lavender"
+"diff.plus"             = "green"
+"diff.minus"            = "red"
+
+# ── UI chrome ────────────────────────────────────────────────────────
+"ui.background"          = { fg = "text", bg = "base" }
+"ui.linenr"              = { fg = "surface1" }
+"ui.linenr.selected"     = { fg = "lavender" }
+"ui.selection"           = { bg = "surface1" }
+"ui.search"              = { bg = "surface2" }
+"ui.statusline"          = { fg = "subtext1", bg = "mantle" }
+"ui.menu.selected"       = { fg = "text", bg = "surface1", modifiers = ["bold"] }
+"ui.popup"               = { fg = "text", bg = "surface0" }
+"ui.popup.border"        = { fg = "surface2" }
+
+[palette]
+rosewater = "#dc8a78"
+flamingo  = "#dd7878"
+pink      = "#ea76cb"
+mauve     = "#8839ef"
+red       = "#d20f39"
+maroon    = "#e64553"
+peach     = "#fe640b"
+yellow    = "#df8e1d"
+green     = "#40a02b"
+teal      = "#179299"
+sky       = "#04a5e5"
+sapphire  = "#209fb5"
+blue      = "#1e66f5"
+lavender  = "#7287fd"
+text      = "#4c4f69"
+subtext1  = "#5c5f77"
+subtext0  = "#6c6f85"
+overlay2  = "#7c7f93"
+overlay1  = "#8c8fa1"
+overlay0  = "#9ca0b0"
+surface2  = "#acb0be"
+surface1  = "#bcc0cc"
+surface0  = "#ccd0da"
+base      = "#eff1f5"
+mantle    = "#e6e9ef"
+crust     = "#dce0e8"

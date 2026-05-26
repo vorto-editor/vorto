@@ -1,0 +1,71 @@
+# Dracula — ported from the official Helix theme.
+
+# ── Syntax ───────────────────────────────────────────────────────────
+keyword            = "pink"
+include            = "pink"
+conditional        = "pink"
+repeat             = "pink"
+exception          = "purple"
+namespace          = "foreground"
+"function"         = "green"
+"function.macro"   = "purple"
+"function.builtin" = "green"
+method             = "green"
+constructor        = "purple"
+type               = { fg = "cyan", modifiers = ["italic"] }
+"type.builtin"     = "cyan"
+string             = "yellow"
+"string.escape"    = "pink"
+character          = "yellow"
+number             = "purple"
+boolean            = "purple"
+constant           = "purple"
+"constant.builtin" = "purple"
+comment            = { fg = "comment", modifiers = ["italic"] }
+parameter          = { fg = "orange", modifiers = ["italic"] }
+"variable.parameter" = { fg = "orange", modifiers = ["italic"] }
+"variable.builtin"   = { fg = "purple", modifiers = ["italic"] }
+property           = "foreground"
+field              = "foreground"
+label              = "cyan"
+operator           = "foreground"
+"punctuation.bracket"   = "foreground"
+"punctuation.delimiter" = "foreground"
+"punctuation.special"   = "pink"
+attribute          = { fg = "green", modifiers = ["italic"] }
+tag                = "pink"
+"markup.heading"        = { fg = "purple", modifiers = ["bold"] }
+"markup.heading.marker" = "pink"
+"markup.list"           = "cyan"
+"markup.raw"            = "foreground"
+"markup.link.url"       = { fg = "cyan", modifiers = ["underlined"] }
+"markup.link.label"     = "pink"
+"diff.plus"             = "green"
+"diff.minus"            = "red"
+
+# ── UI chrome ────────────────────────────────────────────────────────
+"ui.background"          = { fg = "foreground", bg = "background" }
+"ui.linenr"              = { fg = "comment" }
+"ui.linenr.selected"     = { fg = "foreground" }
+"ui.selection"           = { bg = "selection" }
+"ui.search"              = { bg = "current_line" }
+"ui.statusline"          = { fg = "foreground", bg = "darker" }
+"ui.menu.selected"       = { fg = "current_line", bg = "purple" }
+"ui.popup"               = { fg = "foreground", bg = "black" }
+"ui.popup.border"        = { fg = "current_line" }
+
+[palette]
+background   = "#282a36"
+black        = "#191a21"
+comment      = "#6272a4"
+current_line = "#44475a"
+cyan         = "#8be9fd"
+darker       = "#222430"
+foreground   = "#f8f8f2"
+green        = "#50fa7b"
+orange       = "#ffb86c"
+pink         = "#ff79c6"
+purple       = "#bd93f9"
+red          = "#ff5555"
+selection    = "#363848"
+yellow       = "#f1fa8c"

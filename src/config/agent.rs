@@ -149,7 +149,7 @@ fn insert_default_agent(existing: &str, name: &str) -> String {
 /// already simple), but a quoted key like `[agents."odd\"name"]` could
 /// carry `"`, `\`, or control chars — writing those unescaped would
 /// produce a config file that fails to parse on the next load.
-fn toml_basic_string(s: &str) -> String {
+pub(super) fn toml_basic_string(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 2);
     out.push('"');
     for c in s.chars() {

@@ -1,0 +1,76 @@
+# Gruvbox Dark — ported from the official Helix `gruvbox` theme. Same
+# scope mapping as gruvbox-light; only the palette differs (dark values).
+
+# ── Syntax ───────────────────────────────────────────────────────────
+keyword            = "red1"
+include            = "aqua1"
+conditional        = "red1"
+repeat             = "red1"
+exception          = "red1"
+namespace          = "fg1"
+"function"         = "green1"
+"function.macro"   = "blue1"
+"function.builtin" = "yellow1"
+method             = "green1"
+constructor        = "purple1"
+type               = "yellow1"
+"type.builtin"     = "yellow1"
+string             = "green1"
+"string.escape"    = "orange1"
+character          = "aqua1"
+number             = "purple1"
+boolean            = "purple1"
+constant           = "purple1"
+"constant.builtin" = "purple1"
+comment            = { fg = "gray", modifiers = ["italic"] }
+parameter          = { fg = "blue1", modifiers = ["italic"] }
+"variable.parameter" = { fg = "blue1", modifiers = ["italic"] }
+"variable.builtin"   = { fg = "orange1", modifiers = ["italic"] }
+property           = "blue1"
+field              = "blue1"
+label              = "red1"
+operator           = "purple1"
+"punctuation.bracket"   = "orange1"
+"punctuation.delimiter" = "orange1"
+"punctuation.special"   = "orange1"
+attribute          = { fg = "aqua1", modifiers = ["italic"] }
+tag                = "aqua1"
+"markup.heading"        = "aqua1"
+"markup.heading.marker" = "red1"
+"markup.list"           = "red1"
+"markup.raw"            = "red1"
+"markup.link.url"       = { fg = "green1", modifiers = ["underlined"] }
+"markup.link.label"     = "red1"
+"diff.plus"             = "green1"
+"diff.minus"            = "red1"
+
+# ── UI chrome ────────────────────────────────────────────────────────
+"ui.background"          = { fg = "fg1", bg = "bg0" }
+"ui.linenr"              = { fg = "bg3" }
+"ui.linenr.selected"     = { fg = "yellow1" }
+"ui.selection"           = { bg = "bg2" }
+"ui.search"              = { bg = "bg3" }
+"ui.statusline"          = { fg = "fg1", bg = "bg2" }
+"ui.menu.selected"       = { fg = "green1", bg = "bg1", modifiers = ["bold"] }
+"ui.popup"               = { bg = "bg1" }
+"ui.popup.border"        = { fg = "bg3" }
+
+[palette]
+bg0     = "#282828"
+bg1     = "#3c3836"
+bg2     = "#504945"
+bg3     = "#665c54"
+bg4     = "#7c6f64"
+fg0     = "#fbf1c7"
+fg1     = "#ebdbb2"
+fg2     = "#d5c4a1"
+fg3     = "#bdae93"
+fg4     = "#a89984"
+gray    = "#928374"
+red1    = "#fb4934"
+green1  = "#b8bb26"
+yellow1 = "#fabd2f"
+blue1   = "#83a598"
+purple1 = "#d3869b"
+aqua1   = "#8ec07c"
+orange1 = "#fe8019"

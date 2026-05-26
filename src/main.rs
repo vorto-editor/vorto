@@ -16,6 +16,7 @@ mod mode;
 mod prompt;
 mod syntax;
 mod text_width;
+mod theme;
 mod ui;
 mod vcs;
 
@@ -157,6 +158,14 @@ fn main() -> Result<()> {
             return Err(e);
         }
     };
+    // Apply the configured theme. A bad name (typo, deleted file) is
+    // non-fatal: log it and keep the `ansi` seed so the editor still
+    // starts and renders.
+    match theme::load_by_name(&cfg.theme) {
+        Ok(t) => theme::set_active(t),
+        Err(e) => vlog!("theme `{}` load failed: {e:#}", cfg.theme),
+    }
+
     let loader = syntax::Loader::new(cfg.grammar_dir.clone(), cfg.query_dir.clone());
 
     // Unified event channel. Terminal input runs on a dedicated thread

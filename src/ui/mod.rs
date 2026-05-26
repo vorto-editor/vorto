@@ -32,6 +32,7 @@ mod hover;
 mod lsp_status;
 mod signature;
 mod status;
+mod theme_picker;
 mod toast;
 
 use ratatui::Frame;
@@ -42,20 +43,46 @@ use ratatui::widgets::Paragraph;
 
 use crate::app::{App, PaneContent, PaneId, PaneLayout, PaneRect, Prompt, SplitDir};
 
-/// Shared overlay panel background — `Color::Reset` so floating widgets
-/// (command hints, pending-op hints, toasts, completion, hover,
-/// signature, code actions) inherit the terminal's default background.
-/// `Clear` already wipes the area, so the popup blends with the terminal
-/// and only the border + selected row carry their own shade.
-pub(crate) const PANEL_BG: Color = Color::Reset;
+/// Shared overlay panel background — the active theme's `ui.popup`, or
+/// `Color::Reset` (terminal default) when the theme leaves it unset, so
+/// floating widgets (command hints, pending-op hints, toasts, completion,
+/// hover, signature, code actions) blend with the terminal. `Clear`
+/// already wipes the area first, so an unset bg shows the terminal
+/// through.
+pub(crate) fn panel_bg() -> Color {
+    crate::theme::active().ui_popup().bg.unwrap_or(Color::Reset)
+}
 
-/// Foreground used for popup borders — ANSI gray (color 7) so the frame
-/// reads clearly against the (terminal-default) panel bg without being
-/// loud. Brighter than bright-black so the popup edges actually stand
-/// out from the surrounding buffer text.
-pub(crate) const PANEL_BORDER_FG: Color = Color::Gray;
+/// Foreground for popup borders — the active theme's `ui.popup.border`,
+/// or ANSI gray (color 7) so the frame reads clearly against the panel
+/// bg without being loud.
+pub(crate) fn panel_border_fg() -> Color {
+    crate::theme::active()
+        .ui_popup_border()
+        .fg
+        .unwrap_or(Color::Gray)
+}
+
+/// Foreground for popup *text* — the active theme's `ui.popup` fg, or
+/// `Color::Reset` (terminal default) when unset. Applied as a panel's
+/// base fg so its text stays legible on the panel bg even for light
+/// themes, where the terminal's own fg would vanish.
+pub(crate) fn panel_fg() -> Color {
+    crate::theme::active().ui_popup().fg.unwrap_or(Color::Reset)
+}
 
 pub fn draw(f: &mut Frame, app: &App) {
+    // Editor-wide background: when the theme sets `ui.background`, fill the
+    // whole frame first so every surface that doesn't paint its own bg —
+    // the command line, blank rows, gaps between panes — sits on the theme
+    // background with the theme's text fg, instead of the terminal default.
+    // Surfaces that set their own bg (buffer, statusline, popups) paint
+    // over this. Themes without `ui.background` (e.g. `ansi`) skip the fill
+    // and keep the terminal's own colors.
+    if let Some(bg) = crate::theme::active().ui_background() {
+        f.render_widget(ratatui::widgets::Block::default().style(bg), f.area());
+    }
+
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -179,6 +206,10 @@ pub fn draw(f: &mut Frame, app: &App) {
     // `:agent` picker — screen-centered selection list.
     if matches!(app.prompt.state, Prompt::AgentPicker { .. }) {
         agent_picker::draw_agent_picker(f, app, f.area());
+    }
+    // `:theme` picker — screen-centered, filterable like `:grammar`.
+    if matches!(app.prompt.state, Prompt::ThemePicker { .. }) {
+        theme_picker::draw_theme_picker(f, app, f.area());
     }
     if app.completion.is_some() {
         completion::draw_completion(f, app, active_rect);

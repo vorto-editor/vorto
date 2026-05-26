@@ -15,7 +15,22 @@ impl App {
 
     fn apply_prompt_outcome(&mut self, outcome: PromptOutcome) -> Result<()> {
         match outcome {
-            PromptOutcome::Nothing | PromptOutcome::Cancelled => Ok(()),
+            PromptOutcome::Nothing => Ok(()),
+            PromptOutcome::Cancelled => {
+                // If a `:theme` preview was in flight, restore the theme
+                // active when the picker opened. No-op for every other
+                // prompt (`theme_origin` is `None`).
+                self.revert_theme();
+                Ok(())
+            }
+            PromptOutcome::PreviewTheme(name) => {
+                self.preview_theme(&name);
+                Ok(())
+            }
+            PromptOutcome::SelectTheme(name) => {
+                self.commit_theme(&name);
+                Ok(())
+            }
             PromptOutcome::RunCommand(line) => self.execute_command(&line),
             PromptOutcome::Search { forward, query } => {
                 self.search.set(query, forward);

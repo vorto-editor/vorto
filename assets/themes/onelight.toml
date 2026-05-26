@@ -1,0 +1,76 @@
+# One Light — ported from the official Helix theme (author: erasin).
+
+# ── Syntax ───────────────────────────────────────────────────────────
+keyword            = "purple"
+include            = "red"
+conditional        = { fg = "red", modifiers = ["bold"] }
+repeat             = { fg = "pink", modifiers = ["bold"] }
+exception          = "purple"
+namespace          = "blue"
+"function"         = "blue"
+"function.macro"   = { fg = "pink", modifiers = ["bold"] }
+"function.builtin" = "cyan"
+method             = "light-blue"
+constructor        = "blue"
+type               = "gold"
+"type.builtin"     = "yellow"
+string             = "green"
+"string.escape"    = { fg = "brown", modifiers = ["bold"] }
+character          = "green"
+number             = { fg = "brown", modifiers = ["bold"] }
+boolean            = { fg = "purple", modifiers = ["bold"] }
+constant           = { fg = "cyan", modifiers = ["bold"] }
+"constant.builtin" = "deep-purple"
+comment            = { fg = "grey", modifiers = ["italic"] }
+parameter          = "red"
+"variable.parameter" = "red"
+"variable.builtin"   = "light-blue"
+property           = "pink"
+field              = "pink"
+label              = "cyan"
+operator           = "red"
+"punctuation.bracket"   = "brown"
+"punctuation.delimiter" = "purple"
+"punctuation.special"   = "brown"
+attribute          = "yellow"
+tag                = "cyan"
+"markup.heading"        = { fg = "red", modifiers = ["bold"] }
+"markup.heading.marker" = "red"
+"markup.list"           = "light-blue"
+"markup.raw"            = "brown"
+"markup.link.url"       = { fg = "cyan", modifiers = ["underlined"] }
+"markup.link.label"     = "light-blue"
+"diff.plus"             = "green"
+"diff.minus"            = "red"
+
+# ── UI chrome ────────────────────────────────────────────────────────
+"ui.background"          = { fg = "black", bg = "white" }
+"ui.linenr"              = { fg = "grey-500" }
+"ui.linenr.selected"     = { fg = "black", modifiers = ["bold"] }
+"ui.selection"           = { bg = "grey-300" }
+"ui.search"              = { bg = "grey-200" }
+"ui.statusline"          = { fg = "black", bg = "grey-300" }
+"ui.menu.selected"       = { fg = "white", bg = "light-blue" }
+"ui.popup"               = { fg = "black", bg = "grey-200" }
+"ui.popup.border"        = { fg = "grey-300" }
+
+[palette]
+white = "#FAFAFA"
+yellow = "#FF6F00"
+gold = "#D35400"
+brown = "#795548"
+blue = "#0061FF"
+light-blue = "#0091EA"
+red = "#D50000"
+pink = "#C2185B"
+purple = "#B500A9"
+deep-purple = "#651FFF"
+green = "#24A443"
+cyan = "#0086C1"
+black = "#282C34"
+grey = "#5C6370"
+grey-500 = "#9E9E9E"
+grey-400 = "#BDBDBD"
+grey-300 = "#E0E0E0"
+grey-200 = "#EEEEEE"
+grey-100 = "#F2F2F2"

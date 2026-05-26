@@ -33,11 +33,15 @@ pub(super) fn draw_fuzzy(f: &mut Frame, app: &App, area: Rect) {
     };
     let total = finder.matches.len();
     let footer = format!(" {}/{} ", finder.selected + 1, total.max(1));
+    // Panel bg + text fg from the active theme, so the picker matches the
+    // editor background and its text stays legible (esp. on light themes).
+    let panel = Style::default().bg(super::panel_bg()).fg(super::panel_fg());
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(super::PANEL_BORDER_FG))
+        .border_style(Style::default().fg(super::panel_border_fg()))
         .title(title)
         .title_bottom(Line::from(footer).right_aligned())
+        .style(panel)
         .padding(Padding::horizontal(1));
     let inner = block.inner(popup);
     f.render_widget(block, popup);
@@ -67,6 +71,12 @@ pub(super) fn draw_fuzzy(f: &mut Frame, app: &App, area: Rect) {
     // preview rect explicitly here defends against whichever cell ends
     // up not being touched by the new render.
     f.render_widget(Clear, panes[2]);
+    // Re-tint the just-cleared preview rect with the panel bg so it keeps
+    // the theme background under the (fg-only) highlighted source.
+    f.render_widget(
+        Block::default().style(Style::default().bg(super::panel_bg())),
+        panes[2],
+    );
     preview::draw_fuzzy_preview(f, app, finder, panes[2]);
 }
 

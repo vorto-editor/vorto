@@ -1,0 +1,69 @@
+# Ayu Mirage — ported from the official Helix theme.
+
+# ── Syntax ───────────────────────────────────────────────────────────
+keyword            = "orange"
+include            = "yellow"
+conditional        = "yellow"
+repeat             = "yellow"
+exception          = "yellow"
+namespace          = "blue"
+"function"         = "yellow"
+"function.macro"   = "yellow"
+"function.builtin" = "yellow"
+method             = "yellow"
+constructor        = "green"
+type               = "blue"
+"type.builtin"     = "blue"
+string             = "green"
+"string.escape"    = "green"
+character          = "green"
+number             = "magenta"
+boolean            = "magenta"
+constant           = "magenta"
+"constant.builtin" = "magenta"
+comment            = { fg = "gray", modifiers = ["italic"] }
+parameter          = "foreground"
+"variable.parameter" = "foreground"
+"variable.builtin"   = "foreground"
+property           = "foreground"
+field              = "foreground"
+label              = "orange"
+operator           = "orange"
+"punctuation.bracket"   = "foreground"
+"punctuation.delimiter" = "foreground"
+"punctuation.special"   = "orange"
+attribute          = "blue"
+tag                = "blue"
+"markup.heading"        = "orange"
+"markup.heading.marker" = "orange"
+"markup.list"           = "yellow"
+"markup.raw"            = "orange"
+"markup.link.url"       = "blue"
+"markup.link.label"     = "yellow"
+"diff.plus"             = "green"
+"diff.minus"            = "red"
+
+# ── UI chrome ────────────────────────────────────────────────────────
+"ui.background"          = { fg = "foreground", bg = "background" }
+"ui.linenr"              = { fg = "dark_gray" }
+"ui.linenr.selected"     = { fg = "gray" }
+"ui.selection"           = { bg = "dark_gray" }
+"ui.search"              = { bg = "black" }
+"ui.statusline"          = { fg = "foreground", bg = "black" }
+"ui.menu.selected"       = { fg = "background", bg = "gray" }
+"ui.popup"               = { fg = "#7B91b3", bg = "black" }
+"ui.popup.border"        = { fg = "gray" }
+
+[palette]
+background = "#1f2430"
+foreground = "#cccac2"
+black = "#1a1f29"
+blue = "#73d0ff"
+dark_gray = "#323843"
+cyan = "#444b55"
+gray = "#565b66"
+green = "#d5ff80"
+magenta = "#dfbfff"
+orange = "#ffad66"
+red = "#f28779"
+yellow = "#ffcc77"

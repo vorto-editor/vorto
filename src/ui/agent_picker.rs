@@ -57,9 +57,9 @@ pub(super) fn draw_agent_picker(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(Clear, popup);
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(super::PANEL_BORDER_FG))
+        .border_style(Style::default().fg(super::panel_border_fg()))
         .title(title)
-        .style(Style::default().bg(super::PANEL_BG));
+        .style(Style::default().bg(super::panel_bg()));
     let inner = block.inner(popup);
     f.render_widget(block, popup);
 

@@ -18,9 +18,16 @@ const STATUS_PAD: u16 = 1;
 const STATUS_BG: Color = Color::DarkGray;
 
 pub(super) fn draw_status(f: &mut Frame, app: &App, area: Rect) {
+    // Bar background from the active theme (`ui.statusline`), falling back
+    // to the historical ANSI bright-black. Resolved once and reused for
+    // every segment so they share one bg.
+    let status_bg = crate::theme::active()
+        .ui_statusline()
+        .bg
+        .unwrap_or(STATUS_BG);
     // Paint the whole status line so the bar visually separates from the
     // buffer above — without this, only the mode badge has a background.
-    f.render_widget(Block::default().style(Style::default().bg(STATUS_BG)), area);
+    f.render_widget(Block::default().style(Style::default().bg(status_bg)), area);
 
     // Three columns (mode badge / filename / position) with a one-cell
     // pad on each edge so the badge and position don't kiss the border.
@@ -165,6 +172,7 @@ fn status_label(app: &App) -> (String, Color) {
         Prompt::GrammarList { .. } => ("GRAMMAR".into(), Color::LightMagenta),
         Prompt::GrammarInstallConfirm { .. } => ("GRAMMAR".into(), Color::Yellow),
         Prompt::AgentPicker { .. } => ("AGENT".into(), Color::LightMagenta),
+        Prompt::ThemePicker { .. } => ("THEME".into(), Color::LightMagenta),
     }
 }
 

@@ -1,0 +1,83 @@
+# Everforest (Dark Medium) — ported from the official Helix theme.
+
+# ── Syntax ───────────────────────────────────────────────────────────
+keyword            = "red"
+include            = "red"
+conditional        = "red"
+repeat             = "red"
+exception          = "red"
+namespace          = { fg = "yellow", modifiers = ["italic"] }
+"function"         = "green"
+"function.macro"   = "green"
+"function.builtin" = "green"
+method             = "green"
+constructor        = "green"
+type               = "yellow"
+"type.builtin"     = "yellow"
+string             = "aqua"
+"string.escape"    = "green"
+character          = "aqua"
+number             = "purple"
+boolean            = "purple"
+constant           = "fg"
+"constant.builtin" = { fg = "purple", modifiers = ["italic"] }
+comment            = { fg = "grey1", modifiers = ["italic"] }
+parameter          = "fg"
+"variable.parameter" = "fg"
+"variable.builtin"   = { fg = "purple", modifiers = ["italic"] }
+property           = "blue"
+field              = "blue"
+label              = "orange"
+operator           = "orange"
+"punctuation.bracket"   = "fg"
+"punctuation.delimiter" = "grey1"
+"punctuation.special"   = "blue"
+attribute          = { fg = "purple", modifiers = ["italic"] }
+tag                = "orange"
+"markup.heading"        = { fg = "red", modifiers = ["bold"] }
+"markup.heading.marker" = "grey1"
+"markup.list"           = "red"
+"markup.raw"            = "green"
+"markup.link.url"       = { fg = "blue", modifiers = ["underlined"] }
+"markup.link.label"     = "orange"
+"diff.plus"             = "green"
+"diff.minus"            = "red"
+
+# ── UI chrome ────────────────────────────────────────────────────────
+"ui.background"          = { fg = "fg", bg = "bg0" }
+"ui.linenr"              = "grey0"
+"ui.linenr.selected"     = "grey2"
+"ui.selection"           = { bg = "bg3" }
+"ui.search"              = { bg = "bg2" }
+"ui.statusline"          = { fg = "grey2", bg = "bg3" }
+"ui.menu.selected"       = { fg = "bg0", bg = "green" }
+"ui.popup"               = { fg = "grey2", bg = "bg2" }
+"ui.popup.border"        = { fg = "bg4" }
+
+[palette]
+bg_dim = "#232a2e"
+bg0 = "#2d353b"
+bg1 = "#343f44"
+bg2 = "#3d484d"
+bg3 = "#475258"
+bg4 = "#4f585e"
+bg5 = "#56635f"
+bg_visual = "#543a48"
+bg_red = "#514045"
+bg_green = "#425047"
+bg_blue = "#3a515d"
+bg_yellow = "#4d4c43"
+fg = "#d3c6aa"
+red = "#e67e80"
+orange = "#e69875"
+yellow = "#dbbc7f"
+green = "#a7c080"
+aqua = "#83c092"
+blue = "#7fbbb3"
+purple = "#d699b6"
+grey0 = "#7a8478"
+grey1 = "#859289"
+grey2 = "#9da9a0"
+statusline1 = "#a7c080"
+statusline2 = "#d3c6aa"
+statusline3 = "#e67e80"
