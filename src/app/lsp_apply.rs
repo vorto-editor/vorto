@@ -56,7 +56,7 @@ impl App {
     /// any open popup. Otherwise the popup is opened or refreshed in
     /// place.
     fn apply_signature_help_outcome(&mut self, anchor_row: usize, help: Option<SignatureHelp>) {
-        if self.buffer.cursor.row != anchor_row {
+        if self.editor.cursor.row != anchor_row {
             return;
         }
         match help {
@@ -75,7 +75,7 @@ impl App {
         // same row we tolerate the cursor having moved further right
         // (the user kept typing) but bail when they've backspaced past
         // the start.
-        let cursor = self.buffer.cursor;
+        let cursor = self.editor.cursor;
         if cursor.row != prefix_start.row || cursor.col < prefix_start.col {
             return;
         }
@@ -83,7 +83,7 @@ impl App {
             self.completion = None;
             return;
         }
-        let line = &self.buffer.lines[cursor.row];
+        let line = &self.editor.buffer.lines[cursor.row];
         let prefix = prefix_slice(line, prefix_start.col, cursor.col);
         let state = CompletionState::new(prefix_start, items, &prefix);
         if state.is_empty() {
@@ -159,7 +159,7 @@ impl App {
         if edits.is_empty() {
             return;
         }
-        let cursor_row = self.buffer.cursor.row;
+        let cursor_row = self.editor.cursor.row;
         let row_shift: i64 = edits
             .iter()
             .filter(|e| (e.range.start.line as usize) < cursor_row)
@@ -169,15 +169,15 @@ impl App {
                 added - removed
             })
             .sum();
-        self.buffer.snapshot();
-        let mut lines = std::mem::take(&mut self.buffer.lines);
+        self.editor.snapshot();
+        let mut lines = std::mem::take(&mut self.editor.buffer.lines);
         lsp::apply_text_edits(&mut lines, edits);
-        self.buffer.lines = lines;
+        self.editor.buffer.lines = lines;
         let new_row = (cursor_row as i64 + row_shift).max(0) as usize;
-        let last = self.buffer.lines.len().saturating_sub(1);
-        self.buffer.cursor.row = new_row.min(last);
-        self.buffer.bump_version();
-        self.buffer.dirty = true;
+        let last = self.editor.buffer.lines.len().saturating_sub(1);
+        self.editor.cursor.row = new_row.min(last);
+        self.editor.buffer.bump_version();
+        self.editor.buffer.dirty = true;
     }
 
     fn apply_jump_outcome(&mut self, label: &'static str, locations: Vec<Location>) {
@@ -232,12 +232,12 @@ impl App {
         match self.lsp.apply_workspace_edit(edit) {
             Ok(result) => {
                 if !result.current_buffer_edits.is_empty() {
-                    self.buffer.snapshot();
-                    let mut lines = std::mem::take(&mut self.buffer.lines);
+                    self.editor.snapshot();
+                    let mut lines = std::mem::take(&mut self.editor.buffer.lines);
                     lsp::apply_text_edits(&mut lines, result.current_buffer_edits);
-                    self.buffer.lines = lines;
-                    self.buffer.bump_version();
-                    self.buffer.dirty = true;
+                    self.editor.buffer.lines = lines;
+                    self.editor.buffer.bump_version();
+                    self.editor.buffer.dirty = true;
                 }
                 self.push_toast(Toast::info(format!(
                     "renamed to {} ({} occurrences in {} files)",
@@ -271,12 +271,12 @@ impl App {
         match self.lsp.apply_workspace_edit(edit) {
             Ok(result) => {
                 if !result.current_buffer_edits.is_empty() {
-                    self.buffer.snapshot();
-                    let mut lines = std::mem::take(&mut self.buffer.lines);
+                    self.editor.snapshot();
+                    let mut lines = std::mem::take(&mut self.editor.buffer.lines);
                     lsp::apply_text_edits(&mut lines, result.current_buffer_edits);
-                    self.buffer.lines = lines;
-                    self.buffer.bump_version();
-                    self.buffer.dirty = true;
+                    self.editor.buffer.lines = lines;
+                    self.editor.buffer.bump_version();
+                    self.editor.buffer.dirty = true;
                 }
                 self.push_toast(Toast::info(format!(
                     "{} ({} edits in {} files)",

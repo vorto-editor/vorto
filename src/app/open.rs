@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 
-use crate::editor::Buffer;
+use crate::editor::{Buffer, Editor};
 
 use crate::buffer_ref::BufferRef;
 
@@ -23,7 +23,7 @@ impl App {
     pub fn switch_to_buffer(&mut self, r: BufferRef) -> Result<()> {
         match r {
             BufferRef::Scratch(id) => {
-                if self.buffer.path.is_none() && self.current_scratch_id == Some(id) {
+                if self.editor.buffer.path.is_none() && self.current_scratch_id == Some(id) {
                     return Ok(());
                 }
                 self.lsp.detach_current();
@@ -40,13 +40,13 @@ impl App {
                 } else {
                     match self.sleeping.remove(&BufferRef::Scratch(id)) {
                         Some(b) => b.thaw(),
-                        None => Buffer::new(),
+                        None => Editor::new(),
                     }
                 };
                 self.stash_and_install(next);
                 self.current_scratch_id = Some(id);
                 self.open_gen = self.open_gen.wrapping_add(1);
-                self.lsp.set_last_synced_version(self.buffer.version);
+                self.lsp.set_last_synced_version(self.editor.buffer.version);
                 self.record_opened(BufferRef::Scratch(id));
                 self.push_toast(Toast::info(BufferRef::scratch_label(id)));
                 Ok(())
@@ -54,7 +54,7 @@ impl App {
             BufferRef::File(path) => {
                 // Already on this file? Leave cursor/unsaved state alone.
                 let current = self
-                    .buffer
+                    .editor.buffer
                     .path
                     .as_ref()
                     .and_then(|p| p.canonicalize().ok());
@@ -78,14 +78,14 @@ impl App {
     ///   (compressed; highlighter dropped, rebuilt on restore). The
     ///   version counter is preserved so LSP `didChange` sequencing
     ///   re-anchors cleanly when the buffer wakes up again.
-    pub(super) fn stash_and_install(&mut self, next: Buffer) {
+    pub(super) fn stash_and_install(&mut self, next: Editor) {
         let key = self.active_ref();
-        let prev = std::mem::replace(&mut self.buffer, next);
+        let prev = std::mem::replace(&mut self.editor, next);
         if self.ref_used_by_inactive_pane(&key) {
             self.parked_buffers.insert(key, prev);
         } else {
             let mut prev = prev;
-            prev.highlighter = None;
+            prev.buffer.highlighter = None;
             self.sleeping.insert(key, SleepingBuffer::freeze(prev));
         }
     }
@@ -95,8 +95,8 @@ impl App {
     /// supposed to vanish entirely. Callers must have already cleaned
     /// up any MRU / sleeping entries that refer to the outgoing
     /// buffer.
-    pub(super) fn install_buffer(&mut self, next: Buffer) {
-        let _ = std::mem::replace(&mut self.buffer, next);
+    pub(super) fn install_buffer(&mut self, next: Editor) {
+        let _ = std::mem::replace(&mut self.editor, next);
     }
 
     /// [`BufferRef`] for the currently-active buffer. Unnamed buffers
@@ -105,7 +105,7 @@ impl App {
     /// somehow missing (shouldn't happen — the field is always set
     /// in sync with `buffer.path`).
     pub(super) fn active_ref(&self) -> BufferRef {
-        match &self.buffer.path {
+        match &self.editor.buffer.path {
             Some(p) => BufferRef::File(p.canonicalize().unwrap_or_else(|_| p.clone())),
             None => BufferRef::Scratch(self.current_scratch_id.unwrap_or(0)),
         }
@@ -128,7 +128,7 @@ impl App {
             self.stash_and_install(parked);
             self.current_scratch_id = None;
             self.record_opened(key);
-            self.lsp.set_last_synced_version(self.buffer.version);
+            self.lsp.set_last_synced_version(self.editor.buffer.version);
             self.push_toast(Toast::info(format!("opened {} (shared)", path.display())));
             // Buffer was live — highlighter survives; LSP resync only.
             self.spawn_lsp_worker(&path);
@@ -140,7 +140,7 @@ impl App {
             self.current_scratch_id = None;
             self.record_opened(key);
             self.open_gen = self.open_gen.wrapping_add(1);
-            self.lsp.set_last_synced_version(self.buffer.version);
+            self.lsp.set_last_synced_version(self.editor.buffer.version);
             self.push_toast(Toast::info(format!("restored {}", path.display())));
             self.spawn_engine_worker(&path);
             self.spawn_vcs_worker();
@@ -188,7 +188,7 @@ impl App {
         // Tell the previous LSP client we're done with that document so
         // it can drop diagnostics and stop watching it.
         self.lsp.detach_current();
-        self.stash_and_install(loaded);
+        self.stash_and_install(Editor::from_buffer(loaded));
         self.current_scratch_id = None;
         // Re-loading a path drops any previously-sleeping copy of it
         // — the user explicitly asked for the disk version.
@@ -200,7 +200,7 @@ impl App {
         self.open_gen = self.open_gen.wrapping_add(1);
         // Pre-seed the LSP sync version so the first `didChange` after
         // open is a no-op when nothing has changed since load.
-        self.lsp.set_last_synced_version(self.buffer.version);
+        self.lsp.set_last_synced_version(self.editor.buffer.version);
         self.push_toast(if is_new {
             Toast::info(format!("{} [new file]", path.display()))
         } else {
@@ -214,11 +214,11 @@ impl App {
         // re-anchors on whatever `Buffer::load` just read (usually a
         // no-op because the file hasn't changed since the preview ran).
         if let Some(entry) = self.preview_lru.borrow_mut().take(path) {
-            self.buffer.highlighter = None;
+            self.editor.buffer.highlighter = None;
             let mut h = entry.highlighter;
-            let source = self.buffer.lines.join("\n");
-            h.refresh(&source, self.buffer.version);
-            self.buffer.highlighter = Some(h);
+            let source = self.editor.buffer.lines.join("\n");
+            h.refresh(&source, self.editor.buffer.version);
+            self.editor.buffer.highlighter = Some(h);
         } else {
             self.spawn_engine_worker(path);
         }
@@ -239,10 +239,10 @@ impl App {
     /// and apply them in a second pass — mutating a hashmap while
     /// iterating it is otherwise rejected by the borrow checker.
     pub fn rewrite_buffer_paths(&mut self, old: &Path, new: &Path) {
-        if let Some(p) = self.buffer.path.as_ref()
+        if let Some(p) = self.editor.buffer.path.as_ref()
             && let Some(updated) = remap_path(p, old, new)
         {
-            self.buffer.path = Some(updated);
+            self.editor.buffer.path = Some(updated);
         }
 
         // Parked buffers — rekey + update each buffer's own `path`.
@@ -256,7 +256,7 @@ impl App {
             .collect();
         for (old_ref, new_path) in parked_remap {
             if let Some(mut buf) = self.parked_buffers.remove(&old_ref) {
-                buf.path = Some(new_path.clone());
+                buf.buffer.path = Some(new_path.clone());
                 self.parked_buffers.insert(BufferRef::File(new_path), buf);
             }
         }

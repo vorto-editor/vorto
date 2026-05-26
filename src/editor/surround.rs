@@ -6,9 +6,9 @@
 //! `text_object_range(Around, _)`).
 
 use super::ops::shift_cursor_for_edit;
-use super::{Buffer, Cursor, char_to_byte};
+use super::{Cursor, Editor, char_to_byte};
 
-impl Buffer {
+impl Editor {
     /// Wrap the half-open range `[from, to)` with `open` / `close`.
     /// The close is inserted first so the open's coordinates stay
     /// valid; cursors on the same row shift to preserve their relative
@@ -21,17 +21,17 @@ impl Buffer {
         let open_chars = open.chars().count();
         let close_chars = close.chars().count();
 
-        if hi.row < self.lines.len() {
-            let hi_byte = char_to_byte(&self.lines[hi.row], hi.col);
-            self.lines[hi.row].insert_str(hi_byte, close);
+        if hi.row < self.buffer.lines.len() {
+            let hi_byte = char_to_byte(&self.buffer.lines[hi.row], hi.col);
+            self.buffer.lines[hi.row].insert_str(hi_byte, close);
             self.for_each_cursor(|c| shift_cursor_for_edit(c, hi.row, hi.col, 0, close_chars));
         }
-        let lo_byte = char_to_byte(&self.lines[lo.row], lo.col);
-        self.lines[lo.row].insert_str(lo_byte, open);
+        let lo_byte = char_to_byte(&self.buffer.lines[lo.row], lo.col);
+        self.buffer.lines[lo.row].insert_str(lo_byte, open);
         self.for_each_cursor(|c| shift_cursor_for_edit(c, lo.row, lo.col, 0, open_chars));
 
         self.clamp_col(false);
-        self.touch();
+        self.buffer.touch();
     }
 
     /// Remove a single character at `(row, col)` and `(row, col+1)`.
@@ -58,7 +58,7 @@ impl Buffer {
         delete_one_char(self, hi.row, close_col);
         delete_one_char(self, lo.row, lo.col);
         self.clamp_col(false);
-        self.touch();
+        self.buffer.touch();
     }
 
     /// Replace the boundary delimiters of `[lo, hi)` with `new_open` /
@@ -74,12 +74,12 @@ impl Buffer {
         replace_one_char(self, hi.row, close_col, new_close);
         replace_one_char(self, lo.row, lo.col, new_open);
         self.clamp_col(false);
-        self.touch();
+        self.buffer.touch();
     }
 }
 
-fn delete_one_char(buf: &mut Buffer, row: usize, col: usize) {
-    let line = &mut buf.lines[row];
+fn delete_one_char(buf: &mut Editor, row: usize, col: usize) {
+    let line = &mut buf.buffer.lines[row];
     let nchars = line.chars().count();
     if col >= nchars {
         return;
@@ -90,8 +90,8 @@ fn delete_one_char(buf: &mut Buffer, row: usize, col: usize) {
     buf.for_each_cursor(|c| shift_cursor_for_edit(c, row, col, 1, 0));
 }
 
-fn replace_one_char(buf: &mut Buffer, row: usize, col: usize, with: &str) {
-    let line = &mut buf.lines[row];
+fn replace_one_char(buf: &mut Editor, row: usize, col: usize, with: &str) {
+    let line = &mut buf.buffer.lines[row];
     let nchars = line.chars().count();
     if col >= nchars {
         return;
@@ -115,9 +115,9 @@ fn order(a: Cursor, b: Cursor) -> (Cursor, Cursor) {
 mod tests {
     use super::*;
 
-    fn buf_of(lines: &[&str]) -> Buffer {
-        let mut b = Buffer::new();
-        b.lines = lines.iter().map(|s| s.to_string()).collect();
+    fn buf_of(lines: &[&str]) -> Editor {
+        let mut b = Editor::new();
+        b.buffer.lines = lines.iter().map(|s| s.to_string()).collect();
         b.cursor = Cursor { row: 0, col: 0 };
         b
     }
@@ -131,7 +131,7 @@ mod tests {
             Cursor { row: 0, col: 0 },
             Cursor { row: 0, col: 3 },
         );
-        assert_eq!(b.lines[0], "\"foo\" bar");
+        assert_eq!(b.buffer.lines[0], "\"foo\" bar");
     }
 
     #[test]
@@ -145,14 +145,14 @@ mod tests {
             Cursor { row: 0, col: 0 },
             Cursor { row: 0, col: 3 },
         );
-        assert_eq!(b.lines[0], "/*foo*/ bar");
+        assert_eq!(b.buffer.lines[0], "/*foo*/ bar");
     }
 
     #[test]
     fn strip_quotes() {
         let mut b = buf_of(&["\"foo\""]);
         b.surround_strip(Cursor { row: 0, col: 0 }, Cursor { row: 0, col: 5 });
-        assert_eq!(b.lines[0], "foo");
+        assert_eq!(b.buffer.lines[0], "foo");
     }
 
     #[test]
@@ -164,7 +164,7 @@ mod tests {
             "(",
             ")",
         );
-        assert_eq!(b.lines[0], "(foo)");
+        assert_eq!(b.buffer.lines[0], "(foo)");
     }
 
     #[test]
@@ -178,7 +178,7 @@ mod tests {
             "/*",
             "*/",
         );
-        assert_eq!(b.lines[0], "/*foo*/");
+        assert_eq!(b.buffer.lines[0], "/*foo*/");
     }
 
     #[test]
@@ -190,8 +190,8 @@ mod tests {
             Cursor { row: 0, col: 0 },
             Cursor { row: 1, col: 3 },
         );
-        assert_eq!(b.lines[0], "/*foo");
-        assert_eq!(b.lines[1], "bar*/");
+        assert_eq!(b.buffer.lines[0], "/*foo");
+        assert_eq!(b.buffer.lines[1], "bar*/");
     }
 
     #[test]

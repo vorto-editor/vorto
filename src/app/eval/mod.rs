@@ -102,7 +102,7 @@ impl App {
 
         let modifies = expr_modifies_buffer(&expr);
         let snapshot = if modifies { Some(expr.clone()) } else { None };
-        let cmds = if should_fan_out(&expr) && !self.buffer.extra_cursors.is_empty() {
+        let cmds = if should_fan_out(&expr) && !self.editor.extra_cursors.is_empty() {
             // Multi-cursor fan-out. Buffer-modifying exprs take one
             // shared snapshot up front so a single `u` undoes the
             // whole batch; pure motions skip the snapshot (they
@@ -110,7 +110,7 @@ impl App {
             // path either). The fan-out then applies the expr at
             // every cursor with diff-based bookkeeping.
             if modifies {
-                self.buffer.snapshot();
+                self.editor.snapshot();
             }
             self.fan_out_op(expr, ctx)
         } else {
@@ -158,11 +158,11 @@ impl App {
                 let indent = self.indent_settings();
                 for k in keys {
                     match k {
-                        InsertKey::Char(c) => self.buffer.insert_char_smart(c, indent),
-                        InsertKey::Newline => self.buffer.insert_newline(indent),
-                        InsertKey::Backspace => self.buffer.delete_char_before(),
-                        InsertKey::Dedent => self.buffer.dedent_current_line(indent),
-                        InsertKey::Paste(s) => self.buffer.insert_text_raw(&s),
+                        InsertKey::Char(c) => self.editor.insert_char_smart(c, indent),
+                        InsertKey::Newline => self.editor.insert_newline(indent),
+                        InsertKey::Backspace => self.editor.delete_char_before(),
+                        InsertKey::Dedent => self.editor.dedent_current_line(indent),
+                        InsertKey::Paste(s) => self.editor.insert_text_raw(&s),
                     }
                 }
                 self.enter_mode(Mode::Normal);
@@ -312,9 +312,9 @@ impl App {
     /// `Cmd`s produced by individual cursor runs are deduped so the
     /// runtime applies things like `EnterMode(Insert)` once.
     pub(super) fn fan_out_op(&mut self, expr: Expr, ctx: Ctx) -> Vec<Cmd> {
-        let mut all: Vec<(usize, Cursor)> = std::iter::once((0usize, self.buffer.cursor))
+        let mut all: Vec<(usize, Cursor)> = std::iter::once((0usize, self.editor.cursor))
             .chain(
-                self.buffer
+                self.editor
                     .extra_cursors
                     .iter()
                     .enumerate()
@@ -331,11 +331,11 @@ impl App {
 
         for i in 0..all.len() {
             let (orig_idx, pos) = all[i];
-            self.buffer.cursor = pos;
+            self.editor.cursor = pos;
             let before = line_chars(self);
             let new_cmds = self.handle_expr_no_snapshot(expr.clone(), ctx);
             let after = line_chars(self);
-            new_positions[orig_idx] = self.buffer.cursor;
+            new_positions[orig_idx] = self.editor.cursor;
             adjust_already_processed(&mut new_positions, &all[..i], &before, &after, pos);
             for cmd in new_cmds {
                 match &cmd {
@@ -353,7 +353,7 @@ impl App {
 
         // Write back: primary = positions[0], extras = positions[1..],
         // deduping coincident positions.
-        self.buffer.cursor = new_positions[0];
+        self.editor.cursor = new_positions[0];
         let primary = new_positions[0];
         let mut extras: Vec<Cursor> = Vec::with_capacity(new_positions.len() - 1);
         for c in new_positions.into_iter().skip(1) {
@@ -362,7 +362,7 @@ impl App {
             }
             extras.push(c);
         }
-        self.buffer.extra_cursors = extras;
+        self.editor.extra_cursors = extras;
         cmds
     }
 }
@@ -370,7 +370,7 @@ impl App {
 /// Per-row char-count snapshot, used to spot what a single fan-out
 /// step did to the buffer.
 fn line_chars(app: &App) -> Vec<usize> {
-    app.buffer.lines.iter().map(|l| l.chars().count()).collect()
+    app.editor.buffer.lines.iter().map(|l| l.chars().count()).collect()
 }
 
 /// Apply the buffer diff between `before` and `after` to the cursors
@@ -463,20 +463,20 @@ fn first_diverging_row(before: &[usize], after: &[usize]) -> usize {
 /// Extract the word under the cursor (char-class `Word`) as a plain
 /// string. Returns `None` when the cursor is on whitespace or the
 /// line is empty.
-pub(super) fn word_under_cursor(buf: &crate::editor::Buffer) -> Option<String> {
-    let line: Vec<char> = buf.lines[buf.cursor.row].chars().collect();
-    if buf.cursor.col >= line.len() {
+pub(super) fn word_under_cursor(ed: &crate::editor::Editor) -> Option<String> {
+    let line: Vec<char> = ed.buffer.lines[ed.cursor.row].chars().collect();
+    if ed.cursor.col >= line.len() {
         return None;
     }
     let is_word = |c: char| c.is_alphanumeric() || c == '_';
-    if !is_word(line[buf.cursor.col]) {
+    if !is_word(line[ed.cursor.col]) {
         return None;
     }
-    let mut lo = buf.cursor.col;
+    let mut lo = ed.cursor.col;
     while lo > 0 && is_word(line[lo - 1]) {
         lo -= 1;
     }
-    let mut hi = buf.cursor.col;
+    let mut hi = ed.cursor.col;
     while hi + 1 < line.len() && is_word(line[hi + 1]) {
         hi += 1;
     }

@@ -26,7 +26,7 @@ impl App {
             self.push_toast(Toast::error("no LSP for this buffer"));
             return;
         }
-        if let Err(e) = self.lsp.request_jump(method, label, self.buffer.cursor) {
+        if let Err(e) = self.lsp.request_jump(method, label, self.editor.cursor) {
             self.push_toast(Toast::error(format!("lsp {}: {}", method, root_cause(&e))));
         }
     }
@@ -36,7 +36,7 @@ impl App {
             self.push_toast(Toast::error("no LSP for this buffer"));
             return;
         }
-        if let Err(e) = self.lsp.request_references(self.buffer.cursor) {
+        if let Err(e) = self.lsp.request_references(self.editor.cursor) {
             self.push_toast(Toast::error(format!("lsp references: {}", root_cause(&e))));
         }
     }
@@ -78,8 +78,8 @@ impl App {
             return;
         }
         self.sync_buffer_if_dirty();
-        let cursor = self.buffer.cursor;
-        let line = &self.buffer.lines[cursor.row];
+        let cursor = self.editor.cursor;
+        let line = &self.editor.buffer.lines[cursor.row];
         let start_col = identifier_prefix_start(line, cursor.col);
         let prefix_start = Cursor {
             row: cursor.row,
@@ -98,12 +98,12 @@ impl App {
         let Some(state) = self.completion.as_mut() else {
             return;
         };
-        let cursor = self.buffer.cursor;
+        let cursor = self.editor.cursor;
         if cursor.row != state.prefix_start.row || cursor.col < state.prefix_start.col {
             self.completion = None;
             return;
         }
-        let line = &self.buffer.lines[cursor.row];
+        let line = &self.editor.buffer.lines[cursor.row];
         let prefix = prefix_slice(line, state.prefix_start.col, cursor.col);
         // Close once the user has backspaced below the popup's
         // open-time threshold (2 for ident auto-trigger, 0 for
@@ -174,10 +174,10 @@ impl App {
             base
         };
 
-        self.buffer.snapshot();
+        self.editor.snapshot();
 
         let prefix_start = state.prefix_start;
-        let cursor = self.buffer.cursor;
+        let cursor = self.editor.cursor;
         // Honor the server's `textEdit` start column when it sits
         // before our notion of the prefix start — TypeScript and other
         // servers triggered on `.` return items whose range covers the
@@ -226,9 +226,9 @@ impl App {
 
         let mut all_edits = item.additional_text_edits.clone();
         all_edits.push(primary);
-        let mut lines = std::mem::take(&mut self.buffer.lines);
+        let mut lines = std::mem::take(&mut self.editor.buffer.lines);
         lsp::apply_text_edits(&mut lines, all_edits);
-        self.buffer.lines = lines;
+        self.editor.buffer.lines = lines;
 
         let replacement_newlines = replacement.matches('\n').count();
         let final_row =
@@ -248,11 +248,11 @@ impl App {
                 .chars()
                 .count()
         };
-        let last = self.buffer.lines.len().saturating_sub(1);
-        self.buffer.cursor.row = final_row.min(last);
-        self.buffer.cursor.col = final_col;
-        self.buffer.bump_version();
-        self.buffer.dirty = true;
+        let last = self.editor.buffer.lines.len().saturating_sub(1);
+        self.editor.cursor.row = final_row.min(last);
+        self.editor.cursor.col = final_col;
+        self.editor.buffer.bump_version();
+        self.editor.buffer.dirty = true;
 
         // Best-effort follow-up. Servers that don't support resolve
         // either echo the item back unchanged or surface an error — the
@@ -292,7 +292,7 @@ impl App {
             return;
         }
         self.sync_buffer_if_dirty();
-        let cursor = self.buffer.cursor;
+        let cursor = self.editor.cursor;
         let active = self.signature.as_ref().map(|s| &s.help);
         if let Err(e) = self.lsp.request_signature_help(cursor, trigger, active) {
             self.push_toast(Toast::error(format!(
@@ -348,7 +348,7 @@ impl App {
             self.push_toast(Toast::error("no LSP for this buffer"));
             return;
         }
-        if let Err(e) = self.lsp.request_hover(self.buffer.cursor) {
+        if let Err(e) = self.lsp.request_hover(self.editor.cursor) {
             self.push_toast(Toast::error(format!("lsp hover: {}", root_cause(&e))));
         }
     }
@@ -371,7 +371,7 @@ impl App {
         // no path / unknown extension / no LSP configured. `:lsp all`
         // bypasses the filter.
         let buffer_lang = self
-            .buffer
+            .editor.buffer
             .path
             .as_deref()
             .and_then(|p| self.config.languages.by_path(p));
@@ -505,7 +505,7 @@ impl App {
             self.push_toast(Toast::error("no LSP for this buffer"));
             return;
         }
-        let cursor = self.buffer.cursor;
+        let cursor = self.editor.cursor;
         // Diagnostics borrow ends before the mutable `request_code_action`
         // call, but the borrow checker can't prove that across `self`, so
         // collect into an owned Vec first.
@@ -545,7 +545,7 @@ impl App {
             self.push_toast(Toast::error("no LSP for this buffer"));
             return;
         }
-        if let Err(e) = self.lsp.request_rename(new_name, self.buffer.cursor) {
+        if let Err(e) = self.lsp.request_rename(new_name, self.editor.cursor) {
             self.push_toast(Toast::error(format!("lsp rename: {}", root_cause(&e))));
         }
     }
@@ -555,14 +555,14 @@ impl App {
     /// every key handled; pays for the `lines.join` snapshot only when
     /// at least one consumer needs it.
     pub fn sync_buffer_if_dirty(&mut self) {
-        let needs_lsp = self.buffer.version != self.lsp.last_synced_version();
+        let needs_lsp = self.editor.buffer.version != self.lsp.last_synced_version();
         let needs_copilot = self.copilot_needs_sync();
         if !needs_lsp && !needs_copilot {
             return;
         }
-        let text = self.buffer.lines.join("\n");
+        let text = self.editor.buffer.lines.join("\n");
         if needs_lsp {
-            self.lsp.set_last_synced_version(self.buffer.version);
+            self.lsp.set_last_synced_version(self.editor.buffer.version);
             if let Err(e) = self.lsp.did_change(&text) {
                 // Background sync after every keystroke — toasting on
                 // each failure would flood the screen. Log only; if the
@@ -586,7 +586,7 @@ impl App {
     pub(super) fn jump_to_location(&mut self, loc: &crate::lsp::Location) -> Result<()> {
         let path = lsp::uri_to_path(&loc.uri)
             .ok_or_else(|| anyhow::anyhow!("unsupported uri scheme: {}", loc.uri))?;
-        let need_open = match &self.buffer.path {
+        let need_open = match &self.editor.buffer.path {
             Some(p) => p.canonicalize().ok() != path.canonicalize().ok(),
             None => true,
         };
@@ -595,10 +595,10 @@ impl App {
         }
         let row = loc.range.start.line as usize;
         let col = loc.range.start.character as usize;
-        let last = self.buffer.lines.len().saturating_sub(1);
-        self.buffer.cursor.row = row.min(last);
-        self.buffer.cursor.col = col;
-        self.buffer.clamp_col(false);
+        let last = self.editor.buffer.lines.len().saturating_sub(1);
+        self.editor.cursor.row = row.min(last);
+        self.editor.cursor.col = col;
+        self.editor.clamp_col(false);
         Ok(())
     }
 }

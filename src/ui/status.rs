@@ -65,10 +65,10 @@ pub(super) fn draw_status(f: &mut Frame, app: &App, area: Rect) {
     // the line start and the cursor.
     let pos = format!(
         "{}:{}",
-        app.buffer.cursor.row + 1,
+        app.editor.cursor.row + 1,
         app.cursor_visual_col() + 1
     );
-    let pending = format_pending(&app.tokens);
+    let pending = format_pending(&app.editor.tokens);
     let mut right_spans = Vec::new();
     if !pending.is_empty() {
         right_spans.push(Span::styled(
@@ -93,13 +93,13 @@ pub(super) fn draw_status(f: &mut Frame, app: &App, area: Rect) {
 }
 
 fn file_label(app: &App) -> String {
-    match &app.buffer.path {
+    match &app.editor.buffer.path {
         Some(p) => {
             let name = p
                 .file_name()
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_else(|| p.display().to_string());
-            if app.buffer.dirty {
+            if app.editor.buffer.dirty {
                 format!("{} [+]", name)
             } else {
                 name
@@ -137,7 +137,7 @@ pub(super) fn draw_command_line(f: &mut Frame, app: &App, area: Rect) {
 
 fn status_label(app: &App) -> (String, Color) {
     match &app.prompt.state {
-        Prompt::None => (app.buffer.mode.to_string(), mode_color(app.buffer.mode)),
+        Prompt::None => (app.editor.mode.to_string(), mode_color(app.editor.mode)),
         Prompt::Command(_) => ("COMMAND".into(), Color::Yellow),
         Prompt::Search { forward: true, .. } => ("SEARCH/".into(), Color::LightBlue),
         Prompt::Search { forward: false, .. } => ("SEARCH?".into(), Color::LightBlue),

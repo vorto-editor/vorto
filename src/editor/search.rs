@@ -1,4 +1,4 @@
-use crate::editor::{Buffer, Cursor};
+use crate::editor::{Cursor, Editor};
 
 #[derive(Debug, Default)]
 pub struct SearchState {
@@ -12,14 +12,14 @@ impl SearchState {
         self.last_forward = forward;
     }
 
-    pub fn find_next(&self, buffer: &Buffer, forward: bool) -> Option<Cursor> {
+    pub fn find_next(&self, editor: &Editor, forward: bool) -> Option<Cursor> {
         if self.query.is_empty() {
             return None;
         }
         if forward {
-            find_forward(buffer, &self.query)
+            find_forward(editor, &self.query)
         } else {
-            find_backward(buffer, &self.query)
+            find_backward(editor, &self.query)
         }
     }
 
@@ -31,33 +31,33 @@ impl SearchState {
     /// Unlike `find_next`, the forward variant searches from the cursor
     /// position (inclusive), so a cursor sitting at the start of a match
     /// selects that match instead of skipping to the next one.
-    pub fn find_match_range(&self, buffer: &Buffer, forward: bool) -> Option<(Cursor, Cursor)> {
+    pub fn find_match_range(&self, editor: &Editor, forward: bool) -> Option<(Cursor, Cursor)> {
         if self.query.is_empty() {
             return None;
         }
         let start = if forward {
-            find_forward_inclusive(buffer, &self.query)
+            find_forward_inclusive(editor, &self.query)
         } else {
-            find_backward_inclusive(buffer, &self.query)
+            find_backward_inclusive(editor, &self.query)
         }?;
-        let end = match_end_inclusive(buffer, &self.query, start)?;
+        let end = match_end_inclusive(editor, &self.query, start)?;
         Some((start, end))
     }
 }
 
-fn find_forward(buffer: &Buffer, query: &str) -> Option<Cursor> {
-    let start_row = buffer.cursor.row;
-    let start_col = buffer.cursor.col + 1;
+fn find_forward(editor: &Editor, query: &str) -> Option<Cursor> {
+    let start_row = editor.cursor.row;
+    let start_col = editor.cursor.col + 1;
 
-    for (offset, _) in buffer
-        .lines
+    for (offset, _) in editor
+        .buffer.lines
         .iter()
         .enumerate()
         .cycle()
-        .take(buffer.lines.len() + 1)
+        .take(editor.buffer.lines.len() + 1)
     {
-        let row = (start_row + offset) % buffer.lines.len();
-        let line = &buffer.lines[row];
+        let row = (start_row + offset) % editor.buffer.lines.len();
+        let line = &editor.buffer.lines[row];
         let search_from_byte = if offset == 0 {
             char_to_byte(line, start_col)
         } else {
@@ -75,14 +75,14 @@ fn find_forward(buffer: &Buffer, query: &str) -> Option<Cursor> {
     None
 }
 
-fn find_backward(buffer: &Buffer, query: &str) -> Option<Cursor> {
-    let n = buffer.lines.len();
-    let start_row = buffer.cursor.row;
-    let start_col = buffer.cursor.col;
+fn find_backward(editor: &Editor, query: &str) -> Option<Cursor> {
+    let n = editor.buffer.lines.len();
+    let start_row = editor.cursor.row;
+    let start_col = editor.cursor.col;
 
     for offset in 0..=n {
         let row = (start_row + n - offset) % n;
-        let line = &buffer.lines[row];
+        let line = &editor.buffer.lines[row];
         let search_until_byte = if offset == 0 {
             char_to_byte(line, start_col)
         } else {
@@ -96,19 +96,19 @@ fn find_backward(buffer: &Buffer, query: &str) -> Option<Cursor> {
     None
 }
 
-fn find_forward_inclusive(buffer: &Buffer, query: &str) -> Option<Cursor> {
-    let start_row = buffer.cursor.row;
-    let start_col = buffer.cursor.col;
+fn find_forward_inclusive(editor: &Editor, query: &str) -> Option<Cursor> {
+    let start_row = editor.cursor.row;
+    let start_col = editor.cursor.col;
 
-    for (offset, _) in buffer
-        .lines
+    for (offset, _) in editor
+        .buffer.lines
         .iter()
         .enumerate()
         .cycle()
-        .take(buffer.lines.len() + 1)
+        .take(editor.buffer.lines.len() + 1)
     {
-        let row = (start_row + offset) % buffer.lines.len();
-        let line = &buffer.lines[row];
+        let row = (start_row + offset) % editor.buffer.lines.len();
+        let line = &editor.buffer.lines[row];
         let search_from_byte = if offset == 0 {
             char_to_byte(line, start_col)
         } else {
@@ -126,15 +126,15 @@ fn find_forward_inclusive(buffer: &Buffer, query: &str) -> Option<Cursor> {
     None
 }
 
-fn find_backward_inclusive(buffer: &Buffer, query: &str) -> Option<Cursor> {
-    let n = buffer.lines.len();
-    let start_row = buffer.cursor.row;
-    let start_col = buffer.cursor.col;
+fn find_backward_inclusive(editor: &Editor, query: &str) -> Option<Cursor> {
+    let n = editor.buffer.lines.len();
+    let start_row = editor.cursor.row;
+    let start_col = editor.cursor.col;
     let query_chars = query.chars().count();
 
     for offset in 0..=n {
         let row = (start_row + n - offset) % n;
-        let line = &buffer.lines[row];
+        let line = &editor.buffer.lines[row];
         // On the cursor row, extend the search window forward by the
         // query length so a match starting at or before the cursor is
         // still inside the slice `rfind` scans.
@@ -153,8 +153,8 @@ fn find_backward_inclusive(buffer: &Buffer, query: &str) -> Option<Cursor> {
 
 /// Given a match start, compute the cursor of the last char of the
 /// match. Assumes `query` matches at `start` on a single line.
-fn match_end_inclusive(buffer: &Buffer, query: &str, start: Cursor) -> Option<Cursor> {
-    let line = buffer.lines.get(start.row)?;
+fn match_end_inclusive(editor: &Editor, query: &str, start: Cursor) -> Option<Cursor> {
+    let line = editor.buffer.lines.get(start.row)?;
     let len = query.chars().count();
     if len == 0 {
         return None;

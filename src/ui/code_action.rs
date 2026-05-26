@@ -31,7 +31,7 @@ pub(super) fn draw_code_action_menu(f: &mut Frame, app: &App, buf_area: Rect) {
         return;
     }
 
-    let cursor_row = app.buffer.cursor.row;
+    let cursor_row = app.editor.cursor.row;
     let Some(rel_y) = app.visual_row_offset(cursor_row) else {
         return;
     };

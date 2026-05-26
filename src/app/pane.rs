@@ -35,7 +35,7 @@
 use std::collections::HashMap;
 
 use crate::buffer_ref::BufferRef;
-use crate::editor::Buffer;
+use crate::editor::Editor;
 
 use super::{App, Toast};
 
@@ -292,13 +292,13 @@ impl App {
     /// the renderer rather than a panic). Panes whose ref equals the
     /// active ref resolve back to `App.buffer`; otherwise we look in
     /// `parked_buffers`.
-    pub fn buffer_for_pane(&self, id: PaneId) -> Option<&Buffer> {
+    pub fn buffer_for_pane(&self, id: PaneId) -> Option<&Editor> {
         if id == self.active_pane {
-            return Some(&self.buffer);
+            return Some(&self.editor);
         }
         let pane_ref = self.pane_refs.get(&id)?;
         if *pane_ref == self.active_ref() {
-            return Some(&self.buffer);
+            return Some(&self.editor);
         }
         self.parked_buffers.get(pane_ref)
     }
@@ -359,7 +359,7 @@ impl App {
             .parked_buffers
             .remove(&neighbour_ref)
             .expect("neighbour buffer must be parked");
-        let mut closed_buffer = std::mem::replace(&mut self.buffer, neighbour_buf);
+        let mut closed_buffer = std::mem::replace(&mut self.editor, neighbour_buf);
         self.current_scratch_id = match &neighbour_ref {
             BufferRef::Scratch(id) => Some(*id),
             _ => None,
@@ -370,17 +370,17 @@ impl App {
             // freeze (which would compress and lose the highlighter).
             self.parked_buffers.insert(closing_ref, closed_buffer);
         } else {
-            closed_buffer.highlighter = None;
+            closed_buffer.buffer.highlighter = None;
             self.sleeping
                 .insert(closing_ref, super::SleepingBuffer::freeze(closed_buffer));
         }
         self.active_pane = neighbor;
         self.lsp.detach_current();
-        self.lsp.set_last_synced_version(self.buffer.version);
+        self.lsp.set_last_synced_version(self.editor.buffer.version);
         // See `focus_pane` for why we skip the highlighter respawn in
         // the common case.
-        if let Some(path) = self.buffer.path.clone() {
-            if self.buffer.highlighter.is_none() {
+        if let Some(path) = self.editor.buffer.path.clone() {
+            if self.editor.buffer.highlighter.is_none() {
                 self.spawn_engine_worker(&path);
             }
             self.spawn_lsp_worker(&path);
@@ -461,7 +461,7 @@ impl App {
             self.pane_refs.insert(target, target_ref);
             return;
         };
-        let prev_buffer = std::mem::replace(&mut self.buffer, target_buffer);
+        let prev_buffer = std::mem::replace(&mut self.editor, target_buffer);
         self.current_scratch_id = match &target_ref {
             BufferRef::Scratch(id) => Some(*id),
             _ => None,
@@ -470,7 +470,7 @@ impl App {
         self.pane_refs.insert(prev_id, prev_ref);
         self.active_pane = target;
         self.lsp.detach_current();
-        self.lsp.set_last_synced_version(self.buffer.version);
+        self.lsp.set_last_synced_version(self.editor.buffer.version);
         // The parked buffer carries its existing highlighter, so the
         // common-case focus swap keeps syntax painted continuously.
         // Only respawn when the parked copy is missing one (rare —
@@ -479,8 +479,8 @@ impl App {
         // unconditionally would null the highlighter for a few frames
         // (see `spawn_engine_worker`) and flicker through plain
         // text.
-        if let Some(path) = self.buffer.path.clone() {
-            if self.buffer.highlighter.is_none() {
+        if let Some(path) = self.editor.buffer.path.clone() {
+            if self.editor.buffer.highlighter.is_none() {
                 self.spawn_engine_worker(&path);
             }
             self.spawn_lsp_worker(&path);

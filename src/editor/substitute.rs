@@ -5,7 +5,7 @@
 //! share the empty-pattern-falls-back-to-last-search policy enforced by
 //! the caller.
 
-use super::{Buffer, Cursor};
+use super::{Cursor, Editor};
 
 /// What rows a substitute applies to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -81,7 +81,7 @@ pub struct SubsOutcome {
     pub lines_changed: usize,
 }
 
-impl Buffer {
+impl Editor {
     /// Apply a substitute. Returns the count of replacements made plus
     /// the cursor target. Caller is responsible for snapshotting (the
     /// standard `expr_modifies_buffer` path handles that).
@@ -94,7 +94,7 @@ impl Buffer {
         }
         let (row_lo, row_hi) = match args.range {
             SubsRange::Current => (self.cursor.row, self.cursor.row),
-            SubsRange::All => (0, self.lines.len().saturating_sub(1)),
+            SubsRange::All => (0, self.buffer.lines.len().saturating_sub(1)),
         };
 
         let mut matches = 0usize;
@@ -102,7 +102,7 @@ impl Buffer {
         let mut last_hit: Option<Cursor> = None;
 
         for row in row_lo..=row_hi {
-            let line = &self.lines[row];
+            let line = &self.buffer.lines[row];
             let (new_line, count, last_match_byte) =
                 replace_line(line, args.pattern, args.replacement, args.global);
             if count == 0 {
@@ -114,7 +114,7 @@ impl Buffer {
                 let col = super::byte_to_char(&new_line, byte_idx);
                 last_hit = Some(Cursor { row, col });
             }
-            self.lines[row] = new_line;
+            self.buffer.lines[row] = new_line;
         }
 
         if matches > 0 {
@@ -122,7 +122,7 @@ impl Buffer {
                 self.cursor = c;
             }
             self.clamp_col(false);
-            self.touch();
+            self.buffer.touch();
         }
         SubsOutcome {
             matches,
@@ -171,9 +171,9 @@ fn replace_line(line: &str, pat: &str, repl: &str, global: bool) -> (String, usi
 mod tests {
     use super::*;
 
-    fn buf_of(lines: &[&str]) -> Buffer {
-        let mut b = Buffer::new();
-        b.lines = lines.iter().map(|s| s.to_string()).collect();
+    fn buf_of(lines: &[&str]) -> Editor {
+        let mut b = Editor::new();
+        b.buffer.lines = lines.iter().map(|s| s.to_string()).collect();
         b.cursor = Cursor { row: 0, col: 0 };
         b
     }
@@ -219,8 +219,8 @@ mod tests {
         let args = parse_substitute("s/foo/bar").unwrap().unwrap();
         let r = b.substitute(&args);
         assert_eq!(r.matches, 1);
-        assert_eq!(b.lines[0], "bar foo foo");
-        assert_eq!(b.lines[1], "foo");
+        assert_eq!(b.buffer.lines[0], "bar foo foo");
+        assert_eq!(b.buffer.lines[1], "foo");
     }
 
     #[test]
@@ -229,8 +229,8 @@ mod tests {
         let args = parse_substitute("s/foo/bar/g").unwrap().unwrap();
         let r = b.substitute(&args);
         assert_eq!(r.matches, 3);
-        assert_eq!(b.lines[0], "bar bar bar");
-        assert_eq!(b.lines[1], "foo");
+        assert_eq!(b.buffer.lines[0], "bar bar bar");
+        assert_eq!(b.buffer.lines[1], "foo");
         // Cursor parks on the last replacement (column 8 — start of
         // the third "bar").
         assert_eq!(b.cursor, Cursor { row: 0, col: 8 });
@@ -243,18 +243,18 @@ mod tests {
         let r = b.substitute(&args);
         assert_eq!(r.matches, 3);
         assert_eq!(r.lines_changed, 2);
-        assert_eq!(b.lines, vec!["x x", "x", "no match"]);
+        assert_eq!(b.buffer.lines, vec!["x x", "x", "no match"]);
     }
 
     #[test]
     fn substitute_no_match_leaves_buffer_alone() {
         let mut b = buf_of(&["hello"]);
-        let before_dirty = b.dirty;
+        let before_dirty = b.buffer.dirty;
         let args = parse_substitute("%s/zzz/x/g").unwrap().unwrap();
         let r = b.substitute(&args);
         assert_eq!(r.matches, 0);
-        assert_eq!(b.lines, vec!["hello".to_string()]);
-        assert_eq!(b.dirty, before_dirty);
+        assert_eq!(b.buffer.lines, vec!["hello".to_string()]);
+        assert_eq!(b.buffer.dirty, before_dirty);
     }
 
     #[test]
@@ -276,7 +276,7 @@ mod tests {
         let args = parse_substitute("s/a/XX/g").unwrap().unwrap();
         let r = b.substitute(&args);
         assert_eq!(r.matches, 3);
-        assert_eq!(b.lines[0], "XXXXXX");
+        assert_eq!(b.buffer.lines[0], "XXXXXX");
     }
 
     #[test]
@@ -285,6 +285,6 @@ mod tests {
         let args = parse_substitute("s/café/tea/g").unwrap().unwrap();
         let r = b.substitute(&args);
         assert_eq!(r.matches, 2);
-        assert_eq!(b.lines[0], "tea tea");
+        assert_eq!(b.buffer.lines[0], "tea tea");
     }
 }

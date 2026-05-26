@@ -274,7 +274,7 @@ impl App {
     /// thaw anyway.
     fn rehighlight_for_grammar(&mut self, grammar: &str) {
         // Active buffer.
-        if let Some(path) = self.buffer.path.clone() {
+        if let Some(path) = self.editor.buffer.path.clone() {
             let uses = self
                 .config
                 .languages
@@ -290,7 +290,8 @@ impl App {
         // immutable `config` / `loader` borrows.
         let languages = &self.config.languages;
         let loader = &self.loader;
-        for buf in self.parked_buffers.values_mut() {
+        for ed in self.parked_buffers.values_mut() {
+            let buf = &mut ed.buffer;
             let Some(path) = buf.path.clone() else {
                 continue;
             };
