@@ -43,7 +43,7 @@ pub use command::{
     GRAMMAR_SUBCOMMANDS, Inline, Kind, resolve_subcommand,
 };
 pub use cursor::{CursorShape, CursorShapes};
-pub use editor::{EditorConfig, EditorToml, IndentGuideStyle};
+pub use editor::{AutoreloadMode, EditorConfig, EditorToml, IndentGuideStyle};
 pub use finder::{FinderConfig, FinderToml};
 pub use keymap::{
     BOOKMARK_BINDINGS, BRACKET_NEXT_BINDINGS, BRACKET_PREV_BINDINGS, CTRL_W_BINDINGS,
