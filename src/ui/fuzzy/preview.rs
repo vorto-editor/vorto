@@ -28,7 +28,7 @@ pub(super) fn draw_fuzzy_preview(f: &mut Frame, app: &App, finder: &Finder, area
     // in place so the user knows what they're looking at.
     let header_style = Style::default().add_modifier(Modifier::BOLD);
     match finder.kind {
-        FuzzyKind::Files { .. } => {
+        FuzzyKind::Files { .. } | FuzzyKind::GitChangedFiles => {
             let rel = &finder.items[sel.idx];
             let body = super::split_with_header(f, area, rel, header_style);
             let path = app.startup_cwd.join(rel);

@@ -475,6 +475,14 @@ impl PromptController {
         self.state = Prompt::Fuzzy(Finder::buffers(items));
     }
 
+    /// `<space>g` — git changed-files picker. `items` are paths relative
+    /// to the workspace root when under it, absolute otherwise; submit
+    /// produces `OpenRelativeFile` exactly like the file picker (which
+    /// resolves both forms), so there's no side-channel to stash.
+    pub fn open_git_changed(&mut self, items: Vec<String>) {
+        self.state = Prompt::Fuzzy(Finder::git_changed(items));
+    }
+
     /// Read-only view of the buffer-picker side-channel, mirroring
     /// [`Self::locations`]. The UI uses this for preview rendering.
     pub fn buffer_paths(&self) -> &[BufferRef] {
@@ -1339,7 +1347,7 @@ impl PromptController {
             return PromptOutcome::Nothing;
         };
         match finder.kind {
-            FuzzyKind::Files { .. } => {
+            FuzzyKind::Files { .. } | FuzzyKind::GitChangedFiles => {
                 PromptOutcome::OpenRelativeFile(finder.items[sel.idx].clone())
             }
             FuzzyKind::Lines => PromptOutcome::GotoLine(sel.idx),
