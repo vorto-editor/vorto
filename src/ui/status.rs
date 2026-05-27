@@ -171,6 +171,7 @@ fn status_label(app: &App) -> (String, Color) {
         Prompt::CopilotSignin { .. } => ("COPILOT".into(), Color::LightBlue),
         Prompt::GrammarList { .. } => ("GRAMMAR".into(), Color::LightMagenta),
         Prompt::GrammarInstallConfirm { .. } => ("GRAMMAR".into(), Color::Yellow),
+        Prompt::FileReloadConfirm { .. } => ("RELOAD".into(), Color::Yellow),
         Prompt::AgentPicker { .. } => ("AGENT".into(), Color::LightMagenta),
         Prompt::ThemePicker { .. } => ("THEME".into(), Color::LightMagenta),
     }

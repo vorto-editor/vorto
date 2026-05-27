@@ -124,6 +124,14 @@ impl App {
                 self.remove_bookmark(&target);
                 Ok(())
             }
+            PromptOutcome::ReloadFile => {
+                self.reload_active_from_watch();
+                Ok(())
+            }
+            PromptOutcome::DeclineReloadFile => {
+                self.ack_reload_decline();
+                Ok(())
+            }
         }
     }
 }

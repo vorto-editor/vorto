@@ -27,8 +27,9 @@ use std::thread;
 
 use anyhow::Result;
 use crossterm::event::{
-    self as crossterm_event, DisableBracketedPaste, EnableBracketedPaste, Event,
-    KeyboardEnhancementFlags, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
+    self as crossterm_event, DisableBracketedPaste, DisableFocusChange, EnableBracketedPaste,
+    EnableFocusChange, Event, KeyboardEnhancementFlags, PopKeyboardEnhancementFlags,
+    PushKeyboardEnhancementFlags,
 };
 use crossterm::execute;
 use crossterm::terminal::{
@@ -114,6 +115,12 @@ fn main() -> Result<()> {
     // `\n` in the paste fires the Enter handler and auto-indent compounds
     // on the indent the pasted text already carries.
     execute!(stdout, EnableBracketedPaste)?;
+    // Focus reporting: the terminal emits `\x1b[I` / `\x1b[O` on focus
+    // gain/loss, surfaced as `Event::FocusGained` / `Event::FocusLost`.
+    // The autoreload watcher uses these to pause disk polling while the
+    // editor is backgrounded. Terminals that don't support it simply
+    // never send the events — the watcher then just stays active.
+    execute!(stdout, EnableFocusChange)?;
     // Kitty keyboard protocol: with `DISAMBIGUATE_ESCAPE_CODES`, the
     // terminal reports Shift+Tab, Ctrl+modified keys, etc. as distinct
     // events instead of collapsing them onto plain ASCII codes. Without
@@ -210,6 +217,7 @@ fn main() -> Result<()> {
 
     disable_raw_mode()?;
     let _ = execute!(terminal.backend_mut(), DisableBracketedPaste);
+    let _ = execute!(terminal.backend_mut(), DisableFocusChange);
     if kbd_enhanced {
         let _ = execute!(terminal.backend_mut(), PopKeyboardEnhancementFlags);
     }
@@ -280,6 +288,7 @@ fn run(
             app.toast_remaining(),
             app.indent_anim_remaining(),
             app.inline_request_remaining(),
+            app.file_check_remaining(),
         ]
         .into_iter()
         .flatten()
@@ -304,6 +313,11 @@ fn run(
             dispatch(app, ev)?;
         }
         app.sync_buffer_if_dirty();
+        // Poll the active buffer's backing file for external edits. No-op
+        // until `FILE_CHECK_INTERVAL` elapses; opens a reload prompt on
+        // drift. Woken either by the `file_check_remaining` timeout above
+        // or piggybacking on any other event.
+        app.check_active_file_changed();
         // Fire the inline-completion request if the debounce deadline
         // has elapsed. Sits after the dispatch loop so a burst of
         // typing events all extend the deadline before we evaluate it.
@@ -332,6 +346,8 @@ fn dispatch(app: &mut App, ev: event::AppEvent) -> Result<()> {
             app.handle_key(key)?;
         }
         event::AppEvent::Term(Event::Paste(s)) => app.handle_paste(s),
+        event::AppEvent::Term(Event::FocusGained) => app.set_focused(true),
+        event::AppEvent::Term(Event::FocusLost) => app.set_focused(false),
         event::AppEvent::Term(_) => {}
         event::AppEvent::Lsp(lsp_ev) => app.handle_lsp_event(lsp_ev),
         event::AppEvent::Copilot(cp_ev) => app.handle_copilot_event(cp_ev),
