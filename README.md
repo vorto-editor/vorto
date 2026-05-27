@@ -199,6 +199,13 @@ more). Override or add to them per-language in `config.toml`.
 - Diff gutter: `+` added, `~` modified, `⋮` deleted marker
 - File picker honors `.gitignore` and your global excludes file
 - Status bar surfaces buffer dirty state
+- **Conflict markers**: `<<<<<<<` / `=======` / `>>>>>>>` blocks (and the
+  diff3 `|||||||` base) are highlighted — a colored bar on each marker
+  line and a dim tint on the "ours" / "theirs" sides, layered under
+  syntax. Jump between conflicts with `]c` / `[c`, and resolve the one at
+  the cursor with `:conflict ours` / `theirs` / `both` / `none` (undoable).
+  Works on both `git` conflicts and the `autoreload = "merge"` markers
+  below.
 
 ### Auto-reload
 
