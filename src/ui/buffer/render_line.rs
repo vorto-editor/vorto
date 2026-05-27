@@ -478,6 +478,72 @@ pub(super) fn build_jump_overlay(state: Option<&JumpState>) -> HashMap<(usize, u
     out
 }
 
+/// Synthetic highlight captures for every git conflict marker visible in
+/// `[lo, hi)`, so the renderer paints them like any other syntax scope
+/// (no special-casing in `render_line`). Marker lines resolve to
+/// `conflict.marker[.ours|.theirs]` and each side's body to
+/// `conflict.ours` / `conflict.theirs` (the diff3 base region to
+/// `conflict.base`) — themes style those scopes, with a built-in default
+/// in the `ansi` theme. `hunks` is the buffer's version-cached parse
+/// ([`crate::editor::Buffer::conflict_hunks`]), so the renderer never
+/// re-scans per frame and highlight + `:conflict` agree on exactly what a
+/// conflict is.
+pub(super) fn conflict_captures(
+    lines: &[String],
+    hunks: &[crate::editor::conflict::Hunk],
+    lo: usize,
+    hi: usize,
+) -> Vec<Capture> {
+    fn push(
+        caps: &mut Vec<Capture>,
+        lines: &[String],
+        row: usize,
+        lo: usize,
+        hi: usize,
+        name: &str,
+    ) {
+        if row < lo || row >= hi {
+            return;
+        }
+        caps.push(Capture {
+            start_row: row,
+            start_col: 0,
+            end_row: row,
+            end_col: lines[row].chars().count(),
+            name: name.to_string(),
+        });
+    }
+    let mut caps = Vec::new();
+    for h in hunks {
+        if h.end < lo || h.start >= hi {
+            continue;
+        }
+        push(&mut caps, lines, h.start, lo, hi, "conflict.marker.ours");
+        for r in h.ours() {
+            push(&mut caps, lines, r, lo, hi, "conflict.ours");
+        }
+        if let Some(base_region) = h.base_region() {
+            push(
+                &mut caps,
+                lines,
+                base_region.start - 1,
+                lo,
+                hi,
+                "conflict.marker",
+            );
+            for r in base_region {
+                push(&mut caps, lines, r, lo, hi, "conflict.base");
+            }
+        }
+        push(&mut caps, lines, h.sep, lo, hi, "conflict.marker");
+        for r in h.theirs() {
+            push(&mut caps, lines, r, lo, hi, "conflict.theirs");
+        }
+        push(&mut caps, lines, h.end, lo, hi, "conflict.marker.theirs");
+    }
+    caps
+}
+
 /// All matches of `query` in `line`, returned as half-open char
 /// ranges. Empty `query` returns no hits, so callers don't accidentally
 /// paint the entire buffer when no search is active.
@@ -501,4 +567,55 @@ pub(super) fn find_matches_in_line(line: &str, query: &str) -> Vec<(usize, usize
         }
     }
     hits
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn lines(s: &str) -> Vec<String> {
+        s.split('\n').map(str::to_string).collect()
+    }
+
+    #[test]
+    fn conflict_captures_map_each_row_to_its_scope() {
+        let l = lines(
+            "before\n\
+             <<<<<<< ours\n\
+             mine\n\
+             =======\n\
+             yours\n\
+             >>>>>>> theirs\n\
+             after",
+        );
+        let hunks = crate::editor::conflict::hunks(&l);
+        let caps = conflict_captures(&l, &hunks, 0, l.len());
+        let by_row: Vec<(usize, &str)> = caps
+            .iter()
+            .map(|c| (c.start_row, c.name.as_str()))
+            .collect();
+        assert_eq!(
+            by_row,
+            vec![
+                (1, "conflict.marker.ours"),
+                (2, "conflict.ours"),
+                (3, "conflict.marker"),
+                (4, "conflict.theirs"),
+                (5, "conflict.marker.theirs"),
+            ]
+        );
+        // Full-width spans, so the whole marker / side line is painted.
+        let sep = caps.iter().find(|c| c.start_row == 3).unwrap();
+        assert_eq!((sep.start_col, sep.end_col), (0, "=======".chars().count()));
+    }
+
+    #[test]
+    fn conflict_captures_clip_to_the_visible_window() {
+        let l = lines("<<<<<<<\nmine\n=======\nyours\n>>>>>>>");
+        let hunks = crate::editor::conflict::hunks(&l);
+        // Window covering only the top half — rows past `hi` are dropped.
+        let caps = conflict_captures(&l, &hunks, 0, 2);
+        let rows: Vec<usize> = caps.iter().map(|c| c.start_row).collect();
+        assert_eq!(rows, vec![0, 1]);
+    }
 }

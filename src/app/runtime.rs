@@ -62,6 +62,7 @@ impl App {
             Cmd::LspHover => self.lsp_hover(),
             Cmd::OpenLspStatus { all } => self.open_lsp_status(all),
             Cmd::GotoDiagnostic { forward, count } => self.run_goto_diagnostic(forward, count),
+            Cmd::GotoConflict { forward, count } => self.run_goto_conflict(forward, count),
             Cmd::BufferCycle { forward } => self.buffer_cycle(forward)?,
             Cmd::BufferDelete { force } => self.buffer_delete(force)?,
             Cmd::BufferDeleteAll => self.buffer_delete_all()?,
@@ -175,6 +176,49 @@ impl App {
         ed_op_ref!(self, clamp_col(false));
         self.run_scroll(ScrollAnchor::Center);
         self.push_toast(Toast::info(target.message.clone()));
+    }
+
+    /// Body of `]c` / `[c`. Lands the cursor on the `<<<<<<<` line of the
+    /// next / previous conflict, wrapping at
+    /// the buffer boundary so repeated presses cycle. Centers the
+    /// viewport and toasts the position (`conflict 2/3`) since a marker
+    /// far off-screen would otherwise give no sign the jump fired.
+    pub(super) fn run_goto_conflict(&mut self, forward: bool, count: u32) {
+        let hunks = self.active_doc().conflict_hunks();
+        if hunks.is_empty() {
+            self.push_toast(Toast::info("no conflict markers in this buffer"));
+            return;
+        }
+        let n = hunks.len();
+        let row = self.editor.cursor.row;
+        // First hunk strictly past the cursor (forward) or before it
+        // (back); wrap to the far end when the cursor is already beyond
+        // the last / first one.
+        let start = if forward {
+            hunks.iter().position(|h| h.start > row).unwrap_or(0)
+        } else {
+            hunks.iter().rposition(|h| h.start < row).unwrap_or(n - 1)
+        };
+        let steps = count.max(1) as usize - 1;
+        let idx = if forward {
+            (start + steps) % n
+        } else {
+            (start + n - (steps % n)) % n
+        };
+        let target = hunks[idx].start;
+        self.record_jump();
+        self.editor.cursor = crate::editor::Cursor {
+            row: target,
+            col: 0,
+        };
+        ed_op_ref!(self, clamp_col(false));
+        self.run_scroll(ScrollAnchor::Center);
+        self.push_toast(Toast::info(format!(
+            "conflict {}/{} at line {}",
+            idx + 1,
+            n,
+            target + 1
+        )));
     }
 
     fn run_jump_search(&mut self, forward: bool) {

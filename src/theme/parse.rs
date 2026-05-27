@@ -72,6 +72,12 @@ pub fn parse(name: &str, text: &str) -> Result<Theme> {
             scopes.insert(scope, style);
         }
     }
+    // Seed the git-conflict highlight defaults so every theme shows
+    // markers, while letting a theme that *does* define a `conflict.*`
+    // scope override them (insert only when absent).
+    for (scope, style) in super::builtins::conflict_defaults() {
+        scopes.entry(scope.to_string()).or_insert(style);
+    }
 
     Ok(Theme {
         name: name.to_string(),

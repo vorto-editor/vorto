@@ -115,6 +115,12 @@ pub enum Cmd {
         forward: bool,
         count: u32,
     },
+    /// `]c` / `[c` — jump the cursor to the next / previous git conflict
+    /// marker. `count` walks N markers in the requested direction.
+    GotoConflict {
+        forward: bool,
+        count: u32,
+    },
 
     // ── Multi-buffer / lifecycle ─────────────────────────────
     BufferCycle {

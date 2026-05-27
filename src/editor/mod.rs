@@ -17,6 +17,7 @@
 //! - [`history`] — undo / redo snapshot stacks.
 //! - [`vcs_link`] — HEAD-blob diff bridge driving the gutter VCS bars.
 
+pub mod conflict;
 mod cursor;
 mod history;
 mod inline_suggestion;
@@ -122,6 +123,13 @@ pub struct Buffer {
     /// moves; wrapped in `RefCell` so the UI can refresh it through
     /// the shared `&Buffer` it gets at draw time.
     pub vcs_diff: RefCell<Option<(u64, Vec<Option<LineStatus>>)>>,
+    /// Cached `(version, parsed git conflict hunks)`. Recomputed lazily
+    /// when `version` moves — the renderer calls [`Self::conflict_hunks`]
+    /// every frame (per visible pane), so the version gate keeps the
+    /// per-line marker scan off the hot path. `RefCell` for the same
+    /// reason as `vcs_diff`: the UI refreshes it through a shared
+    /// `&Buffer`.
+    pub conflict_cache: RefCell<Option<(u64, Vec<conflict::Hunk>)>>,
     /// Filesystem signature `(mtime, len)` captured the last time
     /// we touched the backing file — at load, after a successful
     /// save, and after `:reload`. `None` for scratch buffers and
@@ -464,6 +472,7 @@ impl Buffer {
             // block the first paint — see `App::spawn_vcs_worker`.
             vcs_base: None,
             vcs_diff: RefCell::new(None),
+            conflict_cache: RefCell::new(None),
             disk_meta,
             disk_base,
         })
@@ -498,6 +507,26 @@ impl Buffer {
     /// invalidate cached highlights without otherwise altering state.
     pub fn bump_version(&mut self) {
         self.version = self.version.wrapping_add(1);
+    }
+
+    /// Parsed git conflict hunks, recomputed only when the buffer
+    /// `version` moves (mirrors [`Self::vcs_statuses`]). Cheap on a hot
+    /// cache, so the renderer can call it every frame; the underlying
+    /// parse is a per-line marker scan, kept off the hot path by the
+    /// version gate. Returns an owned `Vec` (hunks are small `Copy`
+    /// structs) so callers don't hold a `RefCell` borrow.
+    pub fn conflict_hunks(&self) -> Vec<conflict::Hunk> {
+        {
+            let cache = self.conflict_cache.borrow();
+            if let Some((v, hunks)) = cache.as_ref()
+                && *v == self.version
+            {
+                return hunks.clone();
+            }
+        }
+        let hunks = conflict::hunks(&self.lines);
+        *self.conflict_cache.borrow_mut() = Some((self.version, hunks.clone()));
+        hunks
     }
 
     pub fn refresh_highlights(&mut self) {
@@ -720,6 +749,34 @@ mod merge_tests {
         assert!(text.contains("disk-b"), "{text}");
         assert!(text.contains(">>>>>>> disk"), "{text}");
         assert!(buf.dirty);
+    }
+
+    #[test]
+    fn conflict_hunks_are_cached_until_version_moves() {
+        let mut b = Buffer::new();
+        b.lines = vec![
+            "<<<<<<<".into(),
+            "a".into(),
+            "=======".into(),
+            "b".into(),
+            ">>>>>>>".into(),
+        ];
+        assert_eq!(b.conflict_hunks().len(), 1);
+        // Edit the lines without bumping the version: the cache is still
+        // hot, so the stale (cached) parse is served on purpose.
+        b.lines = vec![String::new()];
+        assert_eq!(
+            b.conflict_hunks().len(),
+            1,
+            "cache is served while the version is unchanged"
+        );
+        // Bumping the version invalidates it and forces a re-parse.
+        b.bump_version();
+        assert_eq!(
+            b.conflict_hunks().len(),
+            0,
+            "re-parsed after a version bump"
+        );
     }
 
     #[test]

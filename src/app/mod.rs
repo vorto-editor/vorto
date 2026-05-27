@@ -43,6 +43,7 @@ mod bookmark;
 mod buffer_list;
 mod comment;
 mod completion;
+mod conflict;
 mod copilot;
 mod eval;
 mod grammar;

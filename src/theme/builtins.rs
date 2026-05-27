@@ -139,11 +139,44 @@ pub fn ansi_theme() -> Theme {
     put("markup.link.label", fg(LightBlue));
     put("diff.plus", fg(Green));
     put("diff.minus", fg(Red));
+    for (scope, style) in conflict_defaults() {
+        put(scope, style);
+    }
 
     Theme {
         name: ANSI.to_string(),
         scopes: s,
     }
+}
+
+/// Built-in styles for the synthetic `conflict.*` scopes that
+/// `ui::buffer::conflict_captures` emits for git conflict markers. The
+/// marker lines get a bold bar; each side gets a dim background tint so
+/// the regions read at a glance. Dark RGB fills (like the jump-label
+/// colors) so they sit quietly under code on a dark terminal.
+///
+/// Seeded into *every* theme (see [`super::parse`]), not just `ansi`,
+/// because missing a conflict marker is a correctness hazard — a theme
+/// can still override any `conflict.*` scope, but never silently drops
+/// the highlight by omitting it.
+pub(super) fn conflict_defaults() -> [(&'static str, Style); 6] {
+    let bar = |bg: Color| {
+        Style::default()
+            .fg(Color::Rgb(230, 230, 230))
+            .bg(bg)
+            .add_modifier(Modifier::BOLD)
+    };
+    [
+        ("conflict.marker", bar(Color::Rgb(90, 40, 50))),
+        ("conflict.marker.ours", bar(Color::Rgb(36, 72, 46))),
+        ("conflict.marker.theirs", bar(Color::Rgb(40, 56, 92))),
+        ("conflict.ours", Style::default().bg(Color::Rgb(22, 42, 28))),
+        (
+            "conflict.theirs",
+            Style::default().bg(Color::Rgb(24, 32, 54)),
+        ),
+        ("conflict.base", Style::default().bg(Color::Rgb(44, 44, 30))),
+    ]
 }
 
 /// The theme name for a path, if it's a `*.toml`. `themes/foo.toml` → `foo`.
