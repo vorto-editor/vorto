@@ -1,29 +1,73 @@
 # vorto
 
-A modal terminal text editor written in Rust. Tree-sitter syntax
-highlighting, Language Server Protocol support, fuzzy pickers, and
-optional GitHub Copilot — all in a single, dependency-light binary.
+A Vim-flavored modal terminal editor, written in Rust.
 
-## Highlights
+## Vorto is…
 
-- **Vim-style modal editing** with operators, motions, tree-sitter text
-  objects, multi-cursor, jump labels, and `.`-repeat.
-- **Tree-sitter highlighting** with on-demand grammar install — no
-  `tree-sitter-cli`, no external repos to clone, no Node toolchain.
-- **First-class LSP**: diagnostics, hover, completion, signature help,
-  code actions, goto definition / declaration / implementation,
-  references, rename, format-on-save.
-- **Optional AI**: ghost-text inline completions via
-  `copilot-language-server` (silent when absent), plus `:agent` to run
-  an AI coding agent in a built-in pane inside vorto.
-- **Async architecture** keeps the UI responsive while language servers
-  index and grammars parse in the background.
-- **Git-aware** out of the box: diff gutter, picker respects
-  `.gitignore`, dirty-state indicator.
-- **Single static binary**, pure Rust, no runtime dependencies beyond
+a modal terminal text editor with batteries included. Tree-sitter
+highlighting, Language Server Protocol support, fuzzy pickers, an
+in-editor AI agent pane, and optional Copilot inline completions — all
+in a single, dependency-light binary that starts instantly and needs no
+Node toolchain, plugin manager, or external repos to clone.
+
+## Why vorto
+
+- **Batteries included, not assembled.** LSP, tree-sitter, fuzzy
+  pickers, a file explorer, git gutter, themes, multi-cursor, and
+  bookmarks all work out of the box — there is no plugin manager to
+  learn and nothing to wire together.
+- **A single static binary.** Pure Rust, no runtime dependencies beyond
   a C compiler for building grammars on demand.
+- **No Node, no clones.** Tree-sitter grammars install on demand — no
+  `tree-sitter-cli`, no external repos, no Node toolchain.
+- **Responsive by design.** An async architecture keeps the UI snappy
+  while language servers index and grammars parse in the background.
+- **Familiar.** Vim-style modal editing with operators, motions,
+  tree-sitter text objects, multi-cursor, jump labels, bookmarks, and
+  `.`-repeat.
+- **Themable.** Helix-compatible TOML themes — most Helix theme files
+  drop in unchanged.
+- **Optional AI.** Ghost-text inline completions via
+  `copilot-language-server` and an `:agent` pane that runs an AI coding
+  agent inside the editor — both silent when not configured.
+
+## Installation
+
+From crates.io:
+
+```sh
+cargo install vorto
+```
+
+From source:
+
+```sh
+git clone https://github.com/vorto-editor/vorto.git
+cd vorto
+make install            # installs to ~/.local/bin
+# or
+cargo build --release   # binary at target/release/vorto
+```
+
+Requires a Rust toolchain (edition 2024). A C compiler is needed when
+building tree-sitter grammars.
+
+```sh
+vorto [FILE]
+vorto -h | --help
+vorto -V | --version
+```
 
 ## Features
+
+- [Editing](#editing)
+- [Language Server Protocol](#language-server-protocol)
+- [Tree-sitter](#tree-sitter)
+- [UI](#ui)
+- [Theming](#theming)
+- [AI (optional)](#ai-optional)
+- [Git](#git)
+- [Auto-reload](#auto-reload)
 
 ### Editing
 
@@ -38,8 +82,14 @@ optional GitHub Copilot — all in a single, dependency-light binary.
 - Multi-cursor: `+` add next match, `Shift-Down` add below, `-` pop,
   `<space>,` clear
 - Jump labels: `gw` (easymotion-style 2-char word jumps)
-- Jump history: `<C-o>` / `<C-i>` (or `Tab`) walk the jumplist;
+- Jump history: `<C-o>` / `<C-i>` (or `Tab`) walk the per-pane jumplist;
   `:jumps` / `<space>j` open a fuzzy picker over it
+- Bookmarks (harpoon-style): `<space>ma` add, `<space>md` remove,
+  `<space>mm` open the picker; `:bookmarks` (alias `:bm`) takes
+  `add` / `delete` / `list`. Marked lines show a `●` in the gutter and
+  persist per-project across restarts
+- Per-buffer cursor memory: switching back to a buffer restores the
+  cursor where you left it (tracked independently per pane)
 - Auto-pair brackets and quotes, language-aware comment toggle
   (`<space>c`), case toggle, line join, repeat with `.`
 - Undo / redo (`u` / `<C-r>`), system clipboard yank/paste via
@@ -108,6 +158,17 @@ more). Override or add to them per-language in `config.toml`.
 - Mouse support: click to move cursor, scroll to scroll
 - Non-blocking toast notifications
 
+### Theming
+
+- `:theme` opens a filterable picker that previews each theme live on
+  the current buffer as you move the cursor; Enter applies and persists
+  it to `config.toml`, Esc reverts.
+- Helix-compatible TOML themes — a flat scope → color map with an
+  optional `[palette]`, so most Helix theme files drop in unchanged.
+- Dozens of built-ins (Catppuccin, tokyonight, nord, dracula, gruvbox,
+  rose-pine, kanagawa, ayu, …) plus an `ansi` theme that uses your
+  terminal's own palette. See [Themes](#themes) for the full reference.
+
 ### AI (optional)
 
 - **Inline completions** — if `copilot-language-server` is on your
@@ -139,34 +200,19 @@ more). Override or add to them per-language in `config.toml`.
 - File picker honors `.gitignore` and your global excludes file
 - Status bar surfaces buffer dirty state
 
-## Install
+### Auto-reload
 
-From crates.io:
+When the active buffer's file changes on disk, vorto reacts according to
+the `autoreload` setting (`[editor]`, overridable per language):
 
-```sh
-cargo install vorto
-```
-
-From source:
-
-```sh
-git clone https://github.com/vorto-editor/vorto.git
-cd vorto
-make install            # installs to ~/.local/bin
-# or
-cargo build --release   # binary at target/release/vorto
-```
-
-Requires a Rust toolchain (edition 2024). A C compiler is needed when
-building tree-sitter grammars.
-
-## Usage
-
-```sh
-vorto [FILE]
-vorto -h | --help
-vorto -V | --version
-```
+- `"replace"` (default) — prompt to reload; if the buffer is dirty it
+  warns that unsaved edits will be replaced (undo with `u`). Declining
+  suppresses re-prompts until the file changes again.
+- `"merge"` — follow the external edit via a three-way merge instead of
+  prompting; conflicts are written inline with `<<<<<<<` / `=======` /
+  `>>>>>>>` markers (`local (your edits)` vs `disk`) and the result is
+  undoable.
+- `"none"` — disable the watcher; reload manually with `:reload`.
 
 ## Configuration
 
