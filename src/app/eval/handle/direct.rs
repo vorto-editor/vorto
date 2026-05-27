@@ -188,6 +188,9 @@ pub(super) fn handle_direct(app: &mut App, kind: DirectKind, count: u32, ctx: Ct
         D::GotoDiagnostic { forward } => {
             cmds.push(Cmd::GotoDiagnostic { forward, count });
         }
+        D::GotoConflict { forward } => {
+            cmds.push(Cmd::GotoConflict { forward, count });
+        }
         // Intercepted by `App::evaluate` before reaching here.
         D::RepeatLast => unreachable!("RepeatLast handled in App::evaluate"),
         D::SearchSelectNext { reverse } => {

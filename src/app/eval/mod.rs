@@ -80,6 +80,7 @@ impl App {
                         Inline::Agent => self.run_agent_command(rest),
                         Inline::Theme => self.run_theme_command(rest),
                         Inline::Bookmarks => self.run_bookmarks_command(rest),
+                        Inline::Conflict => self.run_conflict_command(rest),
                     }
                     Ok(())
                 }

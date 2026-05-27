@@ -70,6 +70,7 @@ pub enum Inline {
     Agent,
     Theme,
     Bookmarks,
+    Conflict,
 }
 
 /// `:copilot` subcommands. Source of truth for completion + the hint
@@ -131,6 +132,32 @@ pub const GRAMMAR_SUBCOMMANDS: &[Subcommand] = &[
         name: "remove",
         aliases: &["rm", "uninstall"],
         description: "remove <name>...",
+    },
+];
+
+/// `:conflict` subcommands — resolve the conflict under the cursor.
+/// Navigation lives on the `]c` / `[c` keys, not here. `App::run_conflict_command`
+/// resolves a token against this list.
+pub const CONFLICT_SUBCOMMANDS: &[Subcommand] = &[
+    Subcommand {
+        name: "ours",
+        aliases: &["local", "top"],
+        description: "keep the top side (ours / local)",
+    },
+    Subcommand {
+        name: "theirs",
+        aliases: &["disk", "bottom"],
+        description: "keep the bottom side (theirs / disk)",
+    },
+    Subcommand {
+        name: "both",
+        aliases: &["all"],
+        description: "keep both sides, drop the markers",
+    },
+    Subcommand {
+        name: "none",
+        aliases: &["remove"],
+        description: "delete the whole conflict",
     },
 ];
 
@@ -291,6 +318,13 @@ pub const COMMANDS: &[Command] = &[
         description: "list / add / delete bookmarks",
         args: Args::Sub(BOOKMARK_SUBCOMMANDS),
         kind: Kind::Inline(Inline::Bookmarks),
+    },
+    Command {
+        name: "conflict",
+        aliases: &[],
+        description: "resolve the conflict at the cursor (]c / [c to navigate)",
+        args: Args::Sub(CONFLICT_SUBCOMMANDS),
+        kind: Kind::Inline(Inline::Conflict),
     },
     Command {
         name: "log",

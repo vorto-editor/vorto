@@ -547,24 +547,40 @@ pub const CTRL_W_BINDINGS: &[Binding] = {
 pub const BRACKET_NEXT_BINDINGS: &[Binding] = {
     use crate::action::DirectKind as D;
     use Token::Direct as Dir;
-    &[Binding {
-        key: KeyCode::Char('d'),
-        aliases: &[],
-        token: Dir(D::GotoDiagnostic { forward: true }),
-        label: "next diagnostic (lsp)",
-    }]
+    &[
+        Binding {
+            key: KeyCode::Char('d'),
+            aliases: &[],
+            token: Dir(D::GotoDiagnostic { forward: true }),
+            label: "next diagnostic (lsp)",
+        },
+        Binding {
+            key: KeyCode::Char('c'),
+            aliases: &[],
+            token: Dir(D::GotoConflict { forward: true }),
+            label: "next conflict marker",
+        },
+    ]
 };
 
 /// Mirror of [`BRACKET_NEXT_BINDINGS`] for the `[` prefix.
 pub const BRACKET_PREV_BINDINGS: &[Binding] = {
     use crate::action::DirectKind as D;
     use Token::Direct as Dir;
-    &[Binding {
-        key: KeyCode::Char('d'),
-        aliases: &[],
-        token: Dir(D::GotoDiagnostic { forward: false }),
-        label: "prev diagnostic (lsp)",
-    }]
+    &[
+        Binding {
+            key: KeyCode::Char('d'),
+            aliases: &[],
+            token: Dir(D::GotoDiagnostic { forward: false }),
+            label: "prev diagnostic (lsp)",
+        },
+        Binding {
+            key: KeyCode::Char('c'),
+            aliases: &[],
+            token: Dir(D::GotoConflict { forward: false }),
+            label: "prev conflict marker",
+        },
+    ]
 };
 
 /// Keys valid in the `WindowPending` context (right after `<space>w`).

@@ -388,6 +388,11 @@ pub enum DirectKind {
     GotoDiagnostic {
         forward: bool,
     },
+    /// `]c` / `[c` — jump to the next / previous git conflict marker
+    /// (a `<<<<<<<` line). Wraps around at the end / start of the buffer.
+    GotoConflict {
+        forward: bool,
+    },
     /// Move focus to the pane lying in the given cardinal direction.
     /// Used by `Ctrl-W h/j/k/l` and `<space>w` arrow keys.
     FocusWindow {

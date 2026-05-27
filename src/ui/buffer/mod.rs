@@ -21,8 +21,8 @@ mod scroll;
 use diagnostics::{build_row_diag_summary, build_row_severity, diagnostic_line};
 use indent_guides::{GuideMap, IndentGuide, compute_indent_guides};
 use render_line::{
-    bookmark_sign_span, build_jump_overlay, find_matches_in_line, render_line, sign_span,
-    vcs_bar_span,
+    bookmark_sign_span, build_jump_overlay, conflict_captures, find_matches_in_line, render_line,
+    sign_span, vcs_bar_span,
 };
 use scroll::{compute_col_scroll, compute_scroll};
 
@@ -105,12 +105,22 @@ pub(super) fn draw_buffer(f: &mut Frame, app: &App, area: Rect) {
 
     let sel = app.selection();
     let last_visible = scroll + height;
-    let captures = app
+    let mut captures = app
         .active_doc()
         .highlighter
         .as_ref()
         .map(|h| h.captures_in_rows(scroll, last_visible))
         .unwrap_or_default();
+    // Conflict-marker captures layer on top of (after) the syntax
+    // captures so their styles win on those rows. Hunks come from the
+    // buffer's version-cached parse, so this is free on a hot cache.
+    let conflict_hunks = app.active_doc().conflict_hunks();
+    captures.extend(conflict_captures(
+        &app.active_doc().lines,
+        &conflict_hunks,
+        scroll,
+        last_visible,
+    ));
     let row_severity = build_row_severity(app, scroll, last_visible);
     // Rows of the active buffer that carry a harpoon bookmark — drawn
     // with a sign-column dot (taking priority over the diagnostic sign).
@@ -355,11 +365,18 @@ pub(super) fn draw_buffer_inactive(
     buf.scroll.set(scroll);
     buf.viewport_height.set(height);
     let last_visible = scroll + height;
-    let captures = buf
+    let mut captures = buf
         .highlighter
         .as_ref()
         .map(|h| h.captures_in_rows(scroll, last_visible))
         .unwrap_or_default();
+    let conflict_hunks = buf.conflict_hunks();
+    captures.extend(conflict_captures(
+        &buf.lines,
+        &conflict_hunks,
+        scroll,
+        last_visible,
+    ));
     let vcs_statuses = buf.vcs_statuses();
     let tab_width = eff.tab_width.max(1);
     let show_whitespace = eff.show_whitespace;
