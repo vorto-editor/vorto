@@ -8,9 +8,65 @@
 //!   default; any field set wins. Field-level merge.
 
 use serde::Deserialize;
+use serde::de::{self, Deserializer, Visitor};
 
 const DEFAULT_INDENT_WIDTH: usize = 2;
 const DEFAULT_TAB_WIDTH: usize = 4;
+
+/// How the autoreload watcher reacts when the active buffer's backing
+/// file changes on disk underneath it (formatter, agent, `git checkout`,
+/// another editor).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AutoreloadMode {
+    /// Watcher off — drift is only picked up by an explicit `:reload`.
+    None,
+    /// Detect drift and open a "Reload it?" confirmation before replacing
+    /// the buffer wholesale. The historical default.
+    Replace,
+    /// Follow the external edit automatically. A clean buffer reloads
+    /// silently; a buffer with unsaved edits gets a three-way merge,
+    /// landing `<<<<<<<` conflict markers only where both sides touched
+    /// the same lines.
+    Merge,
+}
+
+/// Accepts either the legacy boolean (`true` → [`AutoreloadMode::Replace`],
+/// `false` → [`AutoreloadMode::None`]) or one of the string forms
+/// `"none"` / `"replace"` / `"merge"`, so configs written against the old
+/// `autoreload = true/false` schema keep working.
+impl<'de> Deserialize<'de> for AutoreloadMode {
+    fn deserialize<D>(d: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct ModeVisitor;
+        impl Visitor<'_> for ModeVisitor {
+            type Value = AutoreloadMode;
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str(r#"a boolean or one of "none", "replace", "merge""#)
+            }
+            fn visit_bool<E: de::Error>(self, b: bool) -> Result<AutoreloadMode, E> {
+                Ok(if b {
+                    AutoreloadMode::Replace
+                } else {
+                    AutoreloadMode::None
+                })
+            }
+            fn visit_str<E: de::Error>(self, s: &str) -> Result<AutoreloadMode, E> {
+                match s {
+                    "none" | "off" => Ok(AutoreloadMode::None),
+                    "replace" | "prompt" => Ok(AutoreloadMode::Replace),
+                    "merge" => Ok(AutoreloadMode::Merge),
+                    other => Err(de::Error::unknown_variant(
+                        other,
+                        &["none", "replace", "merge"],
+                    )),
+                }
+            }
+        }
+        d.deserialize_any(ModeVisitor)
+    }
+}
 
 /// Visual style for the indent-guide bars.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -52,12 +108,15 @@ pub struct EditorToml {
     /// to `true`. Per-language overrides flatten the same field into the
     /// `[languages.<name>]` table.
     pub format_on_save: Option<bool>,
-    /// When `true`, the active pane's file-backed buffer is polled on a
-    /// timer; an external edit (mtime/len drift from the load/save
-    /// baseline) opens a "reload?" confirmation. Paused while the
-    /// terminal is unfocused. Falls back to `true`. Per-language
-    /// overrides flatten the same field into `[languages.<name>]`.
-    pub autoreload: Option<bool>,
+    /// How the active pane's file-backed buffer reacts to an external
+    /// edit (mtime/len drift from the load/save baseline), polled on a
+    /// timer while the terminal is focused. `"replace"` (the default)
+    /// opens a "Reload it?" confirmation; `"merge"` follows the edit
+    /// automatically via a three-way merge; `"none"` disables the watcher
+    /// (only `:reload` picks up drift). The legacy booleans still parse:
+    /// `true` → `"replace"`, `false` → `"none"`. Per-language overrides
+    /// flatten the same field into `[languages.<name>]`.
+    pub autoreload: Option<AutoreloadMode>,
     /// When `true`, draws vertical guide lines at each indentation level
     /// in the buffer. The level containing the cursor is painted in a
     /// distinct color. Falls back to `true`.
@@ -101,7 +160,7 @@ pub struct EditorConfig {
     pub use_tabs: bool,
     pub show_whitespace: bool,
     pub format_on_save: bool,
-    pub autoreload: bool,
+    pub autoreload: AutoreloadMode,
     pub indent_guides: bool,
     pub indent_guides_skip_levels: usize,
     pub indent_guide_style: IndentGuideStyle,
@@ -118,7 +177,7 @@ impl Default for EditorConfig {
             use_tabs: false,
             show_whitespace: false,
             format_on_save: true,
-            autoreload: true,
+            autoreload: AutoreloadMode::Replace,
             indent_guides: true,
             indent_guides_skip_levels: 0,
             indent_guide_style: IndentGuideStyle::Line,
@@ -172,7 +231,7 @@ mod tests {
             use_tabs: false,
             show_whitespace: false,
             format_on_save: true,
-            autoreload: true,
+            autoreload: AutoreloadMode::Replace,
             indent_guides: true,
             indent_guides_skip_levels: 0,
             indent_guide_style: IndentGuideStyle::Line,
@@ -186,5 +245,42 @@ mod tests {
         });
         assert_eq!(eff.indent_width, 4);
         assert_eq!(eff.tab_width, 8);
+    }
+
+    fn parse_autoreload(toml_src: &str) -> Option<AutoreloadMode> {
+        toml::from_str::<EditorToml>(toml_src).unwrap().autoreload
+    }
+
+    #[test]
+    fn autoreload_accepts_legacy_booleans() {
+        assert_eq!(
+            parse_autoreload("autoreload = true"),
+            Some(AutoreloadMode::Replace)
+        );
+        assert_eq!(
+            parse_autoreload("autoreload = false"),
+            Some(AutoreloadMode::None)
+        );
+    }
+
+    #[test]
+    fn autoreload_accepts_mode_strings() {
+        assert_eq!(
+            parse_autoreload(r#"autoreload = "none""#),
+            Some(AutoreloadMode::None)
+        );
+        assert_eq!(
+            parse_autoreload(r#"autoreload = "replace""#),
+            Some(AutoreloadMode::Replace)
+        );
+        assert_eq!(
+            parse_autoreload(r#"autoreload = "merge""#),
+            Some(AutoreloadMode::Merge)
+        );
+    }
+
+    #[test]
+    fn autoreload_rejects_unknown_string() {
+        assert!(toml::from_str::<EditorToml>(r#"autoreload = "sometimes""#).is_err());
     }
 }

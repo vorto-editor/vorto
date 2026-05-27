@@ -98,9 +98,9 @@ pub struct InsertRecording {
     pub trigger: crate::action::Expr,
     pub keys: Vec<InsertKey>,
 }
-use crate::config::{Config, EditorConfig};
+use crate::config::{AutoreloadMode, Config, EditorConfig};
 use crate::editor::SearchState;
-use crate::editor::{Cursor, Editor, SuggestionState};
+use crate::editor::{Cursor, Editor, MergeOutcome, SuggestionState};
 use crate::event::AppEvent;
 use crate::finder::{self, PreviewLru};
 use crate::prompt::PromptController;
@@ -569,7 +569,7 @@ impl App {
             && self.jump_state.is_none()
             && !self.prompt.is_open()
             && self.active_doc().path.is_some()
-            && self.effective_editor().autoreload
+            && self.effective_editor().autoreload != AutoreloadMode::None
     }
 
     /// Time until the next autoreload poll, or `None` when the watcher is
@@ -585,10 +585,12 @@ impl App {
     }
 
     /// Poll the active buffer's backing file for an external edit and, on
-    /// drift from the load/save baseline, open the reload confirmation.
+    /// drift from the load/save baseline, react per the buffer's
+    /// `autoreload` mode: `"replace"` opens the reload confirmation,
+    /// `"merge"` follows the edit via [`Self::merge_active_from_watch`].
     /// Throttled to [`FILE_CHECK_INTERVAL`]; the main loop calls it every
-    /// iteration but it no-ops until the interval elapses. Cheap when it
-    /// does run — a single `fs::metadata`.
+    /// iteration but it no-ops until the interval elapses. The poll itself
+    /// is a single `fs::metadata`; the read+merge only runs on actual drift.
     pub fn check_active_file_changed(&mut self) {
         if !self.autoreload_active() {
             return;
@@ -615,13 +617,55 @@ impl App {
         if current == baseline {
             return;
         }
-        // Already declined this exact disk state? Stay silent until the
-        // file drifts again to a signature we haven't acked.
-        if self.reload_acked.get(&self.editor.doc) == Some(&current) {
+        match self.effective_editor().autoreload {
+            // The watcher wouldn't be active in this mode (see
+            // `autoreload_active`), but match exhaustively anyway.
+            AutoreloadMode::None => {}
+            AutoreloadMode::Replace => {
+                // Already declined this exact disk state? Stay silent until
+                // the file drifts again to a signature we haven't acked.
+                if self.reload_acked.get(&self.editor.doc) == Some(&current) {
+                    return;
+                }
+                let dirty = self.active_doc().dirty;
+                self.prompt.open_file_reload_prompt(path, dirty);
+            }
+            AutoreloadMode::Merge => self.merge_active_from_watch(path),
+        }
+    }
+
+    /// `autoreload = "merge"`: follow the external edit without prompting.
+    /// A clean buffer reloads wholesale; a buffer with unsaved edits gets a
+    /// three-way merge of `disk_base` (ancestor) / buffer (ours) / disk
+    /// (theirs); overlapping edits land as `<<<<<<<` conflict markers the
+    /// user resolves by hand. Every applied change raises a transient toast
+    /// (so the user knows the buffer moved underneath them) but never a
+    /// modal prompt. An undo snapshot is taken either way, so the whole
+    /// thing is recoverable with `u`.
+    fn merge_active_from_watch(&mut self, path: std::path::PathBuf) {
+        let name = path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("file")
+            .to_string();
+        if !self.active_doc().dirty {
+            match ed_op!(self, reload_from_disk()) {
+                Ok(true) => self.push_toast(Toast::info(format!("reloaded {name}"))),
+                Ok(false) => {}
+                Err(e) => self.push_toast(Toast::error(format!("reload: {}", root_cause(&e)))),
+            }
             return;
         }
-        let dirty = self.active_doc().dirty;
-        self.prompt.open_file_reload_prompt(path, dirty);
+        match ed_op!(self, merge_from_disk()) {
+            Ok(MergeOutcome::Clean) => {
+                self.push_toast(Toast::info(format!("merged external changes into {name}")))
+            }
+            Ok(MergeOutcome::Conflict) => self.push_toast(Toast::warn(format!(
+                "{name}: external edit conflicts — resolve <<<<<<< markers"
+            ))),
+            Ok(MergeOutcome::Unchanged) => {}
+            Err(e) => self.push_toast(Toast::error(format!("merge: {}", root_cause(&e)))),
+        }
     }
 
     /// Accept an autoreload prompt — re-read the active buffer from disk,

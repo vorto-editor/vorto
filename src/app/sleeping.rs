@@ -103,6 +103,12 @@ pub struct SleepingBuffer {
     /// `:w` still rejects a clobber when the user comes back to a
     /// buffer that was stashed while another tool rewrote the file.
     disk_meta: Option<crate::editor::FileMeta>,
+    /// The merge ancestor (last-seen disk content), preserved so a dirty
+    /// buffer that slept through an external edit can still three-way
+    /// merge on thaw under `autoreload = "merge"` instead of falling back
+    /// to a wholesale replace. Frozen with the same raw/zip strategy as
+    /// `lines`.
+    disk_base: Option<Lines>,
 }
 
 impl SleepingBuffer {
@@ -115,7 +121,8 @@ impl SleepingBuffer {
         let main_size = Lines::raw_size(&b.lines);
         let undo_size: usize = b.undo_stack.iter().map(|s| Lines::raw_size(&s.lines)).sum();
         let redo_size: usize = b.redo_stack.iter().map(|s| Lines::raw_size(&s.lines)).sum();
-        let compress = main_size + undo_size + redo_size > COMPRESS_THRESHOLD;
+        let disk_base_size = b.disk_base.as_ref().map_or(0, |d| Lines::raw_size(d));
+        let compress = main_size + undo_size + redo_size + disk_base_size > COMPRESS_THRESHOLD;
         let freeze = |lines: Vec<String>| -> Lines {
             if compress {
                 Lines::freeze_zip(lines)
@@ -156,6 +163,7 @@ impl SleepingBuffer {
             undo,
             redo,
             disk_meta: b.disk_meta,
+            disk_base: b.disk_base.map(&freeze),
         }
     }
 
@@ -204,6 +212,7 @@ impl SleepingBuffer {
         b.scroll.set(self.scroll);
         b.col_scroll.set(self.col_scroll);
         b.disk_meta = self.disk_meta;
+        b.disk_base = self.disk_base.map(|d| d.thaw());
         b.undo_stack = self
             .undo
             .into_iter()
@@ -256,6 +265,10 @@ mod tests {
         b.dirty = true;
         b.yank = "yanked".to_string();
         b.version = 42;
+        // The merge ancestor must survive the round-trip so `autoreload =
+        // "merge"` can still three-way merge a buffer that slept through an
+        // external edit, rather than replacing it wholesale.
+        b.disk_base = Some(vec!["hello".to_string(), "world".to_string()]);
 
         let frozen = SleepingBuffer::freeze(b);
         let thawed = frozen.thaw();
@@ -263,6 +276,10 @@ mod tests {
         assert!(thawed.dirty);
         assert_eq!(thawed.yank, "yanked");
         assert_eq!(thawed.version, 42);
+        assert_eq!(
+            thawed.disk_base.as_deref(),
+            Some(&["hello".to_string(), "world".to_string()][..])
+        );
     }
 
     #[test]

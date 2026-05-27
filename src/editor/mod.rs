@@ -22,6 +22,7 @@ mod history;
 mod inline_suggestion;
 mod insert;
 mod jumplist;
+mod merge;
 mod motion;
 mod ops;
 mod search;
@@ -128,6 +129,24 @@ pub struct Buffer {
     /// checks this before `:w` to refuse silently clobbering an
     /// external edit.
     pub disk_meta: Option<FileMeta>,
+    /// The last content we saw on disk — captured at load, after a
+    /// successful save, and after `:reload`/auto-merge. Serves as the
+    /// common ancestor for the three-way merge that `autoreload = "merge"`
+    /// runs against an external edit. `None` for scratch buffers and new
+    /// files not yet written (mirrors `disk_meta`).
+    pub disk_base: Option<Vec<String>>,
+}
+
+/// Outcome of [`Editor::merge_from_disk`] — how an external edit was
+/// reconciled with the buffer's unsaved changes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MergeOutcome {
+    /// Disk already matched the buffer; only the baseline was refreshed.
+    Unchanged,
+    /// External edits merged cleanly into the buffer's unsaved changes.
+    Clean,
+    /// Overlapping edits left `<<<<<<<` markers in the buffer to resolve.
+    Conflict,
 }
 
 /// Filesystem signature used to detect external edits between
@@ -306,6 +325,7 @@ impl Editor {
         }
         if lines == buf.lines {
             buf.disk_meta = FileMeta::of(&path);
+            buf.disk_base = Some(lines);
             return Ok(false);
         }
         self.snapshot(buf);
@@ -315,13 +335,84 @@ impl Editor {
         buf.vcs_base = vcs::head_blob_lines(&path);
         *buf.vcs_diff.borrow_mut() = None;
         buf.disk_meta = FileMeta::of(&path);
+        buf.disk_base = Some(buf.lines.clone());
 
-        // Clamp every cursor (primary + extras) into the possibly-shrunk
-        // buffer. Done inline instead of going through `clamp_col` so
-        // we can fix `row` first — `clamp_col` reads `current_line` off
-        // the primary cursor's row, which would panic if `row` were
-        // still past the new end.
-        let last_row = buf.lines.len().saturating_sub(1);
+        self.clamp_cursors_into(&buf.lines);
+        buf.refresh_highlights();
+        Ok(true)
+    }
+
+    /// Three-way merge the backing file's current on-disk content into the
+    /// buffer's unsaved edits via [`merge::three_way`] (line-level, with a
+    /// character-level retry on conflicting runs). The ancestor is
+    /// `buf.disk_base` (the content we last read from / wrote to disk),
+    /// "ours" is `buf.lines`, "theirs" is the freshly-read file. A clean
+    /// merge rewrites the buffer in place; genuinely overlapping edits carry
+    /// `<<<<<<<`/`>>>>>>>` markers (the caller toasts either outcome — this
+    /// method itself shows no UI). Either way an undo snapshot is taken and
+    /// `disk_base`/`disk_meta` advance to the just-seen disk state, so the
+    /// watcher won't re-fire until the file changes again.
+    ///
+    /// Falls back to a wholesale [`Self::reload_from_disk`] when there's no
+    /// `disk_base` to anchor the merge (returns [`MergeOutcome::Clean`]).
+    pub fn merge_from_disk(&mut self, buf: &mut Buffer) -> Result<MergeOutcome> {
+        let path = buf
+            .path
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("no file name"))?;
+        let theirs = fs::read_to_string(&path)?;
+        let mut disk_lines: Vec<String> = theirs.split('\n').map(|s| s.to_string()).collect();
+        if disk_lines.is_empty() {
+            disk_lines.push(String::new());
+        }
+
+        // Buffer already matches disk (e.g. an editor rewrote identical
+        // bytes, or our own save raced the poll): just re-baseline.
+        if disk_lines == buf.lines {
+            buf.disk_meta = FileMeta::of(&path);
+            buf.disk_base = Some(disk_lines);
+            buf.dirty = false;
+            return Ok(MergeOutcome::Unchanged);
+        }
+
+        // No ancestor to diff against — can't do a meaningful three-way,
+        // so fall back to replacing wholesale.
+        let Some(base) = buf.disk_base.clone() else {
+            self.reload_from_disk(buf)?;
+            return Ok(MergeOutcome::Clean);
+        };
+
+        let (merged_lines, conflict) = merge::three_way(&base, &buf.lines, &disk_lines);
+
+        self.snapshot(buf);
+        buf.lines = merged_lines;
+        buf.version = buf.version.wrapping_add(1);
+        buf.vcs_base = vcs::head_blob_lines(&path);
+        *buf.vcs_diff.borrow_mut() = None;
+        // Re-baseline to the disk state we just merged against. The buffer
+        // now holds the merge result, which may carry local edits not yet
+        // on disk — so it stays dirty unless it happens to equal disk.
+        buf.disk_meta = FileMeta::of(&path);
+        buf.dirty = buf.lines != disk_lines;
+        buf.disk_base = Some(disk_lines);
+
+        self.clamp_cursors_into(&buf.lines);
+        buf.refresh_highlights();
+        Ok(if conflict {
+            MergeOutcome::Conflict
+        } else {
+            MergeOutcome::Clean
+        })
+    }
+
+    /// Clamp every cursor (primary + extras) into `lines`, fixing `row`
+    /// before `col`. Done inline rather than via `clamp_col` so the row is
+    /// valid first — `clamp_col` reads `current_line` off the primary
+    /// cursor's row, which would panic if `row` were still past the new
+    /// end. Shared by `reload_from_disk` and `merge_from_disk`, both of
+    /// which can shrink the buffer underneath the cursors.
+    fn clamp_cursors_into(&mut self, lines: &[String]) {
+        let last_row = lines.len().saturating_sub(1);
         let clamp_one = |c: &mut Cursor, lines: &[String]| {
             if c.row > last_row {
                 c.row = last_row;
@@ -331,13 +422,10 @@ impl Editor {
                 c.col = row_len;
             }
         };
-        clamp_one(&mut self.cursor, &buf.lines);
+        clamp_one(&mut self.cursor, lines);
         for c in &mut self.extra_cursors {
-            clamp_one(c, &buf.lines);
+            clamp_one(c, lines);
         }
-
-        buf.refresh_highlights();
-        Ok(true)
     }
 }
 
@@ -356,6 +444,7 @@ impl Buffer {
             lines.push(String::new());
         }
         let disk_meta = FileMeta::of(path);
+        let disk_base = Some(lines.clone());
         Ok(Self {
             lines,
             path: Some(path.to_path_buf()),
@@ -376,6 +465,7 @@ impl Buffer {
             vcs_base: None,
             vcs_diff: RefCell::new(None),
             disk_meta,
+            disk_base,
         })
     }
 
@@ -384,6 +474,7 @@ impl Buffer {
             fs::write(p, self.lines.join("\n"))?;
             self.dirty = false;
             self.disk_meta = FileMeta::of(p);
+            self.disk_base = Some(self.lines.clone());
         }
         Ok(())
     }
@@ -393,6 +484,7 @@ impl Buffer {
         self.path = Some(path.to_path_buf());
         self.dirty = false;
         self.disk_meta = FileMeta::of(path);
+        self.disk_base = Some(self.lines.clone());
         Ok(())
     }
 
@@ -556,5 +648,90 @@ impl std::ops::Deref for Ed {
 impl std::ops::DerefMut for Ed {
     fn deref_mut(&mut self) -> &mut Editor {
         &mut self.editor
+    }
+}
+
+#[cfg(test)]
+mod merge_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    static COUNTER: AtomicU32 = AtomicU32::new(0);
+
+    /// A throwaway file under the temp dir, removed on drop.
+    struct TempFile(PathBuf);
+    impl TempFile {
+        fn with(contents: &str) -> Self {
+            let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+            let path =
+                std::env::temp_dir().join(format!("vorto-merge-{}-{n}.txt", std::process::id()));
+            fs::write(&path, contents).unwrap();
+            Self(path)
+        }
+        fn write(&self, contents: &str) {
+            fs::write(&self.0, contents).unwrap();
+        }
+    }
+    impl Drop for TempFile {
+        fn drop(&mut self) {
+            let _ = fs::remove_file(&self.0);
+        }
+    }
+
+    #[test]
+    fn merge_clean_combines_disjoint_edits() {
+        let tf = TempFile::with("a\nb\nc");
+        let mut buf = Buffer::load(&tf.0).unwrap();
+        let mut ed = Editor::new();
+
+        // Local edit on the first line (unsaved).
+        buf.lines[0] = "A".to_string();
+        buf.dirty = true;
+        // External edit on the last line.
+        tf.write("a\nb\nC");
+
+        let outcome = ed.merge_from_disk(&mut buf).unwrap();
+        assert_eq!(outcome, MergeOutcome::Clean);
+        assert_eq!(buf.lines, vec!["A", "b", "C"]);
+        // Local edit not yet on disk → still dirty.
+        assert!(buf.dirty);
+        // Re-baselined to the disk we merged against.
+        assert_eq!(
+            buf.disk_base.as_ref().map(|v| v.join("\n")),
+            Some("a\nb\nC".to_string())
+        );
+    }
+
+    #[test]
+    fn merge_conflict_inserts_markers() {
+        let tf = TempFile::with("a\nb\nc");
+        let mut buf = Buffer::load(&tf.0).unwrap();
+        let mut ed = Editor::new();
+
+        buf.lines[1] = "local-b".to_string();
+        buf.dirty = true;
+        tf.write("a\ndisk-b\nc");
+
+        let outcome = ed.merge_from_disk(&mut buf).unwrap();
+        assert_eq!(outcome, MergeOutcome::Conflict);
+        let text = buf.lines.join("\n");
+        assert!(text.contains("<<<<<<< local (your edits)"), "{text}");
+        assert!(text.contains("local-b"), "{text}");
+        assert!(text.contains("disk-b"), "{text}");
+        assert!(text.contains(">>>>>>> disk"), "{text}");
+        assert!(buf.dirty);
+    }
+
+    #[test]
+    fn merge_clean_buffer_just_rebaselines() {
+        let tf = TempFile::with("a\nb\nc");
+        let mut buf = Buffer::load(&tf.0).unwrap();
+        let mut ed = Editor::new();
+
+        // No local edits; disk changed.
+        tf.write("a\nb\nc");
+        let outcome = ed.merge_from_disk(&mut buf).unwrap();
+        assert_eq!(outcome, MergeOutcome::Unchanged);
+        assert!(!buf.dirty);
     }
 }
