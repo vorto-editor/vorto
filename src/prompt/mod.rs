@@ -117,6 +117,23 @@ pub enum Prompt {
         /// bare Enter still accepts, matching the old behavior.
         accept: bool,
     },
+    /// Raised by the autoreload watcher when the active buffer's backing
+    /// file changed on disk (mtime/len drift from the load/save
+    /// baseline). `y` reloads (taking an undo snapshot first, so the
+    /// reload is recoverable with `u`); `n`/Esc dismisses and the App
+    /// acks the current disk state so it won't re-prompt until the file
+    /// changes *again*. Same Yes/No button model as
+    /// [`Self::GrammarInstallConfirm`]. `dirty` tags whether the buffer
+    /// had unsaved edits when the change was detected, so the message can
+    /// warn that reloading replaces them (undo restores).
+    FileReloadConfirm {
+        /// Backing file path, for the prompt message.
+        path: PathBuf,
+        /// Whether the buffer had unsaved edits at detection time.
+        dirty: bool,
+        /// Highlighted button: `true` = Yes (reload), `false` = No.
+        accept: bool,
+    },
     /// `:agent` with no configured default — pick which AI agent to
     /// launch. A plain selection list: `j`/`k` (or arrows / Ctrl-N/P)
     /// move, Enter launches the highlighted agent (and persists it as the
@@ -293,6 +310,13 @@ pub enum PromptOutcome {
     /// store (and persists); the picker stays open with the row already
     /// removed from its in-memory list.
     RemoveBookmark(BufferRef),
+    /// Autoreload confirm — `y`/Enter accepted. The caller re-reads the
+    /// active buffer from disk (same path as `:reload`).
+    ReloadFile,
+    /// Autoreload confirm — `n`/Esc declined. The caller acks the current
+    /// on-disk state so the watcher won't re-prompt until the file
+    /// changes again.
+    DeclineReloadFile,
 }
 
 /// Interaction mode for the `Fuzzy(Bookmarks)` picker, mirroring the
@@ -518,6 +542,17 @@ impl PromptController {
         self.state = Prompt::GrammarInstallConfirm {
             grammar,
             language,
+            accept: true,
+        };
+    }
+
+    /// Open the autoreload "file changed on disk — reload?" confirmation.
+    /// Opens on Yes so a bare Enter reloads. `dirty` drives the
+    /// unsaved-edits warning in the message.
+    pub fn open_file_reload_prompt(&mut self, path: PathBuf, dirty: bool) {
+        self.state = Prompt::FileReloadConfirm {
+            path,
+            dirty,
             accept: true,
         };
     }
@@ -961,6 +996,45 @@ impl PromptController {
             };
         }
 
+        // Autoreload confirm — same Yes/No model as the grammar prompt.
+        // Declining returns `DeclineReloadFile` (not `Cancelled`) so the
+        // App can ack the current disk state and stop re-prompting.
+        if let Prompt::FileReloadConfirm { accept, .. } = &mut self.state {
+            match key.code {
+                KeyCode::Left
+                | KeyCode::Right
+                | KeyCode::Up
+                | KeyCode::Down
+                | KeyCode::Char('h')
+                | KeyCode::Char('l')
+                | KeyCode::Tab
+                | KeyCode::BackTab => {
+                    *accept = !*accept;
+                    return PromptOutcome::Nothing;
+                }
+                _ => {}
+            }
+            let decision = if ctrl_c || key.code == KeyCode::Esc {
+                Some(false)
+            } else {
+                match key.code {
+                    KeyCode::Char('y') | KeyCode::Char('Y') => Some(true),
+                    KeyCode::Char('n') | KeyCode::Char('N') => Some(false),
+                    KeyCode::Enter => Some(*accept),
+                    _ => None,
+                }
+            };
+            let Some(reload) = decision else {
+                return PromptOutcome::Nothing;
+            };
+            self.close();
+            return if reload {
+                PromptOutcome::ReloadFile
+            } else {
+                PromptOutcome::DeclineReloadFile
+            };
+        }
+
         if key.code == KeyCode::Esc || ctrl_c {
             self.close();
             return PromptOutcome::Cancelled;
@@ -1036,6 +1110,7 @@ impl PromptController {
             Prompt::Explorer(_)
             | Prompt::GrammarList { .. }
             | Prompt::GrammarInstallConfirm { .. }
+            | Prompt::FileReloadConfirm { .. }
             | Prompt::ThemePicker { .. } => {
                 // All fully handled by their early intercepts above (they
                 // own Esc/Enter and per-key dispatch). Reaching this arm
@@ -1234,6 +1309,7 @@ impl PromptController {
             Prompt::Explorer(_)
             | Prompt::GrammarList { .. }
             | Prompt::GrammarInstallConfirm { .. }
+            | Prompt::FileReloadConfirm { .. }
             | Prompt::ThemePicker { .. } => PromptOutcome::Nothing,
             Prompt::CodeActionMenu {
                 mut actions,
@@ -1541,6 +1617,62 @@ mod grammar_filter_tests {
         pc.open_grammar_install_prompt("rust".into(), "Rust".into());
         assert!(matches!(press(&mut pc, key('q')), PromptOutcome::Nothing));
         assert!(matches!(pc.state, Prompt::GrammarInstallConfirm { .. }));
+    }
+
+    #[test]
+    fn file_reload_opens_on_yes_and_bare_enter_reloads() {
+        let mut pc = PromptController::new();
+        pc.open_file_reload_prompt(PathBuf::from("/tmp/x.rs"), false);
+        assert!(matches!(
+            press(&mut pc, code(KeyCode::Enter)),
+            PromptOutcome::ReloadFile
+        ));
+        assert!(matches!(pc.state, Prompt::None));
+    }
+
+    #[test]
+    fn file_reload_decline_returns_decline_outcome() {
+        // Esc and `n` both decline with the dedicated outcome (not the
+        // generic `Cancelled`) so the App can ack the disk state.
+        let mut pc = PromptController::new();
+        pc.open_file_reload_prompt(PathBuf::from("/tmp/x.rs"), true);
+        assert!(matches!(
+            press(&mut pc, key('n')),
+            PromptOutcome::DeclineReloadFile
+        ));
+
+        let mut pc = PromptController::new();
+        pc.open_file_reload_prompt(PathBuf::from("/tmp/x.rs"), true);
+        assert!(matches!(
+            press(&mut pc, code(KeyCode::Esc)),
+            PromptOutcome::DeclineReloadFile
+        ));
+    }
+
+    #[test]
+    fn file_reload_arrow_toggles_then_enter_declines() {
+        let mut pc = PromptController::new();
+        pc.open_file_reload_prompt(PathBuf::from("/tmp/x.rs"), false);
+        assert!(matches!(
+            press(&mut pc, code(KeyCode::Right)),
+            PromptOutcome::Nothing
+        ));
+        let Prompt::FileReloadConfirm { accept, .. } = &pc.state else {
+            panic!("expected file-reload dialog");
+        };
+        assert!(!*accept);
+        assert!(matches!(
+            press(&mut pc, code(KeyCode::Enter)),
+            PromptOutcome::DeclineReloadFile
+        ));
+    }
+
+    #[test]
+    fn file_reload_stray_key_keeps_dialog_open() {
+        let mut pc = PromptController::new();
+        pc.open_file_reload_prompt(PathBuf::from("/tmp/x.rs"), false);
+        assert!(matches!(press(&mut pc, key('q')), PromptOutcome::Nothing));
+        assert!(matches!(pc.state, Prompt::FileReloadConfirm { .. }));
     }
 
     #[test]

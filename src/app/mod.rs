@@ -347,8 +347,32 @@ pub struct App {
     /// (set on open, cleared on commit or revert). Live preview swaps the
     /// global active theme freely; this is the safety net.
     pub(super) theme_origin: Option<String>,
+    /// Autoreload watcher state — last moment the active buffer's backing
+    /// file was polled for an external edit. The main loop merges
+    /// [`Self::file_check_remaining`] into its wake sources so it ticks
+    /// roughly every [`FILE_CHECK_INTERVAL`] while idle.
+    pub(super) last_file_check: std::time::Instant,
+    /// On-disk signatures the user declined to reload, keyed by document.
+    /// Lets the watcher fall silent after a "No" until the file drifts
+    /// *again* (a fresh `FileMeta` that doesn't match the acked one).
+    /// Cleared for a document when it's reloaded; an entry left stale by a
+    /// subsequent save is harmless, since any real external edit advances
+    /// the mtime and so can't collide with the acked signature.
+    pub(super) reload_acked: std::collections::HashMap<BufferRef, crate::editor::FileMeta>,
+    /// Terminal focus, tracked from crossterm `FocusGained`/`FocusLost`.
+    /// The autoreload watcher pauses while unfocused so a backgrounded
+    /// editor doesn't poll the disk. Defaults to `true` — terminals that
+    /// don't report focus changes never flip it, so the watcher just
+    /// stays active (the pre-focus-tracking behavior).
+    pub(super) focused: bool,
     pub should_quit: bool,
 }
+
+/// How often the autoreload watcher polls the active buffer's backing
+/// file while the editor is idle and focused. Cheap (`fs::metadata`),
+/// so a short interval keeps the "file changed" prompt responsive
+/// without meaningfully touching the disk.
+pub(super) const FILE_CHECK_INTERVAL: std::time::Duration = std::time::Duration::from_secs(2);
 
 impl App {
     pub fn new(
@@ -436,6 +460,9 @@ impl App {
             agent_pending_prompt: None,
             command_selection: None,
             theme_origin: None,
+            last_file_check: std::time::Instant::now(),
+            reload_acked: HashMap::new(),
+            focused: true,
             should_quit: false,
         }
     }
@@ -523,6 +550,114 @@ impl App {
             Some((Some(_), _, _)) => Some(std::time::Duration::from_millis(16)),
             _ => None,
         }
+    }
+
+    /// Whether the autoreload watcher should be running right now: the
+    /// feature is enabled for the active buffer's language, the terminal
+    /// is focused, no prompt is up (so we don't stack a modal on top of
+    /// one, including our own), and the active buffer is file-backed.
+    ///
+    /// Also gated on Normal mode with no `gw` overlay in flight, so the
+    /// confirm prompt never yanks the user out of an Insert/Visual edit
+    /// or steals keys mid-jump. While the user is mid-edit the file's
+    /// *disk* bytes haven't moved anyway (they haven't saved), so the
+    /// only thing deferred is a genuinely-external change — which surfaces
+    /// on the next poll once they're back in Normal.
+    fn autoreload_active(&self) -> bool {
+        self.focused
+            && self.editor.mode == crate::mode::Mode::Normal
+            && self.jump_state.is_none()
+            && !self.prompt.is_open()
+            && self.active_doc().path.is_some()
+            && self.effective_editor().autoreload
+    }
+
+    /// Time until the next autoreload poll, or `None` when the watcher is
+    /// dormant (disabled, unfocused, a prompt is open, or the active
+    /// buffer isn't file-backed). The main loop merges this into its wake
+    /// sources via `min`, so it ticks ~every [`FILE_CHECK_INTERVAL`] only
+    /// while a file-backed buffer is in front and the editor is idle.
+    pub fn file_check_remaining(&self) -> Option<std::time::Duration> {
+        if !self.autoreload_active() {
+            return None;
+        }
+        Some(FILE_CHECK_INTERVAL.saturating_sub(self.last_file_check.elapsed()))
+    }
+
+    /// Poll the active buffer's backing file for an external edit and, on
+    /// drift from the load/save baseline, open the reload confirmation.
+    /// Throttled to [`FILE_CHECK_INTERVAL`]; the main loop calls it every
+    /// iteration but it no-ops until the interval elapses. Cheap when it
+    /// does run — a single `fs::metadata`.
+    pub fn check_active_file_changed(&mut self) {
+        if !self.autoreload_active() {
+            return;
+        }
+        if self.last_file_check.elapsed() < FILE_CHECK_INTERVAL {
+            return;
+        }
+        self.last_file_check = std::time::Instant::now();
+
+        let Some(path) = self.active_doc().path.clone() else {
+            return;
+        };
+        // No baseline (a new file never written) — nothing to compare.
+        let Some(baseline) = self.active_doc().disk_meta else {
+            return;
+        };
+        let Some(current) = crate::editor::FileMeta::of(&path) else {
+            // The file is momentarily gone (vanished, or a tool is
+            // mid-rewrite). The `:w` guard already refuses to silently
+            // re-create a deleted file; nagging here would just fire on
+            // transient absences, so stay quiet.
+            return;
+        };
+        if current == baseline {
+            return;
+        }
+        // Already declined this exact disk state? Stay silent until the
+        // file drifts again to a signature we haven't acked.
+        if self.reload_acked.get(&self.editor.doc) == Some(&current) {
+            return;
+        }
+        let dirty = self.active_doc().dirty;
+        self.prompt.open_file_reload_prompt(path, dirty);
+    }
+
+    /// Accept an autoreload prompt — re-read the active buffer from disk,
+    /// same as `:reload` (an undo snapshot is taken first, so the reload
+    /// is recoverable with `u`).
+    pub(super) fn reload_active_from_watch(&mut self) {
+        let path = self.active_doc().path.clone();
+        self.reload_acked.remove(&self.editor.doc);
+        match ed_op!(self, reload_from_disk()) {
+            Ok(true) => {
+                if let Some(p) = path {
+                    self.push_toast(Toast::info(format!("reloaded {}", p.display())));
+                }
+            }
+            Ok(false) => self.push_toast(Toast::info("reloaded (no change)")),
+            Err(e) => self.push_toast(Toast::error(format!("reload: {}", root_cause(&e)))),
+        }
+    }
+
+    /// Decline an autoreload prompt — record the current on-disk signature
+    /// so the watcher won't re-ask until the file changes again.
+    pub(super) fn ack_reload_decline(&mut self) {
+        let Some(path) = self.active_doc().path.clone() else {
+            return;
+        };
+        if let Some(meta) = crate::editor::FileMeta::of(&path) {
+            self.reload_acked.insert(self.editor.doc.clone(), meta);
+        }
+    }
+
+    /// Update the terminal-focus flag from a crossterm focus event. On
+    /// regaining focus we leave `last_file_check` untouched so the next
+    /// loop iteration polls immediately, catching edits made while the
+    /// editor was in the background.
+    pub fn set_focused(&mut self, focused: bool) {
+        self.focused = focused;
     }
 
     /// Queue a toast for display. Goes straight to the visible stack

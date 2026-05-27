@@ -52,6 +52,12 @@ pub struct EditorToml {
     /// to `true`. Per-language overrides flatten the same field into the
     /// `[languages.<name>]` table.
     pub format_on_save: Option<bool>,
+    /// When `true`, the active pane's file-backed buffer is polled on a
+    /// timer; an external edit (mtime/len drift from the load/save
+    /// baseline) opens a "reload?" confirmation. Paused while the
+    /// terminal is unfocused. Falls back to `true`. Per-language
+    /// overrides flatten the same field into `[languages.<name>]`.
+    pub autoreload: Option<bool>,
     /// When `true`, draws vertical guide lines at each indentation level
     /// in the buffer. The level containing the cursor is painted in a
     /// distinct color. Falls back to `true`.
@@ -95,6 +101,7 @@ pub struct EditorConfig {
     pub use_tabs: bool,
     pub show_whitespace: bool,
     pub format_on_save: bool,
+    pub autoreload: bool,
     pub indent_guides: bool,
     pub indent_guides_skip_levels: usize,
     pub indent_guide_style: IndentGuideStyle,
@@ -111,6 +118,7 @@ impl Default for EditorConfig {
             use_tabs: false,
             show_whitespace: false,
             format_on_save: true,
+            autoreload: true,
             indent_guides: true,
             indent_guides_skip_levels: 0,
             indent_guide_style: IndentGuideStyle::Line,
@@ -132,6 +140,7 @@ impl EditorConfig {
             use_tabs: user.use_tabs.unwrap_or(self.use_tabs),
             show_whitespace: user.show_whitespace.unwrap_or(self.show_whitespace),
             format_on_save: user.format_on_save.unwrap_or(self.format_on_save),
+            autoreload: user.autoreload.unwrap_or(self.autoreload),
             indent_guides: user.indent_guides.unwrap_or(self.indent_guides),
             indent_guides_skip_levels: user
                 .indent_guides_skip_levels
@@ -163,6 +172,7 @@ mod tests {
             use_tabs: false,
             show_whitespace: false,
             format_on_save: true,
+            autoreload: true,
             indent_guides: true,
             indent_guides_skip_levels: 0,
             indent_guide_style: IndentGuideStyle::Line,

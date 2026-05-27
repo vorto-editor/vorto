@@ -25,6 +25,7 @@ mod code_action;
 mod completion;
 mod copilot_signin;
 mod explorer;
+mod file_reload;
 mod fuzzy;
 mod grammar_list;
 mod hints;
@@ -202,6 +203,10 @@ pub fn draw(f: &mut Frame, app: &App) {
     // Open-time "install this grammar?" confirmation.
     if matches!(app.prompt.state, Prompt::GrammarInstallConfirm { .. }) {
         grammar_list::draw_grammar_install_prompt(f, app, f.area());
+    }
+    // Autoreload "file changed on disk — reload?" confirmation.
+    if matches!(app.prompt.state, Prompt::FileReloadConfirm { .. }) {
+        file_reload::draw_file_reload_prompt(f, app, f.area());
     }
     // `:agent` picker — screen-centered selection list.
     if matches!(app.prompt.state, Prompt::AgentPicker { .. }) {
