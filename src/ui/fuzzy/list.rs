@@ -233,7 +233,7 @@ fn render_match<'a>(
     // the `:line:col` suffix so `:` doesn't get colored as directory.
     let chars: Vec<char> = item.chars().collect();
     let dir_end_char: Option<usize> = match kind {
-        FuzzyKind::Files { .. } | FuzzyKind::Buffers => {
+        FuzzyKind::Files { .. } | FuzzyKind::Buffers | FuzzyKind::GitChangedFiles => {
             chars.iter().rposition(|c| *c == '/').map(|i| i + 1)
         }
         // `path:line` labels — stop the dir search at the `:line` suffix

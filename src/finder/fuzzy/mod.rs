@@ -51,6 +51,15 @@ pub enum FuzzyKind {
     /// the buffer to delete on `Ctrl-d`). Previewed like
     /// [`Locations`](Self::Locations), centered on the mark's line.
     Bookmarks,
+    /// `<space>g` — files that differ from HEAD (`git status
+    /// --porcelain`). Display strings are paths relative to the
+    /// workspace root when the file sits under it, absolute otherwise —
+    /// the same shape as [`Files`](Self::Files), which `OpenRelativeFile`
+    /// resolves either way (joining an absolute path onto the root
+    /// yields that path). Submit opens the file and the preview shows
+    /// its content, so the picker reuses the file-picker plumbing
+    /// throughout.
+    GitChangedFiles,
 }
 
 #[derive(Debug, Clone)]
@@ -193,6 +202,23 @@ impl Finder {
             self.items.remove(idx);
             self.refilter();
         }
+    }
+
+    /// Build a [`FuzzyKind::GitChangedFiles`] picker. `items` are
+    /// root-relative paths (the caller sets the sort order); submit
+    /// resolves them exactly like [`Self::files`].
+    pub fn git_changed(items: Vec<String>) -> Self {
+        let mut f = Self {
+            kind: FuzzyKind::GitChangedFiles,
+            query: String::new(),
+            items,
+            file_lines: Vec::new(),
+            matches: Vec::new(),
+            selected: 0,
+            cursor: 0,
+        };
+        f.refilter();
+        f
     }
 
     /// Build a [`FuzzyKind::Locations`] picker. Display strings are

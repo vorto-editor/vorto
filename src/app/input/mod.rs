@@ -252,6 +252,7 @@ impl App {
                 self.open_diagnostics_picker(workspace)
             }
             PromptKind::Fuzzy(FuzzyKind::Bookmarks) => self.open_bookmark_picker(),
+            PromptKind::Fuzzy(FuzzyKind::GitChangedFiles) => self.open_git_changed_files(),
             PromptKind::Explorer => self.prompt.open_explorer(
                 &self.startup_cwd,
                 IgnoreOpts::DEFAULT,
@@ -413,6 +414,40 @@ impl App {
             })
             .unzip();
         self.prompt.open_buffers(items, refs);
+    }
+
+    /// `<space>g` — fuzzy picker over files that differ from HEAD
+    /// (`git status --porcelain`). Items are paths relative to the
+    /// workspace root, the same shape as the file picker, so submit
+    /// reuses `OpenRelativeFile` and the preview shows file content.
+    ///
+    /// `vcs::changed_files` returns canonicalized absolute paths; we
+    /// strip the (canonicalized) `startup_cwd` for a tidy display.
+    /// A path that doesn't sit under the cwd (e.g. the repo root is an
+    /// ancestor of it) keeps its absolute form — `OpenRelativeFile`
+    /// joins it onto `startup_cwd`, and `Path::join` with an absolute
+    /// path resolves to that path, so it still opens correctly.
+    ///
+    /// Outside a git repo, or with a clean tree, there's nothing to
+    /// show — toast rather than open an empty picker.
+    fn open_git_changed_files(&mut self) {
+        let cwd = &self.startup_cwd;
+        let root = cwd.canonicalize().unwrap_or_else(|_| cwd.clone());
+        let mut items: Vec<String> = crate::vcs::changed_files(cwd)
+            .into_iter()
+            .map(|p| {
+                p.strip_prefix(&root)
+                    .unwrap_or(&p)
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect();
+        if items.is_empty() {
+            self.push_toast(crate::app::Toast::info("no changed files"));
+            return;
+        }
+        items.sort();
+        self.prompt.open_git_changed(items);
     }
 
     /// `<space>/` — build a workspace-wide line picker.

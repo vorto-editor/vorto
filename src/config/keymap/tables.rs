@@ -381,6 +381,12 @@ pub const LEADER_DEFAULTS: &[Binding] = {
             label: "buffer picker",
         },
         Binding {
+            key: KeyCode::Char('g'),
+            aliases: &[],
+            token: Dir(D::OpenPrompt(PromptKind::Fuzzy(FuzzyKind::GitChangedFiles))),
+            label: "git changed files",
+        },
+        Binding {
             key: KeyCode::Char('j'),
             aliases: &[],
             token: Dir(D::JumpList),

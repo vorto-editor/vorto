@@ -145,6 +145,7 @@ more). Override or add to them per-language in `config.toml`.
 - Fuzzy pickers with live syntax-highlighted preview:
   - **Files** — `:e` (git-aware)
   - **Buffers** — `:ls` / `:buffers`
+  - **Changed files** — `<space>g` (files differing from HEAD)
   - **Document symbols** — `<space><space>` (LSP)
 - **File explorer** tree on `<space>e` — navigate with `j k l` /
   arrows, toggle hidden files with `.`, toggle `.gitignore`d files
