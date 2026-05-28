@@ -38,17 +38,22 @@ pub(super) fn handle_motion(app: &mut App, m: MotionExpr) -> Vec<Cmd> {
             }
         }
         M::Up => {
+            // Compute the hidden-row set once (not per count) so `5k`
+            // skips collapsed folds without rebuilding fold regions each
+            // step. Empty when nothing is folded.
+            let hidden = app.hidden_fold_rows();
             let r = app.editor.doc.clone();
             let doc = app.documents.get(&r).expect("active doc present");
             for _ in 0..n {
-                app.editor.move_up(doc);
+                app.editor.move_up_folding(doc, &hidden);
             }
         }
         M::Down => {
+            let hidden = app.hidden_fold_rows();
             let r = app.editor.doc.clone();
             let doc = app.documents.get(&r).expect("active doc present");
             for _ in 0..n {
-                app.editor.move_down(doc);
+                app.editor.move_down_folding(doc, &hidden);
             }
         }
         M::LineStart => app.editor.move_line_start(),

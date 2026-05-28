@@ -131,6 +131,18 @@ impl Theme {
         self.ui("ui.linenr.selected", Style::default().fg(Color::Reset))
     }
 
+    /// Fold marker appended to a collapsed fold's header row (e.g.
+    /// ` ⋯ 12 lines`). Reads `ui.fold`, defaulting to a dim italic so it
+    /// reads as virtual text rather than buffer content.
+    pub fn fold_marker(&self) -> Style {
+        self.ui(
+            "ui.fold",
+            Style::default()
+                .fg(Color::DarkGray)
+                .add_modifier(Modifier::ITALIC),
+        )
+    }
+
     /// Statusline fill. Today only the bg is consumed (the mode badge and
     /// position segments set their own fg); a theme may also set fg.
     pub fn ui_statusline(&self) -> Style {

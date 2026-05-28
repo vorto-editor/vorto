@@ -96,6 +96,11 @@ pub(super) fn handle_direct(app: &mut App, kind: DirectKind, count: u32, ctx: Ct
         D::ViewportCenter => cmds.push(Cmd::Scroll(ScrollAnchor::Center)),
         D::ViewportTopAtCursor => cmds.push(Cmd::Scroll(ScrollAnchor::Top)),
         D::ViewportBottomAtCursor => cmds.push(Cmd::Scroll(ScrollAnchor::Bottom)),
+        D::FoldToggle => app.fold_toggle_at_cursor(),
+        D::FoldOpen => app.fold_open_at_cursor(),
+        D::FoldClose => app.fold_close_at_cursor(),
+        D::FoldOpenAll => app.fold_open_all(),
+        D::FoldCloseAll => app.fold_close_all(),
         D::Paste => {
             for _ in 0..count {
                 ed_op!(app, paste_after());

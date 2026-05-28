@@ -328,6 +328,36 @@ pub const Z_BINDINGS: &[Binding] = {
             token: Dir(D::ViewportBottomAtCursor),
             label: "scroll cursor to bottom",
         },
+        Binding {
+            key: KeyCode::Char('a'),
+            aliases: &[],
+            token: Dir(D::FoldToggle),
+            label: "toggle fold",
+        },
+        Binding {
+            key: KeyCode::Char('o'),
+            aliases: &[],
+            token: Dir(D::FoldOpen),
+            label: "open fold",
+        },
+        Binding {
+            key: KeyCode::Char('c'),
+            aliases: &[],
+            token: Dir(D::FoldClose),
+            label: "close fold",
+        },
+        Binding {
+            key: KeyCode::Char('R'),
+            aliases: &[],
+            token: Dir(D::FoldOpenAll),
+            label: "open all folds",
+        },
+        Binding {
+            key: KeyCode::Char('M'),
+            aliases: &[],
+            token: Dir(D::FoldCloseAll),
+            label: "close all folds",
+        },
     ]
 };
 

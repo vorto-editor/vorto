@@ -2,6 +2,8 @@
 //! per-character syntax highlighting layered with the visual selection,
 //! and the terminal cursor placement that goes with it.
 
+use std::collections::{HashMap, HashSet};
+
 use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Style};
@@ -11,6 +13,7 @@ use ratatui::widgets::Paragraph;
 use crate::app::App;
 use crate::config::EditorConfig;
 use crate::editor::Editor;
+use crate::editor::fold::FoldState;
 use crate::text_width::visual_col_of;
 
 mod diagnostics;
@@ -98,13 +101,63 @@ pub(super) const GUTTER_VCS_WIDTH: u16 = 1;
 /// give the cursor room (height ≤ 2 * SCROLL_OFF + 1).
 pub(super) const SCROLL_OFF: usize = 5;
 
+/// Resolve foldable `regions` against a view's collapse state into the
+/// per-frame fold view: the set of rows hidden by collapsed folds and a
+/// `header → end_row` map for drawing fold markers. Both are empty when
+/// nothing is collapsed.
+fn build_fold_view(
+    regions: &[(usize, usize)],
+    folds: &FoldState,
+) -> (HashSet<usize>, HashMap<usize, usize>) {
+    let mut hidden = HashSet::new();
+    let mut header_end = HashMap::new();
+    for &(h, e) in regions {
+        if folds.is_collapsed(h) {
+            hidden.extend((h + 1)..=e);
+            header_end.insert(h, e);
+        }
+    }
+    (hidden, header_end)
+}
+
 pub(super) fn draw_buffer(f: &mut Frame, app: &App, area: Rect) {
     let height = area.height as usize;
     let row_diag = build_row_diag_summary(app, app.editor.cursor.row);
-    let scroll = compute_scroll(app, height, &row_diag);
+    // Fold view first: `compute_scroll` weights hidden rows as zero, and
+    // the render loop skips them. Computing regions only when something
+    // is collapsed keeps the indent-fallback scan off the all-open hot
+    // path.
+    let (hidden, header_end) = if app.editor.folds().is_empty() {
+        (HashSet::new(), HashMap::new())
+    } else {
+        let regions = app.fold_regions();
+        build_fold_view(&regions, app.editor.folds())
+    };
+    let scroll = compute_scroll(app, height, &row_diag, &hidden);
 
     let sel = app.selection();
-    let last_visible = scroll + height;
+    // Last document row the viewport can reach. Hidden rows consume no
+    // screen row, so with collapsed folds the viewport spans *more*
+    // document rows than `height` — the per-row data windows below
+    // (syntax captures, indent guides, diagnostic severity) must cover
+    // all of them or the bottom of the screen renders bare. Walk from
+    // `scroll`, skipping hidden rows, until `height` visible rows are
+    // accounted for. Falls back to the cheap `scroll + height` when
+    // nothing is folded.
+    let last_visible = if hidden.is_empty() {
+        scroll + height
+    } else {
+        let total = app.active_doc().lines.len();
+        let mut shown = 0usize;
+        let mut row = scroll;
+        while row < total && shown < height {
+            if !hidden.contains(&row) {
+                shown += 1;
+            }
+            row += 1;
+        }
+        row.max(scroll + 1)
+    };
     let mut captures = app
         .active_doc()
         .highlighter
@@ -184,6 +237,12 @@ pub(super) fn draw_buffer(f: &mut Frame, app: &App, area: Rect) {
         if visual_y as usize >= height {
             break;
         }
+        // Rows inside a collapsed fold contribute no screen row. The
+        // cursor is kept off hidden rows (see `snap_cursor_out_of_fold`),
+        // so the cursor-row capture below is safe after this skip.
+        if hidden.contains(&i) {
+            continue;
+        }
         if i == cursor_row {
             cursor_visual_y = visual_y;
         }
@@ -250,6 +309,17 @@ pub(super) fn draw_buffer(f: &mut Frame, app: &App, area: Rect) {
             inner_text_width,
             show_whitespace,
         ));
+        // Collapsed-fold marker: appended at EOL of the (visible) header
+        // row, summarizing how many rows the fold hides.
+        if let Some(&end) = header_end.get(&i) {
+            let n = end - i;
+            let label = if n == 1 {
+                " ⋯ 1 line".to_string()
+            } else {
+                format!(" ⋯ {n} lines")
+            };
+            spans.push(Span::styled(label, theme.fold_marker()));
+        }
         // Inline suggestion (ghost text). Anchored at EOL of the
         // cursor row, so the first line is appended after the rendered
         // text, flush against the cursor cell. Multi-line suggestions
@@ -364,7 +434,35 @@ pub(super) fn draw_buffer_inactive(
     scroll = scroll.min(last_row);
     buf.scroll.set(scroll);
     buf.viewport_height.set(height);
-    let last_visible = scroll + height;
+    let tab_width = eff.tab_width.max(1);
+    let show_whitespace = eff.show_whitespace;
+    // Inactive panes fold by their own session state. Use the shared
+    // region resolver so the document folds identically whether or not
+    // this pane has focus (same syntax/indent + import merge as the
+    // active path).
+    let (hidden, header_end) = if ed.folds().is_empty() {
+        (HashSet::new(), HashMap::new())
+    } else {
+        let regions = crate::editor::fold::buffer_fold_regions(buf, tab_width);
+        build_fold_view(&regions, ed.folds())
+    };
+    // Fold-aware visible window (see `draw_buffer`): collapsed folds let
+    // the viewport span more document rows than `height`, so the syntax
+    // window must reach the last actually-rendered row.
+    let last_visible = if hidden.is_empty() {
+        scroll + height
+    } else {
+        let total = buf.lines.len();
+        let mut shown = 0usize;
+        let mut row = scroll;
+        while row < total && shown < height {
+            if !hidden.contains(&row) {
+                shown += 1;
+            }
+            row += 1;
+        }
+        row.max(scroll + 1)
+    };
     let mut captures = buf
         .highlighter
         .as_ref()
@@ -378,8 +476,7 @@ pub(super) fn draw_buffer_inactive(
         last_visible,
     ));
     let vcs_statuses = buf.vcs_statuses();
-    let tab_width = eff.tab_width.max(1);
-    let show_whitespace = eff.show_whitespace;
+    let theme = crate::theme::active();
     let inner_text_width =
         area.width
             .saturating_sub(GUTTER_SIGN_WIDTH + 5 + GUTTER_VCS_WIDTH) as usize;
@@ -400,9 +497,13 @@ pub(super) fn draw_buffer_inactive(
     buf.col_scroll.set(col_scroll);
 
     let mut visible: Vec<Line> = Vec::with_capacity(height);
-    for (visual_y, (i, line)) in (0_usize..).zip(buf.lines.iter().enumerate().skip(scroll)) {
+    let mut visual_y = 0usize;
+    for (i, line) in buf.lines.iter().enumerate().skip(scroll) {
         if visual_y >= height {
             break;
+        }
+        if hidden.contains(&i) {
+            continue;
         }
         let mut spans = vec![sign_span(None)];
         let num = format!("{:>4} ", i + 1);
@@ -424,10 +525,17 @@ pub(super) fn draw_buffer_inactive(
             inner_text_width,
             show_whitespace,
         ));
+        if let Some(&end) = header_end.get(&i) {
+            let n = end - i;
+            let label = if n == 1 {
+                " ⋯ 1 line".to_string()
+            } else {
+                format!(" ⋯ {n} lines")
+            };
+            spans.push(Span::styled(label, theme.fold_marker()));
+        }
         visible.push(Line::from(spans));
+        visual_y += 1;
     }
-    f.render_widget(
-        with_background(Paragraph::new(visible), &crate::theme::active()),
-        area,
-    );
+    f.render_widget(with_background(Paragraph::new(visible), &theme), area);
 }

@@ -3,6 +3,8 @@
 //! motions live in [`super::motion`]; this file is the bare cursor
 //! arithmetic the rest of the editor builds on.
 
+use std::collections::HashSet;
+
 use super::{Buffer, Cursor, Editor};
 
 impl Editor {
@@ -53,6 +55,36 @@ impl Editor {
         if self.cursor.row + 1 < buf.lines.len() {
             self.cursor.row += 1;
             self.clamp_col(buf, false);
+        }
+    }
+
+    /// `move_up` that skips over rows hidden by collapsed folds, landing
+    /// on the nearest visible row above (typically a fold header). With
+    /// an empty `hidden` set this is identical to [`Self::move_up`].
+    pub fn move_up_folding(&mut self, buf: &Buffer, hidden: &HashSet<usize>) {
+        let mut r = self.cursor.row;
+        while r > 0 {
+            r -= 1;
+            if !hidden.contains(&r) {
+                self.cursor.row = r;
+                self.clamp_col(buf, false);
+                return;
+            }
+        }
+    }
+
+    /// `move_down` counterpart to [`Self::move_up_folding`]: skips hidden
+    /// rows and lands on the next visible row below.
+    pub fn move_down_folding(&mut self, buf: &Buffer, hidden: &HashSet<usize>) {
+        let last = buf.lines.len().saturating_sub(1);
+        let mut r = self.cursor.row;
+        while r < last {
+            r += 1;
+            if !hidden.contains(&r) {
+                self.cursor.row = r;
+                self.clamp_col(buf, false);
+                return;
+            }
         }
     }
 
