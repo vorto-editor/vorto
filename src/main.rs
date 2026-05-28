@@ -27,9 +27,9 @@ use std::thread;
 
 use anyhow::Result;
 use crossterm::event::{
-    self as crossterm_event, DisableBracketedPaste, DisableFocusChange, EnableBracketedPaste,
-    EnableFocusChange, Event, KeyboardEnhancementFlags, PopKeyboardEnhancementFlags,
-    PushKeyboardEnhancementFlags,
+    self as crossterm_event, DisableBracketedPaste, DisableFocusChange, DisableMouseCapture,
+    EnableBracketedPaste, EnableFocusChange, EnableMouseCapture, Event, KeyboardEnhancementFlags,
+    PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
 };
 use crossterm::execute;
 use crossterm::terminal::{
@@ -121,6 +121,14 @@ fn main() -> Result<()> {
     // editor is backgrounded. Terminals that don't support it simply
     // never send the events — the watcher then just stays active.
     execute!(stdout, EnableFocusChange)?;
+    // Mouse reporting: the terminal forwards wheel / click events as
+    // `Event::Mouse` instead of letting the host translate wheel scroll
+    // into arrow keys (which, in the alt screen, would just drive the
+    // focused pane's cursor). We want the wheel to scroll the agent
+    // pane's terminal scrollback. Trade-off: with capture on, the host
+    // terminal's native click-drag text selection is suppressed — most
+    // terminals fall back to it when the user holds Shift/Option.
+    execute!(stdout, EnableMouseCapture)?;
     // Kitty keyboard protocol: with `DISAMBIGUATE_ESCAPE_CODES`, the
     // terminal reports Shift+Tab, Ctrl+modified keys, etc. as distinct
     // events instead of collapsing them onto plain ASCII codes. Without
@@ -218,6 +226,7 @@ fn main() -> Result<()> {
     disable_raw_mode()?;
     let _ = execute!(terminal.backend_mut(), DisableBracketedPaste);
     let _ = execute!(terminal.backend_mut(), DisableFocusChange);
+    let _ = execute!(terminal.backend_mut(), DisableMouseCapture);
     if kbd_enhanced {
         let _ = execute!(terminal.backend_mut(), PopKeyboardEnhancementFlags);
     }
@@ -348,6 +357,7 @@ fn dispatch(app: &mut App, ev: event::AppEvent) -> Result<()> {
         event::AppEvent::Term(Event::Paste(s)) => app.handle_paste(s),
         event::AppEvent::Term(Event::FocusGained) => app.set_focused(true),
         event::AppEvent::Term(Event::FocusLost) => app.set_focused(false),
+        event::AppEvent::Term(Event::Mouse(me)) => app.handle_mouse(me)?,
         event::AppEvent::Term(_) => {}
         event::AppEvent::Lsp(lsp_ev) => app.handle_lsp_event(lsp_ev),
         event::AppEvent::Copilot(cp_ev) => app.handle_copilot_event(cp_ev),

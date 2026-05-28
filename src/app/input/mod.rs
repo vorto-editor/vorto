@@ -15,7 +15,7 @@ mod prompt;
 mod visual;
 
 use anyhow::Result;
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
 
 use crate::action::PromptKind;
 use crate::finder::{FuzzyKind, IgnoreOpts, workspace_files};
@@ -62,6 +62,48 @@ impl App {
             }
             Mode::Visual | Mode::VisualLine | Mode::VisualBlock => {}
         }
+    }
+
+    /// Number of lines moved per mouse-wheel notch.
+    const SCROLL_LINES: i32 = 3;
+
+    /// Handle a terminal mouse event. Only wheel scroll is acted on, and
+    /// the *active* pane decides the behavior (not the pane under the
+    /// pointer): the wheel drives whatever the keyboard would, so a
+    /// focused agent scrolls even while the pointer rests over an editor.
+    ///   - Agent pane active → scroll its terminal scrollback (the
+    ///     screen), leaving the cursor untouched. This is the whole
+    ///     reason mouse capture is enabled: without it the host terminal
+    ///     turns the wheel into arrow keys that just walk the agent's
+    ///     prompt.
+    ///   - Otherwise → reproduce the pre-capture behavior by synthesizing
+    ///     arrow keys to the active editor, so editor scroll works as
+    ///     before.
+    ///
+    /// Clicks, drags, and pointer moves are ignored.
+    pub fn handle_mouse(&mut self, me: MouseEvent) -> Result<()> {
+        let up = match me.kind {
+            MouseEventKind::ScrollUp => true,
+            MouseEventKind::ScrollDown => false,
+            _ => return Ok(()),
+        };
+        if Some(self.active_pane) == self.agent_pane {
+            if let Some(agent) = self.agent.as_ref() {
+                // ScrollUp shows older output (positive display-offset delta).
+                let delta = if up {
+                    Self::SCROLL_LINES
+                } else {
+                    -Self::SCROLL_LINES
+                };
+                agent.scroll(delta);
+            }
+            return Ok(());
+        }
+        let code = if up { KeyCode::Up } else { KeyCode::Down };
+        for _ in 0..Self::SCROLL_LINES {
+            self.handle_key(KeyEvent::new(code, KeyModifiers::NONE))?;
+        }
+        Ok(())
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) -> Result<()> {
@@ -165,6 +207,9 @@ impl App {
         if let Some(agent) = self.agent.as_ref()
             && let Some(bytes) = crate::agent::encode_key(&key, agent.term_mode())
         {
+            // Sending input snaps the view back to the live bottom so the
+            // user's keystrokes are visible even after scrolling up.
+            agent.scroll_to_bottom();
             agent.write(&bytes);
         }
         Ok(())
