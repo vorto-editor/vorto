@@ -1,7 +1,7 @@
 //! Sticky vertical and horizontal scroll computation for the active
 //! buffer viewport.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::app::App;
 use crate::text_width::visual_col_of;
@@ -20,10 +20,14 @@ use super::diagnostics::RowDiag;
 /// `row_diag` is the per-row diagnostic summary; rows with diagnostics
 /// each consume one extra visual row, so the "does the cursor fit"
 /// check uses visual heights rather than raw source-row counts.
+///
+/// `hidden` are rows inside collapsed folds; they consume zero visual
+/// rows so the scroll-off math counts only what's actually drawn.
 pub(super) fn compute_scroll(
     app: &App,
     height: usize,
     row_diag: &HashMap<usize, RowDiag>,
+    hidden: &HashSet<usize>,
 ) -> usize {
     let cur = app.editor.cursor.row;
     let mut scroll = app.active_doc().scroll.get();
@@ -63,6 +67,9 @@ pub(super) fn compute_scroll(
             }
             let mut consumed: usize = 0;
             for row in scroll..cur {
+                if hidden.contains(&row) {
+                    continue;
+                }
                 consumed += 1 + row_diag.get(&row).map_or(0, |_| 1);
                 if consumed >= effective_height {
                     break;

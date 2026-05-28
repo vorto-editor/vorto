@@ -246,6 +246,17 @@ pub enum DirectKind {
     ViewportTopAtCursor,
     /// `zb` — scroll so the cursor's line is the bottom of the viewport.
     ViewportBottomAtCursor,
+    /// `za` — toggle the fold under the cursor (collapse if open, expand
+    /// if closed).
+    FoldToggle,
+    /// `zo` — open (expand) the fold under the cursor.
+    FoldOpen,
+    /// `zc` — close (collapse) the fold under the cursor.
+    FoldClose,
+    /// `zR` — open every fold in the buffer.
+    FoldOpenAll,
+    /// `zM` — close every fold in the buffer.
+    FoldCloseAll,
     /// `r<c>` — replace the char under the cursor with `c`.
     ReplaceChar {
         ch: char,

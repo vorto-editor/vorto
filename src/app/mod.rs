@@ -46,6 +46,7 @@ mod completion;
 mod conflict;
 mod copilot;
 mod eval;
+mod fold;
 mod grammar;
 mod input;
 mod jump;

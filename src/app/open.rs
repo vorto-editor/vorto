@@ -175,9 +175,11 @@ impl App {
     /// stale position behind.
     fn forget_cursor_memory(&mut self, r: &BufferRef) {
         self.editor.cursor_memory.remove(r);
+        self.editor.fold_memory.remove(r);
         for content in self.pane_content.values_mut() {
             if let crate::app::PaneContent::Editor(ed) = content {
                 ed.cursor_memory.remove(r);
+                ed.fold_memory.remove(r);
             }
         }
     }

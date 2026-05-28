@@ -49,6 +49,7 @@ impl Loader {
         let highlights_src = self.read_query(spec, "highlights")?;
         let textobjects_src = self.read_query(spec, "textobjects").ok();
         let indents_src = self.read_query(spec, "indents").ok();
+        let folds_src = self.read_query(spec, "folds").ok();
         let injections_src = self.read_query(spec, "injections").ok();
         let injection = match injections_src.as_deref() {
             Some(src) => super::injection::InjectionEngine::build(&lang, src, self)?,
@@ -59,6 +60,7 @@ impl Loader {
             &highlights_src,
             textobjects_src.as_deref(),
             indents_src.as_deref(),
+            folds_src.as_deref(),
             injection,
         )
     }

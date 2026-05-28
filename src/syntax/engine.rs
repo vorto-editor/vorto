@@ -26,11 +26,12 @@ use std::cell::RefCell;
 use anyhow::{Context, Result};
 use tree_sitter::{InputEdit, Language, Parser, Point, Tree};
 
+use super::fold::FoldQuery;
 use super::highlight::{Capture, HighlightQuery};
 use super::indent::IndentQuery;
 use super::injection::InjectionEngine;
 use super::textobject::TextObjectQuery;
-use super::{bracket, highlight, indent, textobject};
+use super::{bracket, fold, highlight, indent, textobject};
 
 /// Per-buffer tree-sitter state. Owns the parser, the last-parsed
 /// tree, and the per-concern query objects. Refreshes the tree only
@@ -52,6 +53,7 @@ pub struct Engine {
     highlight: HighlightQuery,
     indent: Option<IndentQuery>,
     textobject: Option<TextObjectQuery>,
+    fold: Option<FoldQuery>,
     injection: Option<InjectionEngine>,
     /// Memoized result of the last [`Self::captures_in_rows`] call.
     /// Keyed on `(parsed_version, start_row, end_row)`: the draw loop
@@ -61,12 +63,21 @@ pub struct Engine {
     /// injection engine, re-parsing every embedded region). Invalidated
     /// wholesale whenever [`Self::refresh`] reparses.
     capture_cache: RefCell<Option<CaptureCache>>,
+    /// Memoized fold regions keyed on `parsed_version`. The draw loop
+    /// asks for these every frame; they only change when the tree
+    /// reparses, so the version gate keeps the full-tree fold walk off
+    /// the hot path. Invalidated wholesale by [`Self::refresh`].
+    fold_cache: RefCell<FoldRegionsCache>,
     /// Non-fatal warnings collected during construction (e.g. an
     /// `indents.scm` that failed to compile). The TUI drains these
     /// into toasts; writing to stderr from a worker thread would
     /// corrupt the alt-screen display.
     pub warnings: Vec<String>,
 }
+
+/// Memoized fold regions tagged with the `parsed_version` they were
+/// computed for. `(version, regions)` — see [`Engine::fold_regions`].
+type FoldRegionsCache = Option<(Option<u64>, Vec<(usize, usize)>)>;
 
 /// Cached `captures_in_rows` output plus the key it was computed for.
 struct CaptureCache {
@@ -82,6 +93,7 @@ impl Engine {
         highlights_src: &str,
         textobjects_src: Option<&str>,
         indents_src: Option<&str>,
+        folds_src: Option<&str>,
         injection: Option<InjectionEngine>,
     ) -> Result<Self> {
         let mut parser = Parser::new();
@@ -122,6 +134,19 @@ impl Engine {
             None => None,
         };
 
+        let fold = match folds_src {
+            Some(src) => match fold::FoldQuery::compile(&language, src) {
+                Ok(q) => Some(q),
+                Err(e) => {
+                    warnings.push(format!(
+                        "folds.scm compile failed, syntax folding disabled: {e}"
+                    ));
+                    None
+                }
+            },
+            None => None,
+        };
+
         Ok(Self {
             parser,
             tree: None,
@@ -131,8 +156,10 @@ impl Engine {
             highlight,
             indent,
             textobject,
+            fold,
             injection,
             capture_cache: RefCell::new(None),
+            fold_cache: RefCell::new(None),
             warnings,
         })
     }
@@ -170,6 +197,7 @@ impl Engine {
         self.parsed_version = Some(version);
         // The tree changed; any memoized capture window is now stale.
         self.capture_cache.borrow_mut().take();
+        self.fold_cache.borrow_mut().take();
     }
 
     /// All highlight captures intersecting rows `[start_row..=end_row]`.
@@ -249,6 +277,33 @@ impl Engine {
         }
         out.sort_by(|a, b| a.0.cmp(&b.0).then(b.1.cmp(&a.1)));
         out
+    }
+
+    /// True when this engine has a compiled `folds.scm`. The editor
+    /// uses syntax folds when this holds and an indentation-based
+    /// fallback otherwise.
+    pub fn has_fold_query(&self) -> bool {
+        self.fold.is_some()
+    }
+
+    /// Normalized foldable regions `(header_row, end_row)` for the whole
+    /// document — one per header row, sorted by `header_row` ascending.
+    /// Returns the full set (not windowed): the caller needs it all to
+    /// compute hidden rows and to find the region under the cursor.
+    /// Empty when there's no fold query or no parsed tree. Memoized on
+    /// `parsed_version`.
+    pub fn fold_regions(&self) -> Vec<(usize, usize)> {
+        if let Some((v, r)) = self.fold_cache.borrow().as_ref()
+            && *v == self.parsed_version
+        {
+            return r.clone();
+        }
+        let regions = match (&self.tree, &self.fold) {
+            (Some(tree), Some(q)) => fold::normalize_regions(q.regions(&self.source, tree)),
+            _ => Vec::new(),
+        };
+        *self.fold_cache.borrow_mut() = Some((self.parsed_version, regions.clone()));
+        regions
     }
 
     /// Smallest text-object range matching `target` (e.g.

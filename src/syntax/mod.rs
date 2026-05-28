@@ -22,6 +22,7 @@
 
 mod bracket;
 pub(crate) mod engine;
+mod fold;
 mod highlight;
 mod indent;
 pub(crate) mod injection;

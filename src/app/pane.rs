@@ -41,6 +41,12 @@ pub type PaneId = u32;
 /// pane is *not* represented here — it's backed by `App.editor` /
 /// `App.editor_pane` directly (hot-path field access). Every other leaf
 /// of the layout has exactly one entry in `App.pane_content`.
+#[allow(
+    clippy::large_enum_variant,
+    reason = "held one-per-pane in a small HashMap, never in bulk, and the \
+              active editor isn't stored here — boxing would only add \
+              indirection to cold inactive-pane paths"
+)]
 pub enum PaneContent {
     /// An inactive editor session over a pooled document.
     Editor(Editor),
@@ -301,6 +307,7 @@ impl App {
         new_active.cursor = self.editor.cursor;
         new_active.jumps = self.editor.jumps.clone();
         new_active.cursor_memory = self.editor.cursor_memory.clone();
+        new_active.fold_memory = self.editor.fold_memory.clone();
         let displaced = std::mem::replace(&mut self.editor, new_active);
         self.pane_content
             .insert(active_pane_id, PaneContent::Editor(displaced));

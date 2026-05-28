@@ -19,6 +19,7 @@
 
 pub mod conflict;
 mod cursor;
+pub mod fold;
 mod history;
 mod inline_suggestion;
 mod insert;
@@ -263,6 +264,13 @@ pub struct Editor {
     /// when the buffer is `:bd`-deleted. Per-session, so two panes
     /// showing one document remember independent positions.
     pub cursor_memory: std::collections::HashMap<BufferRef, Cursor>,
+    /// Per-buffer fold (collapse) state for this view, keyed by
+    /// document. A view concern — two panes showing one document fold
+    /// independently — so it lives here rather than on the shared
+    /// `Buffer`. Survives buffer switches (keyed by ref, looked up
+    /// fresh) and is copied to a new pane on `:split`, like
+    /// `cursor_memory`; dropped on `:bd`.
+    pub fold_memory: std::collections::HashMap<BufferRef, fold::FoldState>,
 }
 
 impl Editor {
@@ -309,6 +317,22 @@ impl Editor {
         self.clamp_col(doc, false);
     }
 
+    /// This view's fold state for the active document. Returns a shared
+    /// empty default when nothing has been folded yet, so read paths
+    /// don't have to allocate an entry.
+    pub fn folds(&self) -> &fold::FoldState {
+        static EMPTY: std::sync::OnceLock<fold::FoldState> = std::sync::OnceLock::new();
+        self.fold_memory
+            .get(&self.doc)
+            .unwrap_or_else(|| EMPTY.get_or_init(fold::FoldState::default))
+    }
+
+    /// Mutable fold state for the active document, creating an empty
+    /// entry on first fold.
+    pub fn folds_mut(&mut self) -> &mut fold::FoldState {
+        self.fold_memory.entry(self.doc.clone()).or_default()
+    }
+
     /// Re-read `buf.path` from disk and replace the buffer contents in
     /// place. Caller is responsible for the dirty-vs-force decision —
     /// this method always reloads.
@@ -346,6 +370,14 @@ impl Editor {
         buf.disk_base = Some(buf.lines.clone());
 
         self.clamp_cursors_into(&buf.lines);
+        // Collapsed headers past the (possibly shorter) reloaded buffer
+        // can never match a region again — prune them so the set doesn't
+        // grow without bound across a long session. Only touch an
+        // existing entry: don't conjure an empty `FoldState` for a buffer
+        // that was never folded (autoreload would otherwise accrete them).
+        if let Some(folds) = self.fold_memory.get_mut(&self.doc) {
+            folds.retain_below(buf.lines.len());
+        }
         buf.refresh_highlights();
         Ok(true)
     }

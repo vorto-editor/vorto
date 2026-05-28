@@ -81,6 +81,12 @@ vorto -V | --version
   `i, a,` (parameter)
 - Multi-cursor: `+` add next match, `Shift-Down` add below, `-` pop,
   `<space>,` clear
+- Code folding: `za` toggle, `zo` open, `zc` close the fold under the
+  cursor; `zR` open all, `zM` close all. Fold ranges come from a
+  language's tree-sitter `folds.scm` when available, falling back to
+  indentation so folding works in any buffer. A collapsed fold shows a
+  ` ⋯ N lines` marker on its header row; vertical motions step over
+  hidden lines. Folds are per-pane and survive buffer switches
 - Jump labels: `gw` (easymotion-style 2-char word jumps)
 - Jump history: `<C-o>` / `<C-i>` (or `Tab`) walk the per-pane jumplist;
   `:jumps` / `<space>j` open a fuzzy picker over it
@@ -137,7 +143,8 @@ more). Override or add to them per-language in `config.toml`.
   finishes — no restart. `:grammar install <name>…` and
   `:grammar remove <name>…` work inline too, mirroring the CLI.
 - Uses `highlights.scm` for coloring, `indents.scm` for auto-indent,
-  and `textobjects.scm` for tree-sitter text objects.
+  `textobjects.scm` for tree-sitter text objects, and `folds.scm` for
+  syntax-aware code folding (indentation-based folds when absent).
 - Falls back to plain text when a grammar is unavailable.
 
 ### UI

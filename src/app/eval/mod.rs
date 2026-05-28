@@ -147,7 +147,12 @@ impl App {
             }
         }
 
-        self.run_cmds(cmds)
+        let result = self.run_cmds(cmds);
+        // Keep the cursor off rows hidden by collapsed folds, whatever
+        // path moved it (motions, `gg`/`G`, search-jump landings). No-op
+        // when nothing is folded.
+        self.snap_cursor_after_motion();
+        result
     }
 
     /// `.` — replay the last recorded change. With a count prefix, the
