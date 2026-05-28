@@ -14,7 +14,7 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use alacritty_terminal::event::{Event as TermEvent, EventListener};
-use alacritty_terminal::grid::Dimensions;
+use alacritty_terminal::grid::{Dimensions, Scroll};
 use alacritty_terminal::index::Point;
 use alacritty_terminal::term::cell::{Cell, Flags};
 use alacritty_terminal::term::{Config as TermConfig, Term, TermMode};
@@ -264,6 +264,27 @@ impl AgentSession {
         }
     }
 
+    /// Scroll the emulated terminal's display by `delta` lines through
+    /// its scrollback history: positive scrolls *up* into older output,
+    /// negative scrolls back *down* toward the live bottom. Clamped by
+    /// the grid to the available history, so over-scrolling is a no-op.
+    /// The next [`Self::grid_snapshot`] reflects the new viewport because
+    /// `renderable_content` honors the grid's display offset.
+    pub fn scroll(&self, delta: i32) {
+        if let Ok(mut emu) = self.emu.lock() {
+            emu.term.scroll_display(Scroll::Delta(delta));
+        }
+    }
+
+    /// Snap the display back to the live bottom (display offset 0).
+    /// Called when the user sends input to the agent so their keystrokes
+    /// land in view even if they'd scrolled up into history.
+    pub fn scroll_to_bottom(&self) {
+        if let Ok(mut emu) = self.emu.lock() {
+            emu.term.scroll_display(Scroll::Bottom);
+        }
+    }
+
     /// The current terminal keyboard mode (DECCKM / app-keypad / …).
     /// Read at the input call site so `encode_key` can pick CSI vs SS3
     /// cursor-key forms.
@@ -281,17 +302,23 @@ impl AgentSession {
         let content = emu.term.renderable_content();
         let cols = emu.size.cols;
         let rows = emu.size.screen_lines;
+        // When the user scrolls up into history, `display_iter` yields
+        // negative line numbers (the viewport's top sits at line
+        // `-display_offset`). Shift every line down by the offset so the
+        // scrolled-back content maps onto viewport rows `0..rows`. At the
+        // live bottom `display_offset` is 0 and this is a no-op.
+        let display_offset = content.display_offset as i32;
 
         let mut cells: Vec<GridCell> = Vec::new();
         for indexed in content.display_iter {
             let point: Point = indexed.point;
-            // `display_iter` yields only the visible viewport, but guard
-            // against any out-of-range row/col so indexing the ratatui
-            // buffer downstream stays in bounds.
-            if point.line.0 < 0 {
+            let row = point.line.0 + display_offset;
+            // Guard against any out-of-range row/col so indexing the
+            // ratatui buffer downstream stays in bounds.
+            if row < 0 {
                 continue;
             }
-            let row = point.line.0 as usize;
+            let row = row as usize;
             let col = point.column.0;
             if row >= rows || col >= cols {
                 continue;
@@ -320,8 +347,11 @@ impl AgentSession {
         // (or idle with it hidden, like `claude`) would otherwise leave the
         // focused pane with no caret at all. The renderer only paints this
         // cursor for the focused pane, so an unfocused agent shows none.
+        // The live cursor sits at a non-negative grid line; shift it by
+        // the same offset. When scrolled up it can land at/after `rows`
+        // (below the viewport) — left to the renderer to clamp/skip.
         let cursor = content.cursor;
-        let cursor_row = cursor.point.line.0.max(0) as usize;
+        let cursor_row = (cursor.point.line.0 + display_offset).max(0) as usize;
         let cursor_col = cursor.point.column.0;
 
         Some(GridSnapshot {
@@ -536,6 +566,42 @@ mod tests {
             r.fg,
             AnsiColor::Named(alacritty_terminal::vte::ansi::NamedColor::Red)
         );
+        session.kill();
+    }
+
+    #[test]
+    fn scroll_display_walks_scrollback_and_snaps_back() {
+        let (tx, _rx) = std::sync::mpsc::channel();
+        let cwd = std::env::current_dir().unwrap();
+        let Ok(mut session) = AgentSession::spawn(&cat_spec(), &cwd, tx) else {
+            return;
+        };
+        // Two visible rows; feed six distinct lines so four scroll off
+        // into history. (`\r\n` returns to col 0 and line-feeds.)
+        session.resize(10, 2);
+        session.push_output(b"L0\r\nL1\r\nL2\r\nL3\r\nL4\r\nL5\r\n");
+
+        // At the live bottom only the most recent lines are visible —
+        // earlier lines have scrolled out of the viewport.
+        let bottom = grid_text(&session.grid_snapshot().unwrap());
+        assert!(
+            !bottom.contains("L1"),
+            "L1 should be off-screen: {bottom:?}"
+        );
+
+        // Scrolling up into history brings an older line back into view.
+        session.scroll(4);
+        let scrolled = grid_text(&session.grid_snapshot().unwrap());
+        assert!(
+            scrolled.contains("L1"),
+            "scroll up reveals L1: {scrolled:?}"
+        );
+
+        // Snapping to the bottom restores the live view.
+        session.scroll_to_bottom();
+        let back = grid_text(&session.grid_snapshot().unwrap());
+        assert_eq!(back, bottom, "scroll_to_bottom returns to the live view");
+
         session.kill();
     }
 
