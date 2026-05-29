@@ -46,6 +46,7 @@ pub fn run(args: &[String]) -> Result<()> {
             "list" | "ls" => list(rest, &recipes, &cfg.languages, grammar_dir, query_dir),
             "install" | "add" => install(rest, &recipes, grammar_dir, query_dir),
             "install-queries" | "refresh-queries" => install_queries(rest, &recipes, query_dir),
+            "bundle" => bundle(rest),
             "remove" | "rm" | "uninstall" => remove(rest, grammar_dir),
             "help" | "-h" | "--help" => {
                 print_usage();
@@ -92,6 +93,9 @@ fn print_usage() {
     eprintln!("  install-queries <name>... | --all overwrite installed .scm files from the");
     eprintln!("                                    vendored bundle (no library rebuild)");
     eprintln!("  remove <name>...                  delete installed grammar libraries");
+    eprintln!("  bundle                            build all built-ins -> gzip'd libs in");
+    eprintln!("                                    assets/grammars-prebuilt/<target>/, and write");
+    eprintln!("                                    THIRD_PARTY_LICENSES from the cloned sources");
     eprintln!();
     eprintln!("examples:");
     eprintln!("  vorto grammar install rust python");
@@ -447,6 +451,236 @@ fn install_queries(args: &[String], recipes: &[GrammarRecipe], query_dir: &Path)
         bail!("failed to refresh: {}", failures.join(", "));
     }
     Ok(())
+}
+
+/// One grammar's captured licenses: `(name, repo URL, [(filename, text)])`.
+/// Names/URLs come from the `'static` built-in catalog.
+type GrammarLicenses = (&'static str, &'static str, Vec<(String, String)>);
+
+/// Build every built-in grammar for the host target and write each as a
+/// gzip-compressed `<name>.<ext>.gz` under
+/// `assets/grammars-prebuilt/<target-triple>/`. This is the producer side
+/// of the `bundled-grammars` feature: release CI runs it once per target,
+/// then builds vorto with `--features bundled-grammars` so `build.rs`
+/// `include_bytes!`'s these artifacts. A dev/CI tool, so it always builds
+/// the full built-in catalog (not user `[grammars.*]` recipes).
+fn bundle(_args: &[String]) -> Result<()> {
+    // gzip `lib` into `<out_dir>/<name>.<ext>.gz`, returning the
+    // compressed size.
+    fn gzip_to(lib: &Path, out_dir: &Path, name: &str, ext: &str) -> Result<u64> {
+        use std::io::Write;
+        let raw = std::fs::read(lib)?;
+        let dst = out_dir.join(format!("{name}.{ext}.gz"));
+        let f = std::fs::File::create(&dst)?;
+        let mut enc = flate2::write::GzEncoder::new(f, flate2::Compression::best());
+        enc.write_all(&raw)?;
+        enc.finish()?;
+        Ok(std::fs::metadata(&dst)?.len())
+    }
+
+    let target = env!("BUILD_TARGET");
+    let ext = build::dylib_ext();
+    let out_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("assets")
+        .join("grammars-prebuilt")
+        .join(target);
+    std::fs::create_dir_all(&out_dir)?;
+    eprintln!("bundling for target {target} -> {}", out_dir.display());
+
+    // Throwaway build roots; we only keep the gzip'd library.
+    let tmp = std::env::temp_dir().join(format!("vorto-bundle-{}", std::process::id()));
+    let build_grammar_dir = tmp.join("grammars");
+    let build_query_dir = tmp.join("queries");
+
+    let recipes = builtin_recipes();
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let io_lock = std::sync::Mutex::new(());
+    let failures = std::sync::Mutex::new(Vec::<&str>::new());
+    // Per-grammar license files captured from each clone.
+    let collected = std::sync::Mutex::new(Vec::<GrammarLicenses>::new());
+    let workers = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4)
+        .min(recipes.len());
+
+    std::thread::scope(|s| {
+        for _ in 0..workers {
+            s.spawn(|| {
+                loop {
+                    let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    if i >= recipes.len() {
+                        break;
+                    }
+                    let r = &recipes[i];
+                    let res = build::install(r, &build_grammar_dir, &build_query_dir).and_then(
+                        |report| {
+                            let bytes = gzip_to(&report.library, &out_dir, r.name, ext)?;
+                            collected
+                                .lock()
+                                .unwrap()
+                                .push((r.name, r.repo, report.licenses));
+                            Ok(bytes)
+                        },
+                    );
+                    let _g = io_lock.lock().unwrap();
+                    match res {
+                        Ok(bytes) => eprintln!("==> {} ({} bytes gz)", r.name, bytes),
+                        Err(e) => {
+                            eprintln!("==> {} FAILED: {:#}", r.name, e);
+                            failures.lock().unwrap().push(r.name);
+                        }
+                    }
+                }
+            });
+        }
+    });
+
+    let _ = std::fs::remove_dir_all(&tmp);
+    let failures = failures.into_inner().unwrap();
+    if !failures.is_empty() {
+        bail!("failed to bundle: {}", failures.join(", "));
+    }
+    eprintln!("done: {} grammars -> {}", recipes.len(), out_dir.display());
+
+    let mut collected = collected.into_inner().unwrap();
+    collected.sort_by(|a, b| a.0.cmp(b.0));
+    write_third_party_licenses(&collected)?;
+    Ok(())
+}
+
+/// Assemble `THIRD_PARTY_LICENSES` from the license files captured during
+/// [`bundle`] plus the vendored nvim-treesitter license that covers the
+/// derived `.scm` queries. Lives next to the source tree so the release
+/// archive can ship it. No network — everything comes from the clones
+/// `bundle` already made and one committed asset.
+fn write_third_party_licenses(grammars: &[GrammarLicenses]) -> Result<()> {
+    use std::fmt::Write as _;
+
+    let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let mut doc = String::new();
+    doc.push_str(
+        "THIRD-PARTY LICENSES\n\
+         ====================\n\n\
+         vorto itself is licensed under MIT OR Apache-2.0 (see LICENSE-MIT,\n\
+         LICENSE-APACHE). The components below are redistributed in release\n\
+         binaries built with the `bundled-grammars` feature: pre-built\n\
+         tree-sitter grammar libraries embedded in the binary, and the\n\
+         tree-sitter query files (`.scm`) bundled via include_dir!.\n\n",
+    );
+
+    // ── Grammars ──────────────────────────────────────────────────────
+    doc.push_str(
+        "================================================================\n\
+         Tree-sitter grammars (embedded native libraries)\n\
+         ================================================================\n\n",
+    );
+    // Dedup repos shared by multiple grammars (e.g. typescript + tsx).
+    let mut seen_repos: Vec<&str> = Vec::new();
+    for (name, repo, files) in grammars {
+        if seen_repos.contains(repo) {
+            continue;
+        }
+        seen_repos.push(repo);
+        // Every grammar name that resolves to this repo, for clarity.
+        let names: Vec<&str> = grammars
+            .iter()
+            .filter(|(_, r, _)| r == repo)
+            .map(|(n, _, _)| *n)
+            .collect();
+        let _ = writeln!(
+            doc,
+            "----------------------------------------------------------------"
+        );
+        let _ = writeln!(doc, "grammar(s): {}", names.join(", "));
+        let _ = writeln!(doc, "source: {repo}");
+        let _ = writeln!(
+            doc,
+            "----------------------------------------------------------------"
+        );
+        if files.is_empty() {
+            let _ = writeln!(
+                doc,
+                "(!) no LICENSE file found in the upstream source — verify manually for `{name}`."
+            );
+        }
+        for (fname, text) in files {
+            let _ = writeln!(doc, "[{fname}]");
+            doc.push_str(text);
+            if !text.ends_with('\n') {
+                doc.push('\n');
+            }
+        }
+        doc.push('\n');
+    }
+
+    // ── Queries (nvim-treesitter–derived) ─────────────────────────────
+    let derived = nvim_derived_langs();
+    doc.push_str(
+        "================================================================\n\
+         Tree-sitter query files (.scm)\n\
+         ================================================================\n\n",
+    );
+    let _ = writeln!(
+        doc,
+        "Many bundled `.scm` query files are derived from nvim-treesitter\n\
+         (https://github.com/nvim-treesitter/nvim-treesitter), licensed\n\
+         Apache-2.0. Each derived file carries a `;; Based on nvim-treesitter`\n\
+         header naming its exact source commit. Languages affected:\n  {}\n",
+        derived.join(", ")
+    );
+    doc.push('\n');
+    // nvim-treesitter ships plain Apache-2.0 text (no project-specific
+    // notice), so the file is named for the license, not the project; the
+    // "this covers nvim-treesitter-derived queries" attribution is carried
+    // by the section header below and the per-`.scm` headers.
+    let nvim_license = manifest.join("assets/licenses/Apache-2.0.txt");
+    match std::fs::read_to_string(&nvim_license) {
+        Ok(text) => {
+            doc.push_str("----------------------------------------------------------------\n");
+            doc.push_str("nvim-treesitter — Apache-2.0\n");
+            doc.push_str("----------------------------------------------------------------\n");
+            doc.push_str(&text);
+            if !text.ends_with('\n') {
+                doc.push('\n');
+            }
+        }
+        Err(_) => {
+            bail!(
+                "missing vendored license {} — commit nvim-treesitter's Apache-2.0 LICENSE there",
+                nvim_license.display()
+            );
+        }
+    }
+
+    let out = manifest.join("THIRD_PARTY_LICENSES");
+    std::fs::write(&out, doc)?;
+    eprintln!("wrote {}", out.display());
+    Ok(())
+}
+
+/// Languages whose bundled queries are derived from nvim-treesitter,
+/// detected by scanning the embedded `.scm` for the attribution header.
+/// Self-updating, so adding/removing a derived query keeps the generated
+/// notice accurate.
+fn nvim_derived_langs() -> Vec<String> {
+    let mut langs: Vec<String> = assets::QUERIES
+        .dirs()
+        .filter_map(|dir| {
+            let derived = dir
+                .files()
+                .any(|f| String::from_utf8_lossy(f.contents()).contains("nvim-treesitter"));
+            if derived {
+                dir.path()
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .map(|s| s.to_string())
+            } else {
+                None
+            }
+        })
+        .collect();
+    langs.sort();
+    langs
 }
 
 fn remove(args: &[String], grammar_dir: &Path) -> Result<()> {

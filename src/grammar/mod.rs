@@ -14,5 +14,7 @@
 
 pub mod assets;
 pub mod build;
+#[cfg(feature = "bundled-grammars")]
+pub mod bundled;
 pub mod cli;
 pub mod recipe;

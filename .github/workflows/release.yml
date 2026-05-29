@@ -45,8 +45,17 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
+      # Build a (debug) vorto and use it to compile every built-in grammar
+      # for THIS native target into assets/grammars-prebuilt/<target>/ and
+      # emit THIRD_PARTY_LICENSES. Runs natively (the runner's host triple
+      # equals matrix.target), so the artifacts match the release build's
+      # target. Grammars are cc-compiled at -O3 regardless of this build's
+      # profile, so a debug bundler is fine and compiles faster.
+      - name: Bundle grammars + collect licenses
+        run: cargo run --locked -- grammar bundle
+
       - name: Build
-        run: cargo build --release --locked --target ${{ matrix.target }}
+        run: cargo build --release --locked --target ${{ matrix.target }} --features bundled-grammars
 
       - name: Package
         shell: bash
@@ -55,7 +64,7 @@ jobs:
           name="vorto-${version}-${{ matrix.target }}"
           mkdir -p "dist/${name}"
           cp "target/${{ matrix.target }}/release/vorto" "dist/${name}/"
-          cp README.md LICENSE-MIT LICENSE-APACHE "dist/${name}/"
+          cp README.md LICENSE-MIT LICENSE-APACHE THIRD_PARTY_LICENSES "dist/${name}/"
           tar -C dist -czf "dist/${name}.tar.gz" "${name}"
 
       - name: Upload to release

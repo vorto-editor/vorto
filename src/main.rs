@@ -182,6 +182,17 @@ fn main() -> Result<()> {
         Err(e) => vlog!("theme `{}` load failed: {e:#}", cfg.theme),
     }
 
+    // Extract any grammars embedded in the binary (release builds with
+    // `--features bundled-grammars`) into `grammar_dir`/`query_dir` so the
+    // loader below finds them. Best-effort: a failure just means those
+    // languages won't highlight until `grammar install` runs.
+    #[cfg(feature = "bundled-grammars")]
+    match grammar::bundled::bootstrap(&cfg.grammar_dir, &cfg.query_dir, &cfg.grammars) {
+        Ok(0) => {}
+        Ok(n) => vlog!("bundled grammars: extracted {n}"),
+        Err(e) => vlog!("bundled grammar bootstrap failed: {e:#}"),
+    }
+
     let loader = syntax::Loader::new(cfg.grammar_dir.clone(), cfg.query_dir.clone());
 
     // Unified event channel. Terminal input runs on a dedicated thread

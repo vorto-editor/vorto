@@ -56,6 +56,12 @@ pub fn dylib_ext() -> &'static str {
 pub struct InstallReport {
     pub library: PathBuf,
     pub queries: Vec<PathBuf>,
+    /// License-ish files (`LICENSE*`, `COPYING*`, `NOTICE*`) found in the
+    /// fetched source, as `(filename, contents)`. Captured from the clone
+    /// before it's wiped so `grammar bundle` can assemble a
+    /// `THIRD_PARTY_LICENSES` with no extra network access. Empty for the
+    /// ordinary install path (nobody reads it there).
+    pub licenses: Vec<(String, String)>,
 }
 
 /// Build and install a single grammar.
@@ -120,11 +126,19 @@ pub fn install(
     let library = grammar_dir.join(format!("{}.{}", recipe.name, dylib_ext()));
     build(&build_dir, &library)?;
     let queries = write_vendored_queries(query_dir, recipe.name)?;
+    // Grab license files before the clone is wiped. The license usually
+    // sits at the repo root (`clone_root`); for monorepos the building
+    // subdir (`build_dir`) may carry its own too — collect from both.
+    let licenses = collect_license_files(&[&clone_root, &build_dir]);
 
     // Best-effort cleanup — losing tmp space is the only consequence.
     let _ = std::fs::remove_dir_all(&clone_root);
 
-    Ok(InstallReport { library, queries })
+    Ok(InstallReport {
+        library,
+        queries,
+        licenses,
+    })
 }
 
 /// Materialize the compile-time-embedded `.scm` files for `name` into
@@ -234,6 +248,43 @@ pub fn installed_queries(name: &str, query_dir: &Path) -> Vec<String> {
     out
 }
 
+/// Read every `LICENSE*` / `LICENCE* `/ `COPYING*` / `NOTICE*` file (case
+/// -insensitive) directly inside each of `dirs`, returning
+/// `(filename, contents)`. Identical contents are de-duplicated, so a
+/// monorepo whose subdir copies the root license doesn't emit it twice.
+/// Non-recursive and best-effort — unreadable or absent dirs are skipped.
+fn collect_license_files(dirs: &[&Path]) -> Vec<(String, String)> {
+    let mut out: Vec<(String, String)> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for dir in dirs {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_file() {
+                continue;
+            }
+            let Some(fname) = path.file_name().and_then(|s| s.to_str()) else {
+                continue;
+            };
+            let upper = fname.to_ascii_uppercase();
+            let is_license = ["LICENSE", "LICENCE", "COPYING", "NOTICE"]
+                .iter()
+                .any(|p| upper.starts_with(p));
+            if !is_license {
+                continue;
+            }
+            if let Ok(text) = std::fs::read_to_string(&path)
+                && seen.insert(text.clone())
+            {
+                out.push((fname.to_string(), text));
+            }
+        }
+    }
+    out
+}
+
 fn tmp_clone_dir(name: &str) -> PathBuf {
     std::env::temp_dir().join(format!("vorto-grammar-{}-{}", name, std::process::id()))
 }
@@ -327,7 +378,7 @@ fn try_release_tarball(recipe: &GrammarRecipe, dest: &Path) -> Result<bool> {
 
 /// `(owner, repo)` for a `github.com/...` URL, else `None`. `.git`
 /// suffix and trailing slashes are stripped.
-fn parse_github_url(url: &str) -> Option<(String, String)> {
+pub(crate) fn parse_github_url(url: &str) -> Option<(String, String)> {
     let rest = url
         .strip_prefix("https://github.com/")
         .or_else(|| url.strip_prefix("http://github.com/"))
@@ -344,7 +395,7 @@ fn parse_github_url(url: &str) -> Option<(String, String)> {
 
 /// GET `url` as text. Errors when curl exits non-zero (404, network
 /// down, etc.) — caller treats that as "no release to use."
-fn curl_text(url: &str) -> Result<String> {
+pub(crate) fn curl_text(url: &str) -> Result<String> {
     let mut cmd = Command::new("curl");
     cmd.args([
         "-fsSL",
