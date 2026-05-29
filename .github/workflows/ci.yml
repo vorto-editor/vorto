@@ -45,6 +45,10 @@ jobs:
           components: clippy
       - uses: Swatinem/rust-cache@v2
       - run: cargo clippy --all-targets --locked -- -D warnings
+      # Lint the feature-gated bundling code too. No artifacts present, so
+      # build.rs emits an empty embed table — this only type/lint-checks
+      # the gated module + its tests, it doesn't bundle anything.
+      - run: cargo clippy --all-targets --locked --features bundled-grammars -- -D warnings
 
   test:
     name: test

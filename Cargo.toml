@@ -10,6 +10,15 @@ homepage = "https://docs.vorto-editor.dev/"
 keywords = ["editor", "terminal", "tui", "tree-sitter", "lsp"]
 categories = ["text-editors", "command-line-utilities"]
 
+[features]
+default = []
+# Embed pre-built tree-sitter grammar libraries (gzip-compressed) into the
+# binary and extract them into `grammar_dir` on first run. Off by default so
+# `cargo install vorto` stays lean and network-free; enabled for the
+# pre-built release binaries, which run `vorto grammar bundle` per target
+# first to populate `assets/grammars-prebuilt/<target-triple>/`.
+bundled-grammars = []
+
 [dependencies]
 ratatui = "0.30"
 crossterm = "0.29"
