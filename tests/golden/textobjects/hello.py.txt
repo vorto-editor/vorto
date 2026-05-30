@@ -12,13 +12,41 @@ class.outer      10:0-14:33  class Classification(Enum):
 class.outer      18:0-27:29  class Person:
 class.inner      11:4-14:33  NEGATIVE = "negative"
 class.inner      19:4-27:29  """A person with a name, age, and free-form tags."""
+parameter.outer  10:21-10:25  class Classification(Enum):
+parameter.outer  23:28-23:48  tags: list[str] = field(default_factory=list)
 parameter.outer  26:17-26:21  def is_adult(self) -> bool:
-parameter.outer  30:10-30:24  def greet(person: Person, prefix: str = "Hello") -> str:
-parameter.outer  30:26-30:47  def greet(person: Person, prefix: str = "Hello") -> str:
+parameter.outer  30:10-30:26  def greet(person: Person, prefix: str = "Hello") -> str:
+parameter.outer  30:24-30:47  def greet(person: Person, prefix: str = "Hello") -> str:
 parameter.outer  34:13-34:19  def classify(n: int) -> Classification:
 parameter.outer  42:12-42:30  def squares(numbers: list[int]) -> list[int]:
+parameter.outer  47:19-47:33  alice = Person(name="Alice", age=30, tags=["admin", "early_bird"])
+parameter.outer  47:33-47:41  alice = Person(name="Alice", age=30, tags=["admin", "early_bird"])
+parameter.outer  47:39-47:69  alice = Person(name="Alice", age=30, tags=["admin", "early_bird"])
+parameter.outer  48:10-48:22  print(greet(alice))
+parameter.outer  48:16-48:21  print(greet(alice))
+parameter.outer  50:19-50:23  for n in range(-2, 6):
+parameter.outer  50:21-50:24  for n in range(-2, 6):
+parameter.outer  51:14-51:43  print(f"{n} -> {classify(n).value}")
+parameter.outer  51:33-51:34  print(f"{n} -> {classify(n).value}")
+parameter.outer  53:10-53:22  print("squares:", squares([1, 2, 3, 4, 5]))
+parameter.outer  53:20-53:46  print("squares:", squares([1, 2, 3, 4, 5]))
+parameter.outer  53:30-53:45  print("squares:", squares([1, 2, 3, 4, 5]))
+parameter.inner  10:21-10:25  class Classification(Enum):
+parameter.inner  23:28-23:48  tags: list[str] = field(default_factory=list)
 parameter.inner  26:17-26:21  def is_adult(self) -> bool:
 parameter.inner  30:10-30:24  def greet(person: Person, prefix: str = "Hello") -> str:
 parameter.inner  30:26-30:47  def greet(person: Person, prefix: str = "Hello") -> str:
 parameter.inner  34:13-34:19  def classify(n: int) -> Classification:
 parameter.inner  42:12-42:30  def squares(numbers: list[int]) -> list[int]:
+parameter.inner  47:19-47:31  alice = Person(name="Alice", age=30, tags=["admin", "early_bird"])
+parameter.inner  47:33-47:39  alice = Person(name="Alice", age=30, tags=["admin", "early_bird"])
+parameter.inner  47:41-47:69  alice = Person(name="Alice", age=30, tags=["admin", "early_bird"])
+parameter.inner  48:10-48:22  print(greet(alice))
+parameter.inner  48:16-48:21  print(greet(alice))
+parameter.inner  50:19-50:21  for n in range(-2, 6):
+parameter.inner  50:23-50:24  for n in range(-2, 6):
+parameter.inner  51:14-51:43  print(f"{n} -> {classify(n).value}")
+parameter.inner  51:33-51:34  print(f"{n} -> {classify(n).value}")
+parameter.inner  53:10-53:20  print("squares:", squares([1, 2, 3, 4, 5]))
+parameter.inner  53:22-53:46  print("squares:", squares([1, 2, 3, 4, 5]))
+parameter.inner  53:30-53:45  print("squares:", squares([1, 2, 3, 4, 5]))

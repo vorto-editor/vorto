@@ -2,11 +2,33 @@ function.outer   12:4-19:5  fn label(self: Classification) []const u8 {
 function.outer   26:4-28:5  fn isAdult(self: Person) bool {
 function.outer   31:0-35:1  fn classify(n: i64) Classification {
 function.outer   37:0-47:1  pub fn main() !void {
+function.inner   13:8-18:10  return switch (self) {
+function.inner   27:8-27:30  return self.age >= 18;
+function.inner   32:4-34:66  if (n < 0) return .negative;
+function.inner   38:4-46:5  const stdout = std.io.getStdOut().writer();
 class.outer      6:23-20:1  const Classification = enum {
 class.outer      22:15-29:1  const Person = struct {
+class.inner      7:4-19:5  negative,
+class.inner      23:4-28:5  name: []const u8,
+parameter.outer  4:20-4:25  const std = @import("std");
 parameter.outer  12:13-12:33  fn label(self: Classification) []const u8 {
 parameter.outer  26:15-26:27  fn isAdult(self: Person) bool {
 parameter.outer  31:12-31:18  fn classify(n: i64) Classification {
+parameter.outer  34:20-34:23  return if (@mod(n, 2) == 0) .positive_even else .positive_odd;
+parameter.outer  34:21-34:24  return if (@mod(n, 2) == 0) .positive_even else .positive_odd;
+parameter.outer  41:21-41:38  try stdout.print("Hello, {s}!\n", .{alice.name});
+parameter.outer  41:36-41:51  try stdout.print("Hello, {s}!\n", .{alice.name});
+parameter.outer  45:25-45:41  try stdout.print("{d} -> {s}\n", .{ n, classify(n).label() });
+parameter.outer  45:39-45:68  try stdout.print("{d} -> {s}\n", .{ n, classify(n).label() });
+parameter.outer  45:56-45:57  try stdout.print("{d} -> {s}\n", .{ n, classify(n).label() });
+parameter.inner  4:20-4:25  const std = @import("std");
 parameter.inner  12:13-12:33  fn label(self: Classification) []const u8 {
 parameter.inner  26:15-26:27  fn isAdult(self: Person) bool {
 parameter.inner  31:12-31:18  fn classify(n: i64) Classification {
+parameter.inner  34:20-34:21  return if (@mod(n, 2) == 0) .positive_even else .positive_odd;
+parameter.inner  34:23-34:24  return if (@mod(n, 2) == 0) .positive_even else .positive_odd;
+parameter.inner  41:21-41:36  try stdout.print("Hello, {s}!\n", .{alice.name});
+parameter.inner  41:38-41:51  try stdout.print("Hello, {s}!\n", .{alice.name});
+parameter.inner  45:25-45:39  try stdout.print("{d} -> {s}\n", .{ n, classify(n).label() });
+parameter.inner  45:41-45:68  try stdout.print("{d} -> {s}\n", .{ n, classify(n).label() });
+parameter.inner  45:56-45:57  try stdout.print("{d} -> {s}\n", .{ n, classify(n).label() });

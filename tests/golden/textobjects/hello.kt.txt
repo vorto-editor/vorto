@@ -9,22 +9,62 @@ function.outer   33:0-42:1  fun main() {
 function.inner   20:60-21:30  fun greet(person: Person, prefix: String = "Hello"): String =
 function.inner   23:37-28:1  fun classify(n: Int): Classification = when {
 function.inner   30:43-31:45  fun squares(numbers: List<Int>): List<Int> =
-function.inner   33:11-42:1  fun main() {
+function.inner   34:4-41:57  val alice = Person(name = "Alice", age = 30, tags = listOf("admin", "early_bird"))
 class.outer      4:0-11:1  data class Person(
-class.inner      8:2-11:1  ) {
-parameter.outer  5:4-5:20  val name: String,
-parameter.outer  6:4-6:16  val age: Int,
-parameter.outer  7:4-7:40  val tags: List<String> = emptyList(),
+class.inner      9:4-10:25  val isAdult: Boolean
+parameter.outer  5:4-5:21  val name: String,
+parameter.outer  6:4-6:17  val age: Int,
+parameter.outer  7:4-7:41  val tags: List<String> = emptyList(),
 parameter.outer  13:26-13:43  enum class Classification(val label: String) {
-parameter.outer  20:10-20:24  fun greet(person: Person, prefix: String = "Hello"): String =
-parameter.outer  20:26-20:40  fun greet(person: Person, prefix: String = "Hello"): String =
+parameter.outer  14:13-14:23  NEGATIVE("negative"),
+parameter.outer  15:9-15:15  ZERO("zero"),
+parameter.outer  16:18-16:33  POSITIVE_EVEN("positive even"),
+parameter.outer  17:17-17:31  POSITIVE_ODD("positive odd"),
+parameter.outer  20:10-20:26  fun greet(person: Person, prefix: String = "Hello"): String =
+parameter.outer  20:24-20:40  fun greet(person: Person, prefix: String = "Hello"): String =
 parameter.outer  23:13-23:19  fun classify(n: Int): Classification = when {
 parameter.outer  30:12-30:30  fun squares(numbers: List<Int>): List<Int> =
+parameter.outer  34:23-34:39  val alice = Person(name = "Alice", age = 30, tags = listOf("admin", "early_bird"))
+parameter.outer  34:39-34:49  val alice = Person(name = "Alice", age = 30, tags = listOf("admin", "early_bird"))
+parameter.outer  34:47-34:85  val alice = Person(name = "Alice", age = 30, tags = listOf("admin", "early_bird"))
+parameter.outer  34:63-34:72  val alice = Person(name = "Alice", age = 30, tags = listOf("admin", "early_bird"))
+parameter.outer  34:70-34:84  val alice = Person(name = "Alice", age = 30, tags = listOf("admin", "early_bird"))
+parameter.outer  35:12-35:24  println(greet(alice))
+parameter.outer  35:18-35:23  println(greet(alice))
+parameter.outer  38:16-38:44  println("$n -> ${classify(n).label}")
+parameter.outer  38:34-38:35  println("$n -> ${classify(n).label}")
+parameter.outer  41:12-41:56  println("squares: ${squares(listOf(1, 2, 3, 4, 5))}")
+parameter.outer  41:32-41:53  println("squares: ${squares(listOf(1, 2, 3, 4, 5))}")
+parameter.outer  41:39-41:42  println("squares: ${squares(listOf(1, 2, 3, 4, 5))}")
+parameter.outer  41:42-41:45  println("squares: ${squares(listOf(1, 2, 3, 4, 5))}")
+parameter.outer  41:45-41:48  println("squares: ${squares(listOf(1, 2, 3, 4, 5))}")
+parameter.outer  41:48-41:51  println("squares: ${squares(listOf(1, 2, 3, 4, 5))}")
+parameter.outer  41:49-41:52  println("squares: ${squares(listOf(1, 2, 3, 4, 5))}")
 parameter.inner  5:4-5:20  val name: String,
 parameter.inner  6:4-6:16  val age: Int,
 parameter.inner  7:4-7:40  val tags: List<String> = emptyList(),
 parameter.inner  13:26-13:43  enum class Classification(val label: String) {
+parameter.inner  14:13-14:23  NEGATIVE("negative"),
+parameter.inner  15:9-15:15  ZERO("zero"),
+parameter.inner  16:18-16:33  POSITIVE_EVEN("positive even"),
+parameter.inner  17:17-17:31  POSITIVE_ODD("positive odd"),
 parameter.inner  20:10-20:24  fun greet(person: Person, prefix: String = "Hello"): String =
 parameter.inner  20:26-20:40  fun greet(person: Person, prefix: String = "Hello"): String =
 parameter.inner  23:13-23:19  fun classify(n: Int): Classification = when {
 parameter.inner  30:12-30:30  fun squares(numbers: List<Int>): List<Int> =
+parameter.inner  34:23-34:37  val alice = Person(name = "Alice", age = 30, tags = listOf("admin", "early_bird"))
+parameter.inner  34:39-34:47  val alice = Person(name = "Alice", age = 30, tags = listOf("admin", "early_bird"))
+parameter.inner  34:49-34:85  val alice = Person(name = "Alice", age = 30, tags = listOf("admin", "early_bird"))
+parameter.inner  34:63-34:70  val alice = Person(name = "Alice", age = 30, tags = listOf("admin", "early_bird"))
+parameter.inner  34:72-34:84  val alice = Person(name = "Alice", age = 30, tags = listOf("admin", "early_bird"))
+parameter.inner  35:12-35:24  println(greet(alice))
+parameter.inner  35:18-35:23  println(greet(alice))
+parameter.inner  38:16-38:44  println("$n -> ${classify(n).label}")
+parameter.inner  38:34-38:35  println("$n -> ${classify(n).label}")
+parameter.inner  41:12-41:56  println("squares: ${squares(listOf(1, 2, 3, 4, 5))}")
+parameter.inner  41:32-41:53  println("squares: ${squares(listOf(1, 2, 3, 4, 5))}")
+parameter.inner  41:39-41:40  println("squares: ${squares(listOf(1, 2, 3, 4, 5))}")
+parameter.inner  41:42-41:43  println("squares: ${squares(listOf(1, 2, 3, 4, 5))}")
+parameter.inner  41:45-41:46  println("squares: ${squares(listOf(1, 2, 3, 4, 5))}")
+parameter.inner  41:48-41:49  println("squares: ${squares(listOf(1, 2, 3, 4, 5))}")
+parameter.inner  41:51-41:52  println("squares: ${squares(listOf(1, 2, 3, 4, 5))}")

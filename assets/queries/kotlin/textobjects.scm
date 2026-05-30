@@ -23,3 +23,9 @@
 
 (parameter_with_optional_type) @parameter.inner
 (parameter_with_optional_type) @parameter.outer
+
+; call arguments — `ia`/`aa` inside function calls, not just defs
+(value_arguments
+  (_) @parameter.inner)
+(value_arguments
+  (_) @parameter.outer)

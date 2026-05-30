@@ -20,13 +20,83 @@ class.inner      27:0-27:8  instance Greet Person where
 class.inner      27:9-27:14  instance Greet Person where
 class.inner      28:2-28:38  greet p = "Hello, " ++ name p ++ "!"
 parameter.outer  28:8-28:9  greet p = "Hello, " ++ name p ++ "!"
+parameter.outer  28:30-28:31  greet p = "Hello, " ++ name p ++ "!"
 parameter.outer  32:9-32:10  classify n
+parameter.outer  35:9-35:10  | even n    = "positive even"
 parameter.outer  42:7-42:8  insert x Leaf = Node x Leaf Leaf
 parameter.outer  42:9-42:13  insert x Leaf = Node x Leaf Leaf
+parameter.outer  42:21-42:22  insert x Leaf = Node x Leaf Leaf
+parameter.outer  42:23-42:27  insert x Leaf = Node x Leaf Leaf
+parameter.outer  42:28-42:32  insert x Leaf = Node x Leaf Leaf
 parameter.outer  43:7-43:8  insert x (Node y l r)
 parameter.outer  43:9-43:21  insert x (Node y l r)
+parameter.outer  43:15-43:16  insert x (Node y l r)
+parameter.outer  43:17-43:18  insert x (Node y l r)
+parameter.outer  43:19-43:20  insert x (Node y l r)
+parameter.outer  44:21-44:22  | x < y     = Node y (insert x l) r
+parameter.outer  44:23-44:35  | x < y     = Node y (insert x l) r
+parameter.outer  44:31-44:32  | x < y     = Node y (insert x l) r
+parameter.outer  44:33-44:34  | x < y     = Node y (insert x l) r
+parameter.outer  44:36-44:37  | x < y     = Node y (insert x l) r
+parameter.outer  45:21-45:22  | x > y     = Node y l (insert x r)
+parameter.outer  45:23-45:24  | x > y     = Node y l (insert x r)
+parameter.outer  45:25-45:37  | x > y     = Node y l (insert x r)
+parameter.outer  45:33-45:34  | x > y     = Node y l (insert x r)
+parameter.outer  45:35-45:36  | x > y     = Node y l (insert x r)
+parameter.outer  46:21-46:22  | otherwise = Node y l r
+parameter.outer  46:23-46:24  | otherwise = Node y l r
+parameter.outer  46:25-46:26  | otherwise = Node y l r
+parameter.outer  53:21-53:34  tree  = foldl' (flip insert) Leaf nums
+parameter.outer  53:27-53:33  tree  = foldl' (flip insert) Leaf nums
+parameter.outer  53:35-53:39  tree  = foldl' (flip insert) Leaf nums
+parameter.outer  53:40-53:44  tree  = foldl' (flip insert) Leaf nums
+parameter.outer  54:27-54:51  table = Map.fromList [("one", 1), ("two", 2)]
+parameter.outer  55:11-55:24  putStrLn (greet alice)
+parameter.outer  55:18-55:23  putStrLn (greet alice)
+parameter.outer  56:8-56:57  mapM_ (\n -> putStrLn (show n ++ " is " ++ classify n)) nums
+parameter.outer  56:24-56:56  mapM_ (\n -> putStrLn (show n ++ " is " ++ classify n)) nums
+parameter.outer  56:30-56:31  mapM_ (\n -> putStrLn (show n ++ " is " ++ classify n)) nums
+parameter.outer  56:54-56:55  mapM_ (\n -> putStrLn (show n ++ " is " ++ classify n)) nums
+parameter.outer  56:58-56:62  mapM_ (\n -> putStrLn (show n ++ " is " ++ classify n)) nums
+parameter.outer  57:8-57:12  print tree
+parameter.outer  58:8-58:13  print table
 parameter.inner  25:16-25:22  greet :: a -> String
+parameter.inner  28:30-28:31  greet p = "Hello, " ++ name p ++ "!"
 parameter.inner  31:12-31:15  classify :: Int -> String
 parameter.inner  31:19-31:25  classify :: Int -> String
+parameter.inner  35:9-35:10  | even n    = "positive even"
+parameter.inner  42:21-42:22  insert x Leaf = Node x Leaf Leaf
+parameter.inner  42:23-42:27  insert x Leaf = Node x Leaf Leaf
+parameter.inner  42:28-42:32  insert x Leaf = Node x Leaf Leaf
 parameter.inner  43:10-43:20  insert x (Node y l r)
+parameter.inner  43:15-43:16  insert x (Node y l r)
+parameter.inner  43:17-43:18  insert x (Node y l r)
+parameter.inner  43:19-43:20  insert x (Node y l r)
+parameter.inner  44:21-44:22  | x < y     = Node y (insert x l) r
+parameter.inner  44:23-44:35  | x < y     = Node y (insert x l) r
+parameter.inner  44:31-44:32  | x < y     = Node y (insert x l) r
+parameter.inner  44:33-44:34  | x < y     = Node y (insert x l) r
+parameter.inner  44:36-44:37  | x < y     = Node y (insert x l) r
+parameter.inner  45:21-45:22  | x > y     = Node y l (insert x r)
+parameter.inner  45:23-45:24  | x > y     = Node y l (insert x r)
+parameter.inner  45:25-45:37  | x > y     = Node y l (insert x r)
+parameter.inner  45:33-45:34  | x > y     = Node y l (insert x r)
+parameter.inner  45:35-45:36  | x > y     = Node y l (insert x r)
+parameter.inner  46:21-46:22  | otherwise = Node y l r
+parameter.inner  46:23-46:24  | otherwise = Node y l r
+parameter.inner  46:25-46:26  | otherwise = Node y l r
 parameter.inner  49:8-49:13  main :: IO ()
+parameter.inner  53:21-53:34  tree  = foldl' (flip insert) Leaf nums
+parameter.inner  53:27-53:33  tree  = foldl' (flip insert) Leaf nums
+parameter.inner  53:35-53:39  tree  = foldl' (flip insert) Leaf nums
+parameter.inner  53:40-53:44  tree  = foldl' (flip insert) Leaf nums
+parameter.inner  54:27-54:51  table = Map.fromList [("one", 1), ("two", 2)]
+parameter.inner  55:11-55:24  putStrLn (greet alice)
+parameter.inner  55:18-55:23  putStrLn (greet alice)
+parameter.inner  56:8-56:57  mapM_ (\n -> putStrLn (show n ++ " is " ++ classify n)) nums
+parameter.inner  56:24-56:56  mapM_ (\n -> putStrLn (show n ++ " is " ++ classify n)) nums
+parameter.inner  56:30-56:31  mapM_ (\n -> putStrLn (show n ++ " is " ++ classify n)) nums
+parameter.inner  56:54-56:55  mapM_ (\n -> putStrLn (show n ++ " is " ++ classify n)) nums
+parameter.inner  56:58-56:62  mapM_ (\n -> putStrLn (show n ++ " is " ++ classify n)) nums
+parameter.inner  57:8-57:12  print tree
+parameter.inner  58:8-58:13  print table
