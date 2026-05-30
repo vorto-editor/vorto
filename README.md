@@ -123,11 +123,12 @@ more). Override or add to them per-language in `config.toml`.
 
 ### Tree-sitter
 
-- Built-in grammar recipes for 37 languages: **rust, python, go,
+- Built-in grammar recipes for 44 languages: **rust, python, go,
   javascript, typescript, tsx, toml, kotlin, c, cpp, java, bash, json,
   yaml, markdown, html, css, lua, ruby, zig, sql, dockerfile, make,
   hcl, diff, vue, svelte, haskell, elixir, nix, c-sharp, swift, php,
-  dart, ocaml, graphql, fish**.
+  dart, ocaml, graphql, fish, julia, gleam, scala, odin, proto, cmake,
+  xml**.
 - Install on demand — only the grammars you use are built and cached:
   ```sh
   vorto grammar list

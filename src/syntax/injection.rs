@@ -223,13 +223,31 @@ impl InjectionEngine {
                 column: 0,
             },
         );
-        let mut matches = cursor.matches(&self.query, tree.root_node(), host_source.as_bytes());
         let host_bytes = host_source.as_bytes();
+        let mut matches = cursor.matches(&self.query, tree.root_node(), host_bytes);
         let mut cache = self.sub_tree_cache.borrow_mut();
         // Region contents touched this pass; everything else is evicted
         // afterwards so the cache tracks the on-screen working set.
         let mut seen: HashSet<&str> = HashSet::new();
+        // Scratch state for `#eq?` / `#match?` gating below.
+        let mut text_provider = host_bytes;
+        let mut pred_buf1 = Vec::new();
+        let mut pred_buf2 = Vec::new();
         while let Some(m) = matches.next() {
+            // Honor text predicates that scope an injection to a subset of
+            // matched nodes — e.g. `#eq? @_name "style"` restricts the CSS
+            // injection to `<style>` elements. Without this every matching
+            // element would inject every language, which is both wrong and
+            // expensive. `#set! injection.language` is read at build time;
+            // this gates *whether* a given match actually injects.
+            if !m.satisfies_text_predicates(
+                &self.query,
+                &mut pred_buf1,
+                &mut pred_buf2,
+                &mut text_provider,
+            ) {
+                continue;
+            }
             let Some(lang_name) = self
                 .pattern_lang
                 .get(m.pattern_index)
@@ -331,11 +349,24 @@ impl InjectionEngine {
                 column: 0,
             },
         );
-        let mut matches = cursor.matches(&self.query, tree.root_node(), host_source.as_bytes());
         let host_bytes = host_source.as_bytes();
+        let mut matches = cursor.matches(&self.query, tree.root_node(), host_bytes);
         let mut cache = self.sub_tree_cache.borrow_mut();
         let mut seen: HashSet<&str> = HashSet::new();
+        // Mirror the predicate gating in `captures_in_rows` so indent
+        // scopes are only collected for regions that actually inject.
+        let mut text_provider = host_bytes;
+        let mut pred_buf1 = Vec::new();
+        let mut pred_buf2 = Vec::new();
         while let Some(m) = matches.next() {
+            if !m.satisfies_text_predicates(
+                &self.query,
+                &mut pred_buf1,
+                &mut pred_buf2,
+                &mut text_provider,
+            ) {
+                continue;
+            }
             let Some(lang_name) = self
                 .pattern_lang
                 .get(m.pattern_index)
