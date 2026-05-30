@@ -290,6 +290,54 @@ pub fn builtin_recipes() -> Vec<GrammarRecipe> {
             subpath: None,
             rev: Some("70640c0696abde32622afc43291a385681afbd32"),
         },
+        GrammarRecipe {
+            name: "julia",
+            repo: "https://github.com/tree-sitter/tree-sitter-julia",
+            subpath: None,
+            rev: Some("12a3aede757bc7fbdfb1909507c7a6fddd31df37"),
+        },
+        // The six below are likewise pinned to nvim-treesitter's lockfile
+        // at `cf12346…` (the commit we vendored their queries from), same
+        // rationale as the block above.
+        GrammarRecipe {
+            name: "gleam",
+            repo: "https://github.com/gleam-lang/tree-sitter-gleam",
+            subpath: None,
+            rev: Some("99ec4101504452c488b7c835fb65cfef75b090b7"),
+        },
+        GrammarRecipe {
+            name: "scala",
+            repo: "https://github.com/tree-sitter/tree-sitter-scala",
+            subpath: None,
+            rev: Some("c1189954df854977c3a52003ca8a247c5f4729ba"),
+        },
+        GrammarRecipe {
+            name: "odin",
+            repo: "https://github.com/tree-sitter-grammars/tree-sitter-odin",
+            subpath: None,
+            rev: Some("d2ca8efb4487e156a60d5bd6db2598b872629403"),
+        },
+        GrammarRecipe {
+            name: "proto",
+            repo: "https://github.com/treywood/tree-sitter-proto",
+            subpath: None,
+            rev: Some("e9f6b43f6844bd2189b50a422d4e2094313f6aa3"),
+        },
+        GrammarRecipe {
+            name: "cmake",
+            repo: "https://github.com/uyha/tree-sitter-cmake",
+            subpath: None,
+            rev: Some("fe48221d4d9842d916d66b5e71ab3c6307ec28b3"),
+        },
+        // tree-sitter-xml is a monorepo; `xml/` is the XML grammar (the
+        // sibling `dtd/` covers DTDs, which we don't route yet). The
+        // built library's symbol is `tree_sitter_xml`, matching the name.
+        GrammarRecipe {
+            name: "xml",
+            repo: "https://github.com/tree-sitter-grammars/tree-sitter-xml",
+            subpath: Some("xml"),
+            rev: Some("0d9a8099c963ed53e183425c1b47fa2622c8eaf7"),
+        },
     ]
 }
 

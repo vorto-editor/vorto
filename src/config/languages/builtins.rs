@@ -315,6 +315,71 @@ pub fn builtin_lsp() -> HashMap<String, LspConfig> {
         ],
     );
     add(&mut m, "fish-lsp", "fish-lsp", &["start"], None, &[]);
+    // Julia's language server is LanguageServer.jl, hosted inside the
+    // `julia` runtime — there's no standalone binary. The inline `-e`
+    // script boots a LanguageServerInstance bound to the active project,
+    // the canonical invocation shared by helix / nvim setups. Users with
+    // a wrapper (e.g. `julia-lsp`) override `[lsp.julia]`.
+    add(
+        &mut m,
+        "julia",
+        "julia",
+        &[
+            "--startup-file=no",
+            "--history-file=no",
+            "--quiet",
+            "-e",
+            "using LanguageServer; \
+             env_path = dirname(something(Base.active_project(), Base.load_path_expand(\"@v#.#\"))); \
+             server = LanguageServer.LanguageServerInstance(stdin, stdout, env_path); \
+             server.runlinter = true; \
+             run(server);",
+        ],
+        None,
+        &["Project.toml", "JuliaProject.toml"],
+    );
+    // Gleam's language server ships inside the `gleam` binary.
+    add(
+        &mut m,
+        "gleam",
+        "gleam",
+        &["lsp"],
+        None,
+        &["gleam.toml", "manifest.toml"],
+    );
+    // Metals — the canonical Scala LSP. Installed via Coursier; the
+    // launcher binary is `metals`.
+    add(
+        &mut m,
+        "metals",
+        "metals",
+        &[],
+        None,
+        &["build.sbt", "build.sc", "build.gradle", "pom.xml"],
+    );
+    // ols — the Odin Language Server.
+    add(&mut m, "ols", "ols", &[], None, &["ols.json"]);
+    // protols — a single-binary Protobuf language server.
+    add(
+        &mut m,
+        "protols",
+        "protols",
+        &[],
+        None,
+        &["buf.yaml", "buf.gen.yaml"],
+    );
+    add(
+        &mut m,
+        "cmake-language-server",
+        "cmake-language-server",
+        &[],
+        None,
+        // Only `CMakeLists.txt` — a bare `build` marker is too generic
+        // (any unrelated `build/` dir would stop root discovery early).
+        &["CMakeLists.txt"],
+    );
+    // LemMinX — the Eclipse XML language server (binary launcher).
+    add(&mut m, "lemminx", "lemminx", &[], None, &[]);
     m
 }
 
@@ -864,6 +929,137 @@ pub fn builtin_languages() -> HashMap<String, LanguageConfig> {
                 command: Some("fish_indent".into()),
                 args: None,
             }),
+            ..Default::default()
+        },
+    );
+    // Julia: `.jl` only. Convention is 4-space indent (the style guide
+    // and JuliaFormatter default). Single-line `#`, block `#= … =#`.
+    m.insert(
+        "julia".into(),
+        LanguageConfig {
+            extensions: Some(vec!["jl".into()]),
+            comment_token: Some("#".into()),
+            block_comment_token: Some(("#=".into(), "=#".into())),
+            editor: EditorToml {
+                indent_width: Some(4),
+                tab_width: Some(4),
+                ..Default::default()
+            },
+            lsp: lsp(&["julia"]),
+            ..Default::default()
+        },
+    );
+    // Gleam: `.gleam` only. 2-space indent (gleam format enforces it).
+    // Line comments `//` (and `///` doc comments); no block form.
+    m.insert(
+        "gleam".into(),
+        LanguageConfig {
+            extensions: Some(vec!["gleam".into()]),
+            comment_token: Some("//".into()),
+            editor: EditorToml {
+                indent_width: Some(2),
+                tab_width: Some(2),
+                ..Default::default()
+            },
+            lsp: lsp(&["gleam"]),
+            formatter: Some(FormatterToml {
+                command: Some("gleam".into()),
+                args: Some(vec!["format".into(), "--stdin".into()]),
+            }),
+            ..Default::default()
+        },
+    );
+    // Scala: `.scala` sources, `.sbt` build files, `.sc` worksheets/scripts.
+    // 2-space indent by convention (scalafmt default). No bundled
+    // indents.scm upstream — auto-indent falls back to the plain heuristic.
+    m.insert(
+        "scala".into(),
+        LanguageConfig {
+            extensions: Some(vec!["scala".into(), "sbt".into(), "sc".into()]),
+            comment_token: Some("//".into()),
+            block_comment_token: Some(("/*".into(), "*/".into())),
+            editor: EditorToml {
+                indent_width: Some(2),
+                tab_width: Some(2),
+                ..Default::default()
+            },
+            lsp: lsp(&["metals"]),
+            ..Default::default()
+        },
+    );
+    // Odin: `.odin`. The core/vendor libraries use tabs; mirror that.
+    m.insert(
+        "odin".into(),
+        LanguageConfig {
+            extensions: Some(vec!["odin".into()]),
+            comment_token: Some("//".into()),
+            block_comment_token: Some(("/*".into(), "*/".into())),
+            editor: EditorToml {
+                indent_width: Some(4),
+                tab_width: Some(4),
+                use_tabs: Some(true),
+                ..Default::default()
+            },
+            lsp: lsp(&["ols"]),
+            ..Default::default()
+        },
+    );
+    // Protocol Buffers: `.proto`. 2-space indent (Google style / buf
+    // format default).
+    m.insert(
+        "proto".into(),
+        LanguageConfig {
+            extensions: Some(vec!["proto".into()]),
+            comment_token: Some("//".into()),
+            block_comment_token: Some(("/*".into(), "*/".into())),
+            editor: EditorToml {
+                indent_width: Some(2),
+                tab_width: Some(2),
+                ..Default::default()
+            },
+            lsp: lsp(&["protols"]),
+            ..Default::default()
+        },
+    );
+    // CMake: `.cmake` fragments plus the bare `CMakeLists.txt`. `#` line
+    // comments and `#[[ … ]]` bracket comments. 2-space indent.
+    m.insert(
+        "cmake".into(),
+        LanguageConfig {
+            extensions: Some(vec!["cmake".into()]),
+            filenames: Some(vec!["CMakeLists.txt".into()]),
+            comment_token: Some("#".into()),
+            block_comment_token: Some(("#[[".into(), "]]".into())),
+            editor: EditorToml {
+                indent_width: Some(2),
+                tab_width: Some(2),
+                ..Default::default()
+            },
+            lsp: lsp(&["cmake-language-server"]),
+            ..Default::default()
+        },
+    );
+    // XML and friends (XSD/XSL/XSLT, SVG, WSDL). No line comment; the
+    // `<space>c` toggle uses the `<!-- -->` block form. 2-space indent.
+    m.insert(
+        "xml".into(),
+        LanguageConfig {
+            extensions: Some(vec![
+                "xml".into(),
+                "xsd".into(),
+                "xsl".into(),
+                "xslt".into(),
+                "svg".into(),
+                "wsdl".into(),
+            ]),
+            comment_token: None,
+            block_comment_token: Some(("<!--".into(), "-->".into())),
+            editor: EditorToml {
+                indent_width: Some(2),
+                tab_width: Some(2),
+                ..Default::default()
+            },
+            lsp: lsp(&["lemminx"]),
             ..Default::default()
         },
     );
