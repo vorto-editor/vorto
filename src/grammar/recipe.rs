@@ -260,7 +260,7 @@ pub fn builtin_recipes() -> Vec<GrammarRecipe> {
             name: "php",
             repo: "https://github.com/tree-sitter/tree-sitter-php",
             subpath: Some("php"),
-            rev: Some("576a56fa7f8b68c91524cdd211eb2ffc43e7bb11"),
+            rev: Some("v0.24.2"),
         },
         GrammarRecipe {
             name: "dart",

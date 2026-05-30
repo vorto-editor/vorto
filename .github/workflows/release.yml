@@ -51,6 +51,14 @@ jobs:
       # equals matrix.target), so the artifacts match the release build's
       # target. Grammars are cc-compiled at -O3 regardless of this build's
       # profile, so a debug bundler is fine and compiles faster.
+
+      # Some grammars (e.g. sql, swift) ship no pre-generated `src/parser.c`
+      # in their release assets, so `grammar bundle` must run
+      # `tree-sitter generate` from `grammar.js` — which needs the
+      # tree-sitter CLI on PATH (Node is preinstalled on the runner).
+      - name: Install tree-sitter CLI
+        run: npm install -g tree-sitter-cli
+
       - name: Bundle grammars + collect licenses
         run: cargo run --locked -- grammar bundle
 

@@ -175,7 +175,7 @@ fn build_engine(path: &Path) -> Option<(Language, Engine, String)> {
             Some((lang, engine, source))
         }
         Err(e) => {
-            eprintln!("grammar_golden: skip {} ({e})", path.display());
+            eprintln!("grammar_golden: skip {} ({e:#})", path.display());
             None
         }
     }
