@@ -89,6 +89,63 @@ jobs:
           files: dist/*.tar.gz
           prerelease: ${{ contains(github.ref_name, '-') }}
 
+  homebrew:
+    name: bump homebrew tap
+    needs: build
+    # Skip prereleases (tags like v1.2.3-rc1) — only ship stable to Homebrew.
+    if: ${{ !contains(github.ref_name, '-') }}
+    runs-on: ubuntu-latest
+    steps:
+      # Check out the tap repo (not this one). Needs a token with write
+      # access to vorto-editor/homebrew-tap — the default GITHUB_TOKEN only
+      # grants access to the current repo, so a PAT / GitHub App token is
+      # stored as the HOMEBREW_TAP_TOKEN secret and used both to clone and to
+      # push the bump commit back.
+      - name: Checkout homebrew tap
+        uses: actions/checkout@v4
+        with:
+          repository: vorto-editor/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+
+      # Pull the just-published release tarballs and recompute their hashes,
+      # then rewrite the version constant and each platform's sha256 in place.
+      # The sha256 lines are keyed off the target triple in the preceding url
+      # line, so order in the formula doesn't matter.
+      - name: Update formula
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          gh release download "${GITHUB_REF_NAME}" \
+            --repo vorto-editor/vorto \
+            --pattern '*.tar.gz' --dir dist
+
+          for target in \
+            aarch64-apple-darwin \
+            aarch64-unknown-linux-gnu \
+            x86_64-unknown-linux-gnu; do
+            sha=$(sha256sum "dist/vorto-${version}-${target}.tar.gz" | cut -d' ' -f1)
+            perl -0pi -e \
+              "s{(${target}\.tar\.gz\"\n\s*sha256 \")[0-9a-f]{64}}{\${1}${sha}}" \
+              Formula/vorto.rb
+          done
+
+          perl -pi -e "s{VORTO_VERSION = \"[^\"]+\"}{VORTO_VERSION = \"${version}\"}" Formula/vorto.rb
+          rm -rf dist
+
+      - name: Commit and push
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet; then
+            echo "Formula already up to date for ${version}"
+            exit 0
+          fi
+          git add Formula/vorto.rb
+          git commit -m "vorto ${version}"
+          git push
+
   publish:
     name: publish to crates.io
     needs: build
