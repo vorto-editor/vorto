@@ -213,11 +213,19 @@ pub fn builtin_recipes() -> Vec<GrammarRecipe> {
             subpath: None,
             rev: None,
         },
+        // Pinned to a fork carrying the fix for upstream issue #144: the
+        // external scanner's `advance()` passes the `PEEK` macro straight
+        // into `array_push`, which at -O2 on aarch64-linux corrupts the
+        // heap (`malloc(): mismatching next->prev_size`) and SIGABRTs mid
+        // parse — our grammar-golden aarch64-linux leg hit exactly this.
+        // The fix (hoist `PEEK` into a local before the push) is upstream
+        // PR #151, still unmerged, so we point at the author's fork until
+        // it lands; then repoint to the merged upstream rev.
         GrammarRecipe {
             name: "haskell",
-            repo: "https://github.com/tree-sitter/tree-sitter-haskell",
+            repo: "https://github.com/scherna/tree-sitter-haskell",
             subpath: None,
-            rev: None,
+            rev: Some("6f6485f337bd7b8d6673a39edd490ac6a460a67b"),
         },
         GrammarRecipe {
             name: "elixir",

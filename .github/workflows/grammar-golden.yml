@@ -4,13 +4,23 @@ name: grammar-golden
 # the real tree-sitter grammars (src/syntax/grammar_golden.rs). Those
 # tests are #[ignore]d in the normal `cargo test` (ci.yml) because they
 # need compiled grammar libraries, so they'd otherwise only run at release
-# time. Run them here too — but only when something that can affect the
-# goldens changes — so query drift fails the PR, not the release.
+# time.
 #
-# The grammars are gitignored, so they have to be built with
-# `vorto grammar bundle`. That's the expensive step (clone + cc-compile of
-# every grammar), so it's cached on the grammar recipe hash: it re-runs
-# only when the recipes change or the cache is evicted, not every PR.
+# Two trigger modes:
+#   * PR / push (path-filtered, cached): fast feedback when WE touch a
+#     query, grammar recipe, or sample. The prebuilt grammars are cached
+#     on the recipe hash, so this only rebuilds when the recipes change.
+#   * Nightly cron (uncached): the bundler floats unpinned grammars to
+#     upstream `releases/latest` / a fresh `tree-sitter generate`, so a
+#     grammar can drift out from under the vendored queries with NO change
+#     in this repo — which the path filter AND the recipe-hash cache would
+#     both miss. The scheduled run skips the cache and re-bundles the
+#     actual latest, so upstream drift fails a nightly run, not the next
+#     release.
+#
+# Runs on the same target matrix as the release build so a platform-
+# specific grammar/loader fault (e.g. an aarch64-linux scanner crash) is
+# caught here rather than at tag time.
 
 on:
   pull_request:
@@ -30,6 +40,9 @@ on:
       - "src/syntax/**"
       - "src/grammar/**"
       - ".github/workflows/grammar-golden.yml"
+  schedule:
+    # 06:00 UTC daily — surface upstream grammar drift before a release does.
+    - cron: "0 6 * * *"
 
 permissions:
   contents: read
@@ -43,13 +56,28 @@ env:
 
 jobs:
   golden:
-    name: indents + text objects
-    # arm64 runner → host triple aarch64-apple-darwin, which the harness
-    # extracts grammars for. Goldens are arch-independent, so one host is
-    # enough to catch query drift.
-    runs-on: macos-latest
+    name: indents + text objects (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-24.04-arm
+          - target: aarch64-apple-darwin
+            os: macos-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install Linux clipboard deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libxcb1-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
+            libxkbcommon-dev
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -57,19 +85,23 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       # Restore the compiled grammar libraries keyed on the recipes that
-      # produce them. A hit skips the (slow, network-bound) bundle below;
-      # a miss (recipe change / eviction) rebuilds and re-populates it.
+      # produce them. Skipped on the nightly run so it always re-bundles
+      # the actual upstream latest (the whole point of the cron trigger).
+      # Keyed per-target so the two Linux arches don't share a cache.
       - name: Cache prebuilt grammars
         id: grammar-cache
+        if: github.event_name != 'schedule'
         uses: actions/cache@v4
         with:
           path: assets/grammars-prebuilt
-          key: grammars-${{ runner.os }}-${{ hashFiles('src/grammar/recipe.rs', 'src/grammar/build.rs') }}
+          key: grammars-${{ matrix.target }}-${{ hashFiles('src/grammar/recipe.rs', 'src/grammar/build.rs') }}
 
-      # Some grammars (e.g. swift) ship no pre-generated src/parser.c, so
-      # `grammar bundle` must run `tree-sitter generate` from grammar.js —
-      # which needs the tree-sitter CLI on PATH (Node is preinstalled on
-      # the runner). Only needed when we actually bundle (cache miss).
+      # Some grammars (e.g. sql, swift) ship no pre-generated src/parser.c,
+      # so `grammar bundle` must run `tree-sitter generate` from grammar.js
+      # — which needs the tree-sitter CLI on PATH (Node is preinstalled on
+      # the runner). Needed whenever we actually bundle: a cache miss, or
+      # the uncached nightly run (where the cache step is skipped, so
+      # cache-hit is empty).
       - name: Install tree-sitter CLI
         if: steps.grammar-cache.outputs.cache-hit != 'true'
         run: npm install -g tree-sitter-cli
