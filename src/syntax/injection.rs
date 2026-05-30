@@ -430,8 +430,22 @@ impl InjectionEngine {
         out: &mut Vec<Capture>,
     ) {
         let mut cursor = QueryCursor::new();
-        let mut matches = cursor.matches(&sub.query, sub_tree.root_node(), sub_source.as_bytes());
+        let sub_bytes = sub_source.as_bytes();
+        let mut matches = cursor.matches(&sub.query, sub_tree.root_node(), sub_bytes);
+        let mut text_provider = sub_bytes;
+        let mut pred_buf1 = Vec::new();
+        let mut pred_buf2 = Vec::new();
         while let Some(m) = matches.next() {
+            // Apply `#eq?` / `#match?` / `#any-of?` text predicates, same
+            // as the host highlight path — see `highlight::captures_in_rows`.
+            if !m.satisfies_text_predicates(
+                &sub.query,
+                &mut pred_buf1,
+                &mut pred_buf2,
+                &mut text_provider,
+            ) {
+                continue;
+            }
             for cap in m.captures {
                 let s = cap.node.start_position();
                 let e = cap.node.end_position();
