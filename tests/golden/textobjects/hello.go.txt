@@ -2,20 +2,50 @@ function.outer   27:0-38:1  func (c Classification) String() string {
 function.outer   40:0-42:1  func greet(p Person, prefix string) string {
 function.outer   44:0-55:1  func classify(n int) Classification {
 function.outer   57:0-66:1  func main() {
-function.inner   27:40-38:1  func (c Classification) String() string {
-function.inner   40:43-42:1  func greet(p Person, prefix string) string {
-function.inner   44:36-55:1  func classify(n int) Classification {
-function.inner   57:12-66:1  func main() {
+function.inner   28:1-37:2  switch c {
+function.inner   41:1-41:46  return fmt.Sprintf("%s, %s!", prefix, p.Name)
+function.inner   45:1-54:2  switch {
+function.inner   58:1-65:40  alice := Person{Name: "Alice", Age: 30, Tags: []string{"admin", "early_bird"}}
 class.outer      12:0-16:1  type Person struct {
-class.inner      12:19-16:1  type Person struct {
+class.inner      13:1-15:14  Name string
 parameter.outer  27:6-27:22  func (c Classification) String() string {
-parameter.outer  40:11-40:19  func greet(p Person, prefix string) string {
-parameter.outer  40:21-40:34  func greet(p Person, prefix string) string {
+parameter.outer  40:11-40:21  func greet(p Person, prefix string) string {
+parameter.outer  40:19-40:34  func greet(p Person, prefix string) string {
+parameter.outer  41:20-41:31  return fmt.Sprintf("%s, %s!", prefix, p.Name)
+parameter.outer  41:31-41:39  return fmt.Sprintf("%s, %s!", prefix, p.Name)
+parameter.outer  41:37-41:45  return fmt.Sprintf("%s, %s!", prefix, p.Name)
 parameter.outer  44:14-44:19  func classify(n int) Classification {
+parameter.outer  59:13-59:34  fmt.Println(greet(alice, "Hello"))
+parameter.outer  59:19-59:26  fmt.Println(greet(alice, "Hello"))
+parameter.outer  59:24-59:33  fmt.Println(greet(alice, "Hello"))
+parameter.outer  61:16-61:26  labels := make([]string, 0, 8)
+parameter.outer  61:26-61:29  labels := make([]string, 0, 8)
+parameter.outer  61:27-61:30  labels := make([]string, 0, 8)
+parameter.outer  63:18-63:26  labels = append(labels, classify(n).String())
+parameter.outer  63:24-63:46  labels = append(labels, classify(n).String())
+parameter.outer  63:35-63:36  labels = append(labels, classify(n).String())
+parameter.outer  65:13-65:39  fmt.Println(strings.Join(labels, ", "))
+parameter.outer  65:26-65:34  fmt.Println(strings.Join(labels, ", "))
+parameter.outer  65:32-65:38  fmt.Println(strings.Join(labels, ", "))
 parameter.inner  27:6-27:22  func (c Classification) String() string {
 parameter.inner  40:11-40:19  func greet(p Person, prefix string) string {
 parameter.inner  40:21-40:34  func greet(p Person, prefix string) string {
+parameter.inner  41:20-41:29  return fmt.Sprintf("%s, %s!", prefix, p.Name)
+parameter.inner  41:31-41:37  return fmt.Sprintf("%s, %s!", prefix, p.Name)
+parameter.inner  41:39-41:45  return fmt.Sprintf("%s, %s!", prefix, p.Name)
 parameter.inner  44:14-44:19  func classify(n int) Classification {
+parameter.inner  59:13-59:34  fmt.Println(greet(alice, "Hello"))
+parameter.inner  59:19-59:24  fmt.Println(greet(alice, "Hello"))
+parameter.inner  59:26-59:33  fmt.Println(greet(alice, "Hello"))
+parameter.inner  61:16-61:24  labels := make([]string, 0, 8)
+parameter.inner  61:26-61:27  labels := make([]string, 0, 8)
+parameter.inner  61:29-61:30  labels := make([]string, 0, 8)
+parameter.inner  63:18-63:24  labels = append(labels, classify(n).String())
+parameter.inner  63:26-63:46  labels = append(labels, classify(n).String())
+parameter.inner  63:35-63:36  labels = append(labels, classify(n).String())
+parameter.inner  65:13-65:39  fmt.Println(strings.Join(labels, ", "))
+parameter.inner  65:26-65:32  fmt.Println(strings.Join(labels, ", "))
+parameter.inner  65:34-65:38  fmt.Println(strings.Join(labels, ", "))
 type.outer       12:5-16:1  type Person struct {
 type.outer       18:5-18:23  type Classification int
 type.inner       12:12-16:1  type Person struct {

@@ -30,3 +30,9 @@
   (self_parameter) @parameter.inner)
 (parameters
   (self_parameter) @parameter.outer)
+
+; call arguments — `ia`/`aa` inside function calls, not just defs
+(arguments
+  (_) @parameter.inner)
+(arguments
+  (_) @parameter.outer)

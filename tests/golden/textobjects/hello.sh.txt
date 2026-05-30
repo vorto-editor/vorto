@@ -1,6 +1,6 @@
 function.outer   10:0-14:1  greet() {
 function.outer   16:0-27:1  classify() {
 function.outer   29:0-43:1  main() {
-function.inner   10:8-14:1  greet() {
-function.inner   16:11-27:1  classify() {
-function.inner   29:7-43:1  main() {
+function.inner   11:4-13:40  local name="$1"
+function.inner   17:4-26:6  local n="$1"
+function.inner   30:4-42:8  for name in "${PEOPLE[@]}"; do

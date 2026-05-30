@@ -23,3 +23,9 @@
 (formal_parameter) @parameter.outer
 (spread_parameter) @parameter.inner
 (spread_parameter) @parameter.outer
+
+; call arguments — `ia`/`aa` inside function calls, not just defs
+(argument_list
+  (_) @parameter.inner)
+(argument_list
+  (_) @parameter.outer)

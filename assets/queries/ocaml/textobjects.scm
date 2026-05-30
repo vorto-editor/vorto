@@ -44,7 +44,13 @@
 
 (comment) @comment.outer
 
+(parameter) @parameter.inner
 (parameter) @parameter.outer
+
+; application arguments: `ia`/`aa` on `f a b` selects each applied arg.
+; (Upstream only tags these `.outer`; we add `.inner` so `dia`/`cia` work.)
+(application_expression
+  argument: (_) @parameter.inner)
 
 (application_expression
   argument: (_) @parameter.outer) @call.outer

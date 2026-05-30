@@ -4,21 +4,29 @@ function.outer   27:37-27:65  <button type="button" onClick={() => setCount((c) 
 function.outer   27:52-27:64  <button type="button" onClick={() => setCount((c) => c + 1)}>
 function.outer   34:15-43:1  export default function App() {
 function.outer   38:18-40:7  {people.map((name) => (
-function.inner   13:41-15:1  function classify(count: number): Status {
-function.inner   17:68-32:1  export function Greeting({ name, initialCount = 0 }: GreetingProps) {
+function.inner   14:2-14:39  return count > 0 ? "active" : "idle";
+function.inner   18:2-31:4  const [count, setCount] = useState(initialCount);
 function.inner   27:43-27:65  <button type="button" onClick={() => setCount((c) => c + 1)}>
 function.inner   27:59-27:64  <button type="button" onClick={() => setCount((c) => c + 1)}>
-function.inner   34:30-43:1  export default function App() {
+function.inner   35:2-42:4  const people = ["Alice", "Bob", "Carol"];
 function.inner   38:28-40:7  {people.map((name) => (
 class.outer      6:0-9:1  interface GreetingProps {
-class.inner      6:24-9:1  interface GreetingProps {
+class.inner      7:2-8:24  name: string;
 parameter.outer  13:18-13:31  function classify(count: number): Status {
 parameter.outer  17:25-17:66  export function Greeting({ name, initialCount = 0 }: GreetingProps) {
+parameter.outer  18:37-18:49  const [count, setCount] = useState(initialCount);
+parameter.outer  19:26-19:31  const status = classify(count);
+parameter.outer  27:52-27:64  <button type="button" onClick={() => setCount((c) => c + 1)}>
 parameter.outer  27:53-27:54  <button type="button" onClick={() => setCount((c) => c + 1)}>
+parameter.outer  38:18-40:7  {people.map((name) => (
 parameter.outer  38:19-38:23  {people.map((name) => (
 parameter.inner  13:18-13:31  function classify(count: number): Status {
 parameter.inner  17:25-17:66  export function Greeting({ name, initialCount = 0 }: GreetingProps) {
+parameter.inner  18:37-18:49  const [count, setCount] = useState(initialCount);
+parameter.inner  19:26-19:31  const status = classify(count);
+parameter.inner  27:52-27:64  <button type="button" onClick={() => setCount((c) => c + 1)}>
 parameter.inner  27:53-27:54  <button type="button" onClick={() => setCount((c) => c + 1)}>
+parameter.inner  38:18-40:7  {people.map((name) => (
 parameter.inner  38:19-38:23  {people.map((name) => (
 type.outer       11:0-11:32  type Status = "idle" | "active";
 type.inner       11:14-11:31  type Status = "idle" | "active";

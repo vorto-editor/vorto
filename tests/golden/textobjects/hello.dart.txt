@@ -14,10 +14,10 @@ class.outer      9:0-11:1  mixin Prefixed {
 class.outer      13:0-15:1  abstract interface class Greeter<T> {
 class.outer      17:0-28:1  class Person {
 class.outer      30:0-37:1  class PersonGreeter with Prefixed implements Greeter<Person> {
-class.inner      9:15-11:1  mixin Prefixed {
-class.inner      13:36-15:1  abstract interface class Greeter<T> {
-class.inner      17:13-28:1  class Person {
-class.inner      30:61-37:1  class PersonGreeter with Prefixed implements Greeter<Person> {
+class.inner      10:2-10:26  String prefix = 'Hello';
+class.inner      14:2-14:24  String greet(T value);
+class.inner      18:2-27:45  final String name;
+class.inner      31:2-36:50  PersonGreeter({String? prefix}) {
 parameter.outer  22:19-22:29  Person({required this.name, this.age = 0, this.tags = const []});
 parameter.outer  22:28-22:38  Person({required this.name, this.age = 0, this.tags = const []});
 parameter.outer  22:42-22:53  Person({required this.name, this.age = 0, this.tags = const []});

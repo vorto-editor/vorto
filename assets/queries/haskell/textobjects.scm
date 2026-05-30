@@ -81,6 +81,19 @@
   (_)
   (_) @loop.inner) @loop.outer
 
+; application arguments — `ia`/`aa` on `f x y` selects each applied arg.
+; `apply` nests left-associatively (`((f x) y)`), so anchoring the capture
+; right after the `function:` child grabs one arg per level (all of them)
+; while never matching the callee itself.
+(apply
+  function: (_)
+  .
+  (_) @parameter.inner)
+(apply
+  function: (_)
+  .
+  (_) @parameter.outer)
+
 ; e.g. func x
 (function
   (patterns

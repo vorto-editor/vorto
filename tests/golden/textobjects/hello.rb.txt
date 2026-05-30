@@ -12,16 +12,32 @@ class.outer      6:0-49:3  module Demo
 class.outer      14:2-26:5  class Person
 class.inner      7:2-48:5  CLASSIFICATIONS = {
 class.inner      15:4-25:7  attr_reader :name, :age, :tags
-parameter.outer  17:19-17:23  def initialize(name, age, tags = [])
-parameter.outer  17:25-17:28  def initialize(name, age, tags = [])
-parameter.outer  17:30-17:39  def initialize(name, age, tags = [])
-parameter.outer  30:12-30:18  def greet(person, prefix: "Hello")
-parameter.outer  30:20-30:35  def greet(person, prefix: "Hello")
+parameter.outer  15:16-15:23  attr_reader :name, :age, :tags
+parameter.outer  15:23-15:29  attr_reader :name, :age, :tags
+parameter.outer  15:27-15:34  attr_reader :name, :age, :tags
+parameter.outer  17:19-17:25  def initialize(name, age, tags = [])
+parameter.outer  17:25-17:30  def initialize(name, age, tags = [])
+parameter.outer  17:28-17:39  def initialize(name, age, tags = [])
+parameter.outer  30:12-30:20  def greet(person, prefix: "Hello")
+parameter.outer  30:18-30:35  def greet(person, prefix: "Hello")
 parameter.outer  34:15-34:16  def classify(n)
 parameter.outer  46:14-46:21  def squares(numbers)
 parameter.outer  47:19-47:20  numbers.map { |x| x * x }.select { |x| x > 5 }
 parameter.outer  47:40-47:41  numbers.map { |x| x * x }.select { |x| x > 5 }
+parameter.outer  51:25-51:34  alice = Demo::Person.new("Alice", 30, %w[admin early_bird])
+parameter.outer  51:34-51:38  alice = Demo::Person.new("Alice", 30, %w[admin early_bird])
+parameter.outer  51:36-51:58  alice = Demo::Person.new("Alice", 30, %w[admin early_bird])
+parameter.outer  52:5-52:22  puts Demo.greet(alice)
+parameter.outer  52:16-52:21  puts Demo.greet(alice)
 parameter.outer  54:17-54:18  (-2..5).each do |n|
+parameter.outer  55:7-55:36  puts "#{n} -> #{Demo.classify(n)}"
+parameter.outer  55:32-55:33  puts "#{n} -> #{Demo.classify(n)}"
+parameter.outer  58:5-58:59  puts "squares: #{Demo.squares([1, 2, 3, 4, 5]).join(', ')}"
+parameter.outer  58:30-58:45  puts "squares: #{Demo.squares([1, 2, 3, 4, 5]).join(', ')}"
+parameter.outer  58:52-58:56  puts "squares: #{Demo.squares([1, 2, 3, 4, 5]).join(', ')}"
+parameter.inner  15:16-15:21  attr_reader :name, :age, :tags
+parameter.inner  15:23-15:27  attr_reader :name, :age, :tags
+parameter.inner  15:29-15:34  attr_reader :name, :age, :tags
 parameter.inner  17:19-17:23  def initialize(name, age, tags = [])
 parameter.inner  17:25-17:28  def initialize(name, age, tags = [])
 parameter.inner  17:30-17:39  def initialize(name, age, tags = [])
@@ -31,4 +47,14 @@ parameter.inner  34:15-34:16  def classify(n)
 parameter.inner  46:14-46:21  def squares(numbers)
 parameter.inner  47:19-47:20  numbers.map { |x| x * x }.select { |x| x > 5 }
 parameter.inner  47:40-47:41  numbers.map { |x| x * x }.select { |x| x > 5 }
+parameter.inner  51:25-51:32  alice = Demo::Person.new("Alice", 30, %w[admin early_bird])
+parameter.inner  51:34-51:36  alice = Demo::Person.new("Alice", 30, %w[admin early_bird])
+parameter.inner  51:38-51:58  alice = Demo::Person.new("Alice", 30, %w[admin early_bird])
+parameter.inner  52:5-52:22  puts Demo.greet(alice)
+parameter.inner  52:16-52:21  puts Demo.greet(alice)
 parameter.inner  54:17-54:18  (-2..5).each do |n|
+parameter.inner  55:7-55:36  puts "#{n} -> #{Demo.classify(n)}"
+parameter.inner  55:32-55:33  puts "#{n} -> #{Demo.classify(n)}"
+parameter.inner  58:5-58:59  puts "squares: #{Demo.squares([1, 2, 3, 4, 5]).join(', ')}"
+parameter.inner  58:30-58:45  puts "squares: #{Demo.squares([1, 2, 3, 4, 5]).join(', ')}"
+parameter.inner  58:52-58:56  puts "squares: #{Demo.squares([1, 2, 3, 4, 5]).join(', ')}"

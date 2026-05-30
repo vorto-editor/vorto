@@ -67,3 +67,50 @@ parameter.outer  62:40-62:53  let sorted = inorder tree |> List.map string_of_in
 parameter.outer  62:71-62:75  let sorted = inorder tree |> List.map string_of_int |> String.concat ", " in
 parameter.outer  63:16-63:30  Printf.printf "sorted: %s\n" sorted
 parameter.outer  63:31-63:37  Printf.printf "sorted: %s\n" sorted
+parameter.inner  26:12-26:13  let greet p = Printf.sprintf "%s, %s!" P.prefix p.name
+parameter.inner  26:31-26:40  let greet p = Printf.sprintf "%s, %s!" P.prefix p.name
+parameter.inner  26:41-26:49  let greet p = Printf.sprintf "%s, %s!" P.prefix p.name
+parameter.inner  26:50-26:56  let greet p = Printf.sprintf "%s, %s!" P.prefix p.name
+parameter.inner  31:13-31:14  let classify n =
+parameter.inner  37:15-37:16  let rec insert x = function
+parameter.inner  38:17-38:32  | Leaf -> Node (x, Leaf, Leaf)
+parameter.inner  40:25-40:43  if x < y then Node (y, insert x l, r)
+parameter.inner  40:36-40:37  if x < y then Node (y, insert x l, r)
+parameter.inner  40:38-40:39  if x < y then Node (y, insert x l, r)
+parameter.inner  41:30-41:48  else if x > y then Node (y, l, insert x r)
+parameter.inner  41:44-41:45  else if x > y then Node (y, l, insert x r)
+parameter.inner  41:46-41:47  else if x > y then Node (y, l, insert x r)
+parameter.inner  42:16-42:25  else Node (y, l, r)
+parameter.inner  46:30-46:31  | Node (x, l, r) -> inorder l @ [x] @ inorder r
+parameter.inner  46:48-46:49  | Node (x, l, r) -> inorder l @ [x] @ inorder r
+parameter.inner  54:12-54:49  List.iter (fun p -> print_endline (Hi.greet p)) people;
+parameter.inner  54:17-54:18  List.iter (fun p -> print_endline (Hi.greet p)) people;
+parameter.inner  54:36-54:48  List.iter (fun p -> print_endline (Hi.greet p)) people;
+parameter.inner  54:46-54:47  List.iter (fun p -> print_endline (Hi.greet p)) people;
+parameter.inner  54:50-54:56  List.iter (fun p -> print_endline (Hi.greet p)) people;
+parameter.inner  55:27-55:49  let adults = List.filter (fun p -> p.age >= 18) people in
+parameter.inner  55:32-55:33  let adults = List.filter (fun p -> p.age >= 18) people in
+parameter.inner  55:50-55:56  let adults = List.filter (fun p -> p.age >= 18) people in
+parameter.inner  56:23-56:40  let names = List.map (fun p -> p.name) adults in
+parameter.inner  56:28-56:29  let names = List.map (fun p -> p.name) adults in
+parameter.inner  56:41-56:47  let names = List.map (fun p -> p.name) adults in
+parameter.inner  57:16-57:30  Printf.printf "Adults: %s\n" (String.concat ", " names);
+parameter.inner  57:31-57:57  Printf.printf "Adults: %s\n" (String.concat ", " names);
+parameter.inner  57:46-57:50  Printf.printf "Adults: %s\n" (String.concat ", " names);
+parameter.inner  57:51-57:56  Printf.printf "Adults: %s\n" (String.concat ", " names);
+parameter.inner  59:18-59:30  Printf.printf "%d is %s\n" n (classify n)
+parameter.inner  59:31-59:32  Printf.printf "%d is %s\n" n (classify n)
+parameter.inner  59:33-59:45  Printf.printf "%d is %s\n" n (classify n)
+parameter.inner  59:43-59:44  Printf.printf "%d is %s\n" n (classify n)
+parameter.inner  61:28-61:55  let tree = List.fold_left (fun acc x -> insert x acc) Leaf [3; 1; 4; 1; 5; 9; 2; 6] in
+parameter.inner  61:33-61:36  let tree = List.fold_left (fun acc x -> insert x acc) Leaf [3; 1; 4; 1; 5; 9; 2; 6] in
+parameter.inner  61:37-61:38  let tree = List.fold_left (fun acc x -> insert x acc) Leaf [3; 1; 4; 1; 5; 9; 2; 6] in
+parameter.inner  61:49-61:50  let tree = List.fold_left (fun acc x -> insert x acc) Leaf [3; 1; 4; 1; 5; 9; 2; 6] in
+parameter.inner  61:51-61:54  let tree = List.fold_left (fun acc x -> insert x acc) Leaf [3; 1; 4; 1; 5; 9; 2; 6] in
+parameter.inner  61:56-61:60  let tree = List.fold_left (fun acc x -> insert x acc) Leaf [3; 1; 4; 1; 5; 9; 2; 6] in
+parameter.inner  61:61-61:85  let tree = List.fold_left (fun acc x -> insert x acc) Leaf [3; 1; 4; 1; 5; 9; 2; 6] in
+parameter.inner  62:23-62:27  let sorted = inorder tree |> List.map string_of_int |> String.concat ", " in
+parameter.inner  62:40-62:53  let sorted = inorder tree |> List.map string_of_int |> String.concat ", " in
+parameter.inner  62:71-62:75  let sorted = inorder tree |> List.map string_of_int |> String.concat ", " in
+parameter.inner  63:16-63:30  Printf.printf "sorted: %s\n" sorted
+parameter.inner  63:31-63:37  Printf.printf "sorted: %s\n" sorted
