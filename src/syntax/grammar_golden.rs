@@ -278,6 +278,18 @@ fn run_golden(kind: &str, render: impl Fn(&Engine, &str) -> String) {
     let mut checked = 0usize;
     for path in samples() {
         let name = path.file_name().unwrap().to_str().unwrap();
+        // Announce the sample on the *real* stderr (bypassing libtest's
+        // output capture) and flush before parsing it. A grammar's C
+        // scanner can corrupt the heap and abort the whole process
+        // (SIGABRT) — not a catchable Rust panic — at which point libtest's
+        // captured output is lost. This line survives, so the last sample
+        // named before the abort is the culprit.
+        {
+            use std::io::Write as _;
+            let mut err = std::io::stderr();
+            let _ = writeln!(err, "grammar_golden[{kind}]: parsing {name}");
+            let _ = err.flush();
+        }
         match build_engine(&path) {
             Some((_, engine, source)) => {
                 check_golden(kind, name, &render(&engine, &source));
