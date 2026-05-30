@@ -63,12 +63,35 @@ impl HighlightQuery {
                 column: 0,
             },
         );
-        let mut matches = cursor.matches(&self.query, tree.root_node(), source.as_bytes());
+        let src_bytes = source.as_bytes();
+        let mut matches = cursor.matches(&self.query, tree.root_node(), src_bytes);
         let mut out = Vec::new();
+        // Scratch buffers + text provider for predicate evaluation, reused
+        // across matches to avoid per-match allocation.
+        let mut text_provider = src_bytes;
+        let mut pred_buf1 = Vec::new();
+        let mut pred_buf2 = Vec::new();
         // `QueryMatches` is a streaming iterator in tree-sitter 0.25+,
         // so we drive it with an explicit `.next()` loop rather than
         // `for ... in`.
         while let Some(m) = matches.next() {
+            // Honor `#eq?` / `#match?` / `#any-of?` (and their negations)
+            // text predicates — the `matches()` iterator does not apply
+            // them itself. Without this, predicate-gated captures fire
+            // unconditionally; languages like CMake, whose grammar emits
+            // generic `identifier`/`argument` nodes and relies on regex
+            // predicates to tell keywords/builtins/constants apart, get
+            // multiple conflicting captures on the same token.
+            // (Non-standard predicates like `#lua-match?` aren't covered
+            // here — they're translated to `#match?` in the queries.)
+            if !m.satisfies_text_predicates(
+                &self.query,
+                &mut pred_buf1,
+                &mut pred_buf2,
+                &mut text_provider,
+            ) {
+                continue;
+            }
             for cap in m.captures {
                 let node = cap.node;
                 let start = node.start_position();
