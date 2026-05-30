@@ -1,0 +1,68 @@
+function.outer   24:2-24:32  bool get isAdult => age >= 18;
+function.outer   26:2-26:11  @override
+function.outer   27:2-27:45  String toString() => 'Person($name, $age)';
+function.outer   31:2-33:3  PersonGreeter({String? prefix}) {
+function.outer   35:2-35:11  @override
+function.outer   36:2-36:50  String greet(Person p) => '$prefix, ${p.name}!';
+function.outer   39:0-44:6  String classify(int n) => switch (n) {
+function.outer   46:0-70:1  Future<void> main() async {
+function.outer   72:0-75:1  Future<(int sum, int count)> _sumAndCount(Iterable<int> xs) async {
+function.inner   32:4-32:45  if (prefix != null) this.prefix = prefix;
+function.inner   47:2-69:33  final people = <Person>[
+function.inner   73:2-74:50  await Future<void>.delayed(Duration.zero);
+class.outer      9:0-11:1  mixin Prefixed {
+class.outer      13:0-15:1  abstract interface class Greeter<T> {
+class.outer      17:0-28:1  class Person {
+class.outer      30:0-37:1  class PersonGreeter with Prefixed implements Greeter<Person> {
+class.inner      9:15-11:1  mixin Prefixed {
+class.inner      13:36-15:1  abstract interface class Greeter<T> {
+class.inner      17:13-28:1  class Person {
+class.inner      30:61-37:1  class PersonGreeter with Prefixed implements Greeter<Person> {
+parameter.outer  22:19-22:29  Person({required this.name, this.age = 0, this.tags = const []});
+parameter.outer  22:28-22:38  Person({required this.name, this.age = 0, this.tags = const []});
+parameter.outer  22:42-22:53  Person({required this.name, this.age = 0, this.tags = const []});
+parameter.outer  48:11-48:25  Person(name: 'Alice', age: 30, tags: ['admin']),
+parameter.outer  48:24-48:33  Person(name: 'Alice', age: 30, tags: ['admin']),
+parameter.outer  48:33-48:50  Person(name: 'Alice', age: 30, tags: ['admin']),
+parameter.outer  49:11-49:23  Person(name: 'Bob', age: 17),
+parameter.outer  49:22-49:31  Person(name: 'Bob', age: 17),
+parameter.outer  50:11-50:25  Person(name: 'Carol', age: 42, tags: ['vip', 'early-bird']),
+parameter.outer  50:24-50:33  Person(name: 'Carol', age: 42, tags: ['vip', 'early-bird']),
+parameter.outer  50:33-50:62  Person(name: 'Carol', age: 42, tags: ['vip', 'early-bird']),
+parameter.outer  74:18-74:20  return (xs.fold(0, (a, b) => a + b), xs.length);
+parameter.outer  74:19-74:36  return (xs.fold(0, (a, b) => a + b), xs.length);
+parameter.outer  74:22-74:24  return (xs.fold(0, (a, b) => a + b), xs.length);
+parameter.outer  74:23-74:26  return (xs.fold(0, (a, b) => a + b), xs.length);
+parameter.inner  13:33-13:34  abstract interface class Greeter<T> {
+parameter.inner  14:15-14:22  String greet(T value);
+parameter.inner  22:19-22:28  Person({required this.name, this.age = 0, this.tags = const []});
+parameter.inner  22:30-22:38  Person({required this.name, this.age = 0, this.tags = const []});
+parameter.inner  22:44-22:53  Person({required this.name, this.age = 0, this.tags = const []});
+parameter.inner  31:17-31:31  PersonGreeter({String? prefix}) {
+parameter.inner  36:15-36:23  String greet(Person p) => '$prefix, ${p.name}!';
+parameter.inner  39:16-39:21  String classify(int n) => switch (n) {
+parameter.inner  48:11-48:24  Person(name: 'Alice', age: 30, tags: ['admin']),
+parameter.inner  48:26-48:33  Person(name: 'Alice', age: 30, tags: ['admin']),
+parameter.inner  48:35-48:50  Person(name: 'Alice', age: 30, tags: ['admin']),
+parameter.inner  49:11-49:22  Person(name: 'Bob', age: 17),
+parameter.inner  49:24-49:31  Person(name: 'Bob', age: 17),
+parameter.inner  50:11-50:24  Person(name: 'Carol', age: 42, tags: ['vip', 'early-bird']),
+parameter.inner  50:26-50:33  Person(name: 'Carol', age: 42, tags: ['vip', 'early-bird']),
+parameter.inner  50:35-50:62  Person(name: 'Carol', age: 42, tags: ['vip', 'early-bird']),
+parameter.inner  53:32-53:44  final greeter = PersonGreeter(prefix: 'Hi');
+parameter.inner  54:31-54:47  for (final p in people.where((p) => p.isAdult)) {
+parameter.inner  54:32-54:33  for (final p in people.where((p) => p.isAdult)) {
+parameter.inner  55:10-55:26  print(greeter.greet(p));
+parameter.inner  55:24-55:25  print(greeter.greet(p));
+parameter.inner  62:8-62:42  print('Adults: ${adultNames.join(', ')}');
+parameter.inner  62:35-62:39  print('Adults: ${adultNames.join(', ')}');
+parameter.inner  65:10-65:32  print('$n is ${classify(n)}');
+parameter.inner  65:28-65:29  print('$n is ${classify(n)}');
+parameter.inner  68:42-68:54  final (sum, count) = await _sumAndCount([1, 2, 3, 4]);
+parameter.inner  69:8-69:31  print('sum=$sum count=$count');
+parameter.inner  72:42-72:58  Future<(int sum, int count)> _sumAndCount(Iterable<int> xs) async {
+parameter.inner  73:29-73:42  await Future<void>.delayed(Duration.zero);
+parameter.inner  74:18-74:19  return (xs.fold(0, (a, b) => a + b), xs.length);
+parameter.inner  74:21-74:36  return (xs.fold(0, (a, b) => a + b), xs.length);
+parameter.inner  74:22-74:23  return (xs.fold(0, (a, b) => a + b), xs.length);
+parameter.inner  74:25-74:26  return (xs.fold(0, (a, b) => a + b), xs.length);

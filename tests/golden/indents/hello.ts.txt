@@ -1,0 +1,7 @@
+4..8  interface Person {
+12..16  enum Level {
+18..20  function greet(person: Person, prefix = "Hello"): string {
+22..26  function classify(n: number): Classification {
+31..46  function main(): void {
+  32..36  const alice: Person = {
+  40..42  for (let n = -2; n <= 5; n++) {

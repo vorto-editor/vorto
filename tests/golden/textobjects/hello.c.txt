@@ -1,0 +1,16 @@
+function.outer   23:0-30:1  static const char *classify_name(Classification c) {
+function.outer   32:0-36:1  static Classification classify(int n) {
+function.outer   38:0-53:1  int main(void) {
+function.inner   23:51-30:1  static const char *classify_name(Classification c) {
+function.inner   32:38-36:1  static Classification classify(int n) {
+function.inner   38:15-53:1  int main(void) {
+class.outer      9:8-14:1  typedef enum {
+class.outer      16:8-21:1  typedef struct {
+class.inner      9:13-14:1  typedef enum {
+class.inner      16:15-21:1  typedef struct {
+parameter.outer  23:33-23:49  static const char *classify_name(Classification c) {
+parameter.outer  32:31-32:36  static Classification classify(int n) {
+parameter.outer  38:9-38:13  int main(void) {
+parameter.inner  23:33-23:49  static const char *classify_name(Classification c) {
+parameter.inner  32:31-32:36  static Classification classify(int n) {
+parameter.inner  38:9-38:13  int main(void) {

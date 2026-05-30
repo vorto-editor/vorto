@@ -1,0 +1,28 @@
+# Sample TOML file to exercise syntax highlighting, indents,
+# and folds in vorto. Open with `vorto assets/samples/hello.toml`.
+
+greeting = "Hello"
+version = "1.0.0"
+enabled = true
+squares = [1, 4, 9, 16, 25]
+
+[metadata]
+limit = 100
+ratio = 0.75
+created = 2026-05-30T12:00:00Z
+
+[classifications]
+negative = "negative"
+zero = "zero"
+positive_even = "positive even"
+positive_odd = "positive odd"
+
+[[people]]
+name = "Alice"
+age = 30
+tags = ["admin", "early_bird"]
+
+[[people]]
+name = "Bob"
+age = 17
+tags = []

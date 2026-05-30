@@ -1,0 +1,12 @@
+4..46  defmodule Greeter do
+  5..9  @moduledoc """
+  20..21  def greet(%__MODULE__{name: name}, prefix \\ @default_greeting)
+  21..23  when is_binary(prefix) and prefix != "" do
+  25..32  def classify(n) when is_integer(n) do
+    26..31  cond do
+      30..31  true -> :positive_odd
+  34..39  def squares(range \\ 1..10) do
+  41..45  def tag_words do
+    42..44  for word <- ~w(alpha beta gamma), into: %{} do
+48..51  defprotocol Shoutable do
+53..55  defimpl Shoutable, for: BitString do

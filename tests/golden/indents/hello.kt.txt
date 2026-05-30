@@ -1,0 +1,7 @@
+8..11  ) {
+13..18  enum class Classification(val label: String) {
+20..21  fun greet(person: Person, prefix: String = "Hello"): String =
+23..28  fun classify(n: Int): Classification = when {
+30..31  fun squares(numbers: List<Int>): List<Int> =
+33..42  fun main() {
+  37..39  for (n in -2..5) {

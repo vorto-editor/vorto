@@ -1,0 +1,8 @@
+4..38  greeting: Hello
+  9..18  - name: Alice
+    9..14  - name: Alice
+      13..14  - admin
+    15..18  - name: Bob
+  21..24  negative: negative
+  29..38  nested:
+    30..31  limit: 100

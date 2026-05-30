@@ -1,0 +1,22 @@
+5..15  """
+17..19  interface Node {
+23..28  enum Classification {
+32..36  input PersonInput {
+38..42  type Organization implements Node {
+44..47  type PersonConnection {
+49..52  type PersonEdge {
+54..57  type PageInfo {
+59..63  type Query {
+65..67  type Mutation {
+69..71  type Subscription {
+75..93  query GetPersonWithFriends($id: ID!, $first: Int = 5) {
+  76..92  person(id: $id) {
+    80..91  friends(first: $first) {
+      81..86  edges {
+        83..85  node {
+      87..90  pageInfo {
+95..100  fragment PersonSummary on Person {
+102..107  mutation CreatePerson($input: PersonInput!) {
+  103..106  createPerson(input: $input) {
+109..113  subscription OnPersonCreated {
+  110..112  personCreated {

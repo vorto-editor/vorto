@@ -1,0 +1,76 @@
+function.outer   10:0-13:3  function greet --description 'Greet a person, optionally with a custom prefix' --argument-names name prefix
+function.outer   15:0-28:3  function classify --argument-names n
+function.inner   10:0-13:3  function greet --description 'Greet a person, optionally with a custom prefix' --argument-names name prefix
+function.inner   15:0-28:3  function classify --argument-names n
+parameter.outer  8:4-8:7  set -gx VORTO_SAMPLE_GREETING "Hello"
+parameter.outer  8:8-8:29  set -gx VORTO_SAMPLE_GREETING "Hello"
+parameter.outer  8:30-8:37  set -gx VORTO_SAMPLE_GREETING "Hello"
+parameter.outer  11:8-11:10  set -q prefix[1]; or set prefix $VORTO_SAMPLE_GREETING
+parameter.outer  11:11-11:20  set -q prefix[1]; or set prefix $VORTO_SAMPLE_GREETING
+parameter.outer  11:29-11:35  set -q prefix[1]; or set prefix $VORTO_SAMPLE_GREETING
+parameter.outer  11:36-11:58  set -q prefix[1]; or set prefix $VORTO_SAMPLE_GREETING
+parameter.outer  12:9-12:26  echo "$prefix, $name!"
+parameter.outer  18:17-18:25  echo negative
+parameter.outer  20:17-20:21  echo zero
+parameter.outer  22:20-22:35  if test (math "$n % 2") -eq 0
+parameter.outer  22:26-22:34  if test (math "$n % 2") -eq 0
+parameter.outer  22:36-22:39  if test (math "$n % 2") -eq 0
+parameter.outer  22:40-22:41  if test (math "$n % 2") -eq 0
+parameter.outer  23:21-23:36  echo "positive even"
+parameter.outer  25:21-25:35  echo "positive odd"
+parameter.outer  30:4-30:6  set -l people alice bob carol
+parameter.outer  30:7-30:13  set -l people alice bob carol
+parameter.outer  30:14-30:19  set -l people alice bob carol
+parameter.outer  30:20-30:23  set -l people alice bob carol
+parameter.outer  30:24-30:29  set -l people alice bob carol
+parameter.outer  32:10-32:98  greet (string upper -- (string sub --start 1 --length 1 $name))(string sub --start 2 -- $name) "Hi"
+parameter.outer  32:18-32:23  greet (string upper -- (string sub --start 1 --length 1 $name))(string sub --start 2 -- $name) "Hi"
+parameter.outer  32:24-32:26  greet (string upper -- (string sub --start 1 --length 1 $name))(string sub --start 2 -- $name) "Hi"
+parameter.outer  32:27-32:66  greet (string upper -- (string sub --start 1 --length 1 $name))(string sub --start 2 -- $name) "Hi"
+parameter.outer  32:35-32:38  greet (string upper -- (string sub --start 1 --length 1 $name))(string sub --start 2 -- $name) "Hi"
+parameter.outer  32:39-32:46  greet (string upper -- (string sub --start 1 --length 1 $name))(string sub --start 2 -- $name) "Hi"
+parameter.outer  32:47-32:48  greet (string upper -- (string sub --start 1 --length 1 $name))(string sub --start 2 -- $name) "Hi"
+parameter.outer  32:49-32:57  greet (string upper -- (string sub --start 1 --length 1 $name))(string sub --start 2 -- $name) "Hi"
+parameter.outer  32:58-32:59  greet (string upper -- (string sub --start 1 --length 1 $name))(string sub --start 2 -- $name) "Hi"
+parameter.outer  32:60-32:65  greet (string upper -- (string sub --start 1 --length 1 $name))(string sub --start 2 -- $name) "Hi"
+parameter.outer  32:75-32:78  greet (string upper -- (string sub --start 1 --length 1 $name))(string sub --start 2 -- $name) "Hi"
+parameter.outer  32:79-32:86  greet (string upper -- (string sub --start 1 --length 1 $name))(string sub --start 2 -- $name) "Hi"
+parameter.outer  32:87-32:88  greet (string upper -- (string sub --start 1 --length 1 $name))(string sub --start 2 -- $name) "Hi"
+parameter.outer  32:89-32:91  greet (string upper -- (string sub --start 1 --length 1 $name))(string sub --start 2 -- $name) "Hi"
+parameter.outer  32:92-32:97  greet (string upper -- (string sub --start 1 --length 1 $name))(string sub --start 2 -- $name) "Hi"
+parameter.outer  32:99-32:103  greet (string upper -- (string sub --start 1 --length 1 $name))(string sub --start 2 -- $name) "Hi"
+parameter.outer  35:4-35:6  set -l numbers (seq -- -2 5)
+parameter.outer  35:7-35:14  set -l numbers (seq -- -2 5)
+parameter.outer  35:15-35:28  set -l numbers (seq -- -2 5)
+parameter.outer  35:20-35:22  set -l numbers (seq -- -2 5)
+parameter.outer  35:23-35:25  set -l numbers (seq -- -2 5)
+parameter.outer  35:26-35:27  set -l numbers (seq -- -2 5)
+parameter.outer  37:11-37:23  printf '%s is %s\n' $n (classify $n)
+parameter.outer  37:24-37:26  printf '%s is %s\n' $n (classify $n)
+parameter.outer  37:27-37:40  printf '%s is %s\n' $n (classify $n)
+parameter.outer  37:37-37:39  printf '%s is %s\n' $n (classify $n)
+parameter.outer  41:4-41:6  set -l squares
+parameter.outer  41:7-41:14  set -l squares
+parameter.outer  42:14-42:15  for n in (seq 1 5)
+parameter.outer  42:16-42:17  for n in (seq 1 5)
+parameter.outer  43:8-43:10  set -a squares (math "$n * $n")
+parameter.outer  43:11-43:18  set -a squares (math "$n * $n")
+parameter.outer  43:19-43:35  set -a squares (math "$n * $n")
+parameter.outer  43:25-43:34  set -a squares (math "$n * $n")
+parameter.outer  45:5-45:24  echo "squares: $squares"
+parameter.outer  48:5-48:7  abbr -a -- vsample 'vorto assets/samples/hello.fish'
+parameter.outer  48:8-48:10  abbr -a -- vsample 'vorto assets/samples/hello.fish'
+parameter.outer  48:11-48:18  abbr -a -- vsample 'vorto assets/samples/hello.fish'
+parameter.outer  48:19-48:52  abbr -a -- vsample 'vorto assets/samples/hello.fish'
+parameter.outer  51:5-51:7  test -d assets/samples
+parameter.outer  51:8-51:22  test -d assets/samples
+parameter.outer  52:13-52:34  and echo "samples dir present"
+parameter.outer  53:12-53:33  or echo "samples dir missing"
+parameter.outer  56:4-56:6  set -l joined (string join , -- $people)
+parameter.outer  56:7-56:13  set -l joined (string join , -- $people)
+parameter.outer  56:14-56:40  set -l joined (string join , -- $people)
+parameter.outer  56:22-56:26  set -l joined (string join , -- $people)
+parameter.outer  56:27-56:28  set -l joined (string join , -- $people)
+parameter.outer  56:29-56:31  set -l joined (string join , -- $people)
+parameter.outer  56:32-56:39  set -l joined (string join , -- $people)
+parameter.outer  57:5-57:22  echo "joined: $joined"

@@ -1,0 +1,26 @@
+Sample unified diff to exercise syntax highlighting and folds in vorto.
+Open with `vorto assets/samples/hello.diff`.
+
+diff --git a/greet.py b/greet.py
+index 1234567..89abcde 100644
+--- a/greet.py
++++ b/greet.py
+@@ -1,7 +1,9 @@
+-def greet(name):
+-    return "Hello " + name
++def greet(name, prefix="Hello"):
++    return f"{prefix}, {name}!"
+
+
+ def main():
+-    print(greet("world"))
++    for name in ["Alice", "Bob"]:
++        print(greet(name))
+diff --git a/README.md b/README.md
+index 0000000..1111111 100644
+--- a/README.md
++++ b/README.md
+@@ -1,2 +1,3 @@
+ # Demo
++A tiny greeting program.
+

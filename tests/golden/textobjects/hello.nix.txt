@@ -1,0 +1,24 @@
+function.outer   4:0-68:1  { lib
+function.outer   17:2-17:37  greeting = name: "Hello, ${name}!";
+function.outer   17:13-17:36  greeting = name: "Hello, ${name}!";
+function.outer   24:26-24:34  squared = builtins.map (n: n * n) numbers;
+function.outer   26:2-30:24  classify = n:
+function.outer   26:13-30:23  classify = n:
+function.outer   59:19-59:39  (builtins.map (f: "--features=${f}") features);
+function.inner   13:0-68:1  let
+function.inner   17:19-17:36  greeting = name: "Hello, ${name}!";
+function.inner   24:29-24:34  squared = builtins.map (n: n * n) numbers;
+function.inner   27:4-30:23  if n < 0 then "negative"
+function.inner   59:22-59:39  (builtins.map (f: "--features=${f}") features);
+parameter.outer  4:0-11:1  { lib
+parameter.outer  17:13-17:17  greeting = name: "Hello, ${name}!";
+parameter.outer  24:26-24:27  squared = builtins.map (n: n * n) numbers;
+parameter.outer  26:13-26:14  classify = n:
+parameter.outer  59:19-59:20  (builtins.map (f: "--features=${f}") features);
+parameter.inner  4:2-4:5  { lib
+parameter.inner  5:2-5:8  , stdenv
+parameter.inner  6:2-6:17  , fetchFromGitHub
+parameter.inner  7:2-7:12  , pkg-config
+parameter.inner  8:2-8:9  , openssl
+parameter.inner  9:2-9:21  , withFeatureA ? true
+parameter.inner  10:2-10:22  , withFeatureB ? false

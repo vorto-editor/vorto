@@ -1,0 +1,30 @@
+function.outer   4:17-8:1  data class Person(
+function.outer   13:25-13:44  enum class Classification(val label: String) {
+function.outer   20:0-21:30  fun greet(person: Person, prefix: String = "Hello"): String =
+function.outer   23:0-28:1  fun classify(n: Int): Classification = when {
+function.outer   30:0-31:45  fun squares(numbers: List<Int>): List<Int> =
+function.outer   31:16-31:27  numbers.map { it * it }.filter { it > 5 }
+function.outer   31:35-31:45  numbers.map { it * it }.filter { it > 5 }
+function.outer   33:0-42:1  fun main() {
+function.inner   20:60-21:30  fun greet(person: Person, prefix: String = "Hello"): String =
+function.inner   23:37-28:1  fun classify(n: Int): Classification = when {
+function.inner   30:43-31:45  fun squares(numbers: List<Int>): List<Int> =
+function.inner   33:11-42:1  fun main() {
+class.outer      4:0-11:1  data class Person(
+class.inner      8:2-11:1  ) {
+parameter.outer  5:4-5:20  val name: String,
+parameter.outer  6:4-6:16  val age: Int,
+parameter.outer  7:4-7:40  val tags: List<String> = emptyList(),
+parameter.outer  13:26-13:43  enum class Classification(val label: String) {
+parameter.outer  20:10-20:24  fun greet(person: Person, prefix: String = "Hello"): String =
+parameter.outer  20:26-20:40  fun greet(person: Person, prefix: String = "Hello"): String =
+parameter.outer  23:13-23:19  fun classify(n: Int): Classification = when {
+parameter.outer  30:12-30:30  fun squares(numbers: List<Int>): List<Int> =
+parameter.inner  5:4-5:20  val name: String,
+parameter.inner  6:4-6:16  val age: Int,
+parameter.inner  7:4-7:40  val tags: List<String> = emptyList(),
+parameter.inner  13:26-13:43  enum class Classification(val label: String) {
+parameter.inner  20:10-20:24  fun greet(person: Person, prefix: String = "Hello"): String =
+parameter.inner  20:26-20:40  fun greet(person: Person, prefix: String = "Hello"): String =
+parameter.inner  23:13-23:19  fun classify(n: Int): Classification = when {
+parameter.inner  30:12-30:30  fun squares(numbers: List<Int>): List<Int> =

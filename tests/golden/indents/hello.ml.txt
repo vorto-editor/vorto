@@ -1,0 +1,14 @@
+8..12  type person = {
+14..16  type 'a tree =
+18..21  module type GREETER = sig
+24..27  GREETER with type subject = person = struct
+31..35  let classify n =
+  33..35  else if n = 0 then "zero"
+    34..35  else if n mod 2 = 0 then "positive even"
+37..42  let rec insert x = function
+  39..42  | Node (y, l, r) ->
+    41..42  else if x > y then Node (y, l, insert x r)
+44..46  let rec inorder = function
+48..63  let () =
+  49..53  let people = [
+  58..60  for n = -2 to 5 do

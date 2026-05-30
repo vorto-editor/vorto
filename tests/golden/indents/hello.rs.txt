@@ -1,0 +1,11 @@
+9..13  struct Person {
+15..20  enum Classification {
+22..32  impl fmt::Display for Classification {
+  23..31  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    24..29  let s = match self {
+34..36  fn greet(person: &Person, prefix: &str) -> String {
+38..45  fn classify(n: i64) -> Classification {
+  39..44  match n {
+47..49  fn squares(numbers: &[i64]) -> Vec<i64> {
+51..69  fn main() {
+  61..65  for n in -2..=5 {

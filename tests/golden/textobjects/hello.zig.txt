@@ -1,0 +1,12 @@
+function.outer   12:4-19:5  fn label(self: Classification) []const u8 {
+function.outer   26:4-28:5  fn isAdult(self: Person) bool {
+function.outer   31:0-35:1  fn classify(n: i64) Classification {
+function.outer   37:0-47:1  pub fn main() !void {
+class.outer      6:23-20:1  const Classification = enum {
+class.outer      22:15-29:1  const Person = struct {
+parameter.outer  12:13-12:33  fn label(self: Classification) []const u8 {
+parameter.outer  26:15-26:27  fn isAdult(self: Person) bool {
+parameter.outer  31:12-31:18  fn classify(n: i64) Classification {
+parameter.inner  12:13-12:33  fn label(self: Classification) []const u8 {
+parameter.inner  26:15-26:27  fn isAdult(self: Person) bool {
+parameter.inner  31:12-31:18  fn classify(n: i64) Classification {

@@ -1,0 +1,33 @@
+{
+  "_comment": "Sample JSON to exercise highlighting and folds in vorto. Open with `vorto assets/samples/hello.json`.",
+  "greeting": "Hello",
+  "people": [
+    {
+      "name": "Alice",
+      "age": 30,
+      "adult": true,
+      "tags": ["admin", "early_bird"]
+    },
+    {
+      "name": "Bob",
+      "age": 17,
+      "adult": false,
+      "tags": []
+    }
+  ],
+  "classifications": {
+    "negative": "negative",
+    "zero": "zero",
+    "positiveEven": "positive even",
+    "positiveOdd": "positive odd"
+  },
+  "squares": [1, 4, 9, 16, 25],
+  "metadata": {
+    "version": "1.0.0",
+    "nested": {
+      "enabled": true,
+      "limit": 100,
+      "ratio": 0.75
+    }
+  }
+}

@@ -1,0 +1,5 @@
+6..23  <catalog xmlns="https://example.com/demo" xmlns:meta="https://example.com/meta">
+  7..21  <people>
+    8..15  <person id="1" meta:role="admin">
+      11..14  <tags>
+    16..20  <person id="2">

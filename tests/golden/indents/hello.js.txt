@@ -1,0 +1,8 @@
+4..14  class Person {
+  5..9  constructor(name, age, tags = []) {
+  11..13  get isAdult() {
+16..21  const CLASSES = Object.freeze({
+23..25  function greet(person, prefix = "Hello") {
+27..31  function classify(n) {
+35..44  function main() {
+  39..41  for (let n = -2; n <= 5; n++) {

@@ -1,0 +1,10 @@
+6..9  import (
+12..16  type Person struct {
+20..25  const (
+27..38  func (c Classification) String() string {
+  28..37  switch c {
+40..42  func greet(p Person, prefix string) string {
+44..55  func classify(n int) Classification {
+  45..54  switch {
+57..66  func main() {
+  62..64  for n := -2; n <= 5; n++ {

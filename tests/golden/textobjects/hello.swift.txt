@@ -1,0 +1,50 @@
+function.outer   39:4-41:5  func greet(_ subject: Person) -> String {
+function.outer   44:0-48:1  func classify(_ n: Int) -> Classification {
+function.outer   50:0-53:1  func summarize<T: Sequence>(_ xs: T) -> String where T.Element == Int {
+function.outer   51:24-51:35  let mapped = xs.map { $0 * $0 }.filter { $0 > 4 }
+function.outer   51:43-51:53  let mapped = xs.map { $0 * $0 }.filter { $0 > 4 }
+function.inner   40:8-41:4  "\(prefix), \(subject.name)!"
+function.inner   45:4-48:0  guard n != 0 else { return .zero }
+function.inner   51:4-53:0  let mapped = xs.map { $0 * $0 }.filter { $0 > 4 }
+function.inner   51:26-51:33  let mapped = xs.map { $0 * $0 }.filter { $0 > 4 }
+function.inner   51:45-51:51  let mapped = xs.map { $0 * $0 }.filter { $0 > 4 }
+class.outer      15:0-20:1  struct Person: Equatable {
+class.outer      22:0-34:1  enum Classification: CustomStringConvertible {
+class.outer      36:0-42:1  struct PersonGreeter: Greeter {
+class.inner      16:4-19:35  let name: String
+class.inner      23:4-33:5  case negative
+class.inner      37:4-41:5  var prefix: String = "Hello"
+parameter.outer  47:21-47:46  return .positive(even: n.isMultiple(of: 2))
+parameter.outer  47:40-47:45  return .positive(even: n.isMultiple(of: 2))
+parameter.outer  52:22-52:33  return mapped.map(String.init).joined(separator: ", ")
+parameter.outer  52:42-52:57  return mapped.map(String.init).joined(separator: ", ")
+parameter.outer  56:11-56:24  Person(name: "Alice", age: 30),
+parameter.outer  56:26-56:33  Person(name: "Alice", age: 30),
+parameter.outer  57:11-57:22  Person(name: "Bob", age: 17),
+parameter.outer  57:24-57:31  Person(name: "Bob", age: 17),
+parameter.outer  58:11-58:24  Person(name: "Carol", age: 42),
+parameter.outer  58:26-58:33  Person(name: "Carol", age: 42),
+parameter.outer  61:28-61:40  let greeter = PersonGreeter(prefix: "Hi")
+parameter.outer  63:10-63:26  print(greeter.greet(p))
+parameter.outer  63:24-63:25  print(greeter.greet(p))
+parameter.outer  67:10-67:34  print("\(n) is \(classify(n))")
+parameter.outer  67:30-67:31  print("\(n) is \(classify(n))")
+parameter.outer  70:6-70:40  print("squares > 4: \(summarize(1...6))")
+parameter.outer  70:32-70:37  print("squares > 4: \(summarize(1...6))")
+parameter.inner  47:27-47:46  return .positive(even: n.isMultiple(of: 2))
+parameter.inner  47:44-47:45  return .positive(even: n.isMultiple(of: 2))
+parameter.inner  52:22-52:33  return mapped.map(String.init).joined(separator: ", ")
+parameter.inner  52:53-52:57  return mapped.map(String.init).joined(separator: ", ")
+parameter.inner  56:17-56:24  Person(name: "Alice", age: 30),
+parameter.inner  56:31-56:33  Person(name: "Alice", age: 30),
+parameter.inner  57:17-57:22  Person(name: "Bob", age: 17),
+parameter.inner  57:29-57:31  Person(name: "Bob", age: 17),
+parameter.inner  58:17-58:24  Person(name: "Carol", age: 42),
+parameter.inner  58:31-58:33  Person(name: "Carol", age: 42),
+parameter.inner  61:36-61:40  let greeter = PersonGreeter(prefix: "Hi")
+parameter.inner  63:10-63:26  print(greeter.greet(p))
+parameter.inner  63:24-63:25  print(greeter.greet(p))
+parameter.inner  67:10-67:34  print("\(n) is \(classify(n))")
+parameter.inner  67:30-67:31  print("\(n) is \(classify(n))")
+parameter.inner  70:6-70:40  print("squares > 4: \(summarize(1...6))")
+parameter.inner  70:32-70:37  print("squares > 4: \(summarize(1...6))")

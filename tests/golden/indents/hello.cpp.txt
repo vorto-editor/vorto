@@ -1,0 +1,8 @@
+10..15  enum class Classification {
+17..23  struct Person {
+25..27  std::string greet(const Person &p, const std::string &prefix = "Hello") {
+29..33  Classification classify(int n) {
+36..42  std::vector<T> squares(const std::vector<T> &xs) {
+  38..40  for (const auto &x : xs) {
+46..56  int main() {
+  50..54  for (int n = -2; n <= 5; ++n) {

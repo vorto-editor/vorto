@@ -1,0 +1,6 @@
+function.outer   10:0-14:1  greet() {
+function.outer   16:0-27:1  classify() {
+function.outer   29:0-43:1  main() {
+function.inner   10:8-14:1  greet() {
+function.inner   16:11-27:1  classify() {
+function.inner   29:7-43:1  main() {

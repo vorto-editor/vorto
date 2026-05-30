@@ -54,6 +54,14 @@ jobs:
       - name: Bundle grammars + collect licenses
         run: cargo run --locked -- grammar bundle
 
+      # The bundle step just populated assets/grammars-prebuilt/<target>/
+      # for this native host, so the grammar golden tests (indents.scm +
+      # textobjects.scm verified against the real grammars) can now load
+      # them. They're #[ignore]d in normal CI for lack of these libs, so
+      # opt in explicitly here — running per release target.
+      - name: Verify grammar queries (indents + text objects)
+        run: cargo test --locked grammar_golden -- --include-ignored
+
       - name: Build
         run: cargo build --release --locked --target ${{ matrix.target }} --features bundled-grammars
 

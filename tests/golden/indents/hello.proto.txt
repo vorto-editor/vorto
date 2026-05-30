@@ -1,0 +1,5 @@
+13..19  enum Classification {
+21..33  message Person {
+  27..30  message Address {
+35..38  message GreetRequest {
+40..42  message GreetResponse {

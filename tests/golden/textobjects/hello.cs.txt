@@ -1,0 +1,48 @@
+function.outer   30:4-30:60  public string Greet(Person p) => $"{Prefix}, {p.Name}!";
+function.outer   35:4-41:6  public static string Classify(int n) => n switch
+function.outer   46:4-75:5  public static async Task Main()
+function.inner   30:37-30:59  public string Greet(Person p) => $"{Prefix}, {p.Name}!";
+function.inner   35:44-41:5  public static string Classify(int n) => n switch
+function.inner   48:8-74:28  var people = new List<Person>
+class.outer      14:0-17:1  public record Person(string Name, int Age)
+class.outer      19:0-22:1  public interface IGreeter<T>
+class.outer      24:0-31:1  public class PersonGreeter : IGreeter<Person>
+class.outer      33:0-42:1  public static class Classifier
+class.outer      44:0-76:1  public static class Program
+class.inner      16:4-16:48  public string Greeting => $"Hello, {Name}!";
+class.inner      21:4-21:26  string Greet(T value);
+class.inner      26:4-30:60  private const string DefaultPrefix = "Hello";
+class.inner      35:4-41:6  public static string Classify(int n) => n switch
+class.inner      46:4-75:5  public static async Task Main()
+parameter.outer  14:21-14:33  public record Person(string Name, int Age)
+parameter.outer  14:32-14:41  public record Person(string Name, int Age)
+parameter.outer  50:16-50:24  new("Alice", 30),
+parameter.outer  50:23-50:27  new("Alice", 30),
+parameter.outer  51:16-51:22  new("Bob", 25),
+parameter.outer  51:21-51:25  new("Bob", 25),
+parameter.outer  52:16-52:24  new("Carol", 42),
+parameter.outer  52:23-52:27  new("Carol", 42),
+parameter.outer  67:49-67:54  Console.WriteLine($"Adults: {string.Join(", ", adults)}");
+parameter.outer  67:53-67:61  Console.WriteLine($"Adults: {string.Join(", ", adults)}");
+parameter.inner  14:21-14:32  public record Person(string Name, int Age)
+parameter.inner  14:34-14:41  public record Person(string Name, int Age)
+parameter.inner  21:17-21:24  string Greet(T value);
+parameter.inner  30:24-30:32  public string Greet(Person p) => $"{Prefix}, {p.Name}!";
+parameter.inner  35:34-35:39  public static string Classify(int n) => n switch
+parameter.inner  50:16-50:23  new("Alice", 30),
+parameter.inner  50:25-50:27  new("Alice", 30),
+parameter.inner  51:16-51:21  new("Bob", 25),
+parameter.inner  51:23-51:25  new("Bob", 25),
+parameter.inner  52:16-52:23  new("Carol", 42),
+parameter.inner  52:25-52:27  new("Carol", 42),
+parameter.inner  58:30-58:46  Console.WriteLine(greeter.Greet(p));
+parameter.inner  58:44-58:45  Console.WriteLine(greeter.Greet(p));
+parameter.inner  62:19-62:35  .Where(p => p.Age >= 21)
+parameter.inner  63:31-63:41  .OrderByDescending(p => p.Age)
+parameter.inner  64:20-64:31  .Select(p => p.Name)
+parameter.inner  67:26-67:64  Console.WriteLine($"Adults: {string.Join(", ", adults)}");
+parameter.inner  67:49-67:53  Console.WriteLine($"Adults: {string.Join(", ", adults)}");
+parameter.inner  67:55-67:61  Console.WriteLine($"Adults: {string.Join(", ", adults)}");
+parameter.inner  71:30-71:64  Console.WriteLine($"{n} is {Classifier.Classify(n)}");
+parameter.inner  71:60-71:61  Console.WriteLine($"{n} is {Classifier.Classify(n)}");
+parameter.inner  74:25-74:26  await Task.Delay(0);

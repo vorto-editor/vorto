@@ -1,0 +1,47 @@
+// Sample Protocol Buffers file to exercise syntax highlighting and
+// indents in vorto. Open with `vorto assets/samples/hello.proto`.
+
+syntax = "proto3";
+
+package demo.v1;
+
+option go_package = "github.com/example/demo/v1;demov1";
+
+import "google/protobuf/timestamp.proto";
+
+// Classification of an integer.
+enum Classification {
+  CLASSIFICATION_UNSPECIFIED = 0;
+  CLASSIFICATION_NEGATIVE = 1;
+  CLASSIFICATION_ZERO = 2;
+  CLASSIFICATION_POSITIVE_EVEN = 3;
+  CLASSIFICATION_POSITIVE_ODD = 4;
+}
+
+message Person {
+  string name = 1;
+  int32 age = 2;
+  repeated string tags = 3;
+  google.protobuf.Timestamp created_at = 4;
+
+  message Address {
+    string street = 1;
+    string city = 2;
+  }
+
+  Address address = 5;
+}
+
+message GreetRequest {
+  Person person = 1;
+  string prefix = 2;
+}
+
+message GreetResponse {
+  string message = 1;
+}
+
+service Greeter {
+  rpc Greet(GreetRequest) returns (GreetResponse);
+  rpc Classify(Person) returns (stream GreetResponse);
+}

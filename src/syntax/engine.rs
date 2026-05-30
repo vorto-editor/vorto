@@ -322,6 +322,18 @@ impl Engine {
         q.find(&self.source, tree, target, cursor_row, cursor_col_chars)
     }
 
+    /// Every range matching `target` in the buffer (not cursor-relative).
+    /// Empty when no tree is parsed or the language has no
+    /// `textobjects.scm`. Used by the grammar golden tests to snapshot
+    /// all text objects of a kind.
+    #[cfg(test)]
+    pub(crate) fn all_text_objects(&self, target: &str) -> Vec<(usize, usize, usize, usize)> {
+        let (Some(tree), Some(q)) = (self.tree.as_ref(), self.textobject.as_ref()) else {
+            return Vec::new();
+        };
+        q.all(&self.source, tree, target)
+    }
+
     /// Pair mate of the character at `(row, col_chars)` when the cursor
     /// sits on a syntactic bracket (`()`, `[]`, `{}`, `<>`) or quote
     /// (`"`, `'`, `` ` ``). Tree-sitter resolves brackets inside

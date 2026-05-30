@@ -1,0 +1,65 @@
+function.outer   21:4-29:5  public static function of(int $n): self
+function.outer   34:4-34:45  public function greet(Person $p): string;
+function.outer   44:4-48:8  public function __construct(
+function.outer   55:4-58:5  public function greet(Person $p): string
+function.inner   23:8-28:10  return match (true) {
+function.inner   57:8-57:46  return "{$this->prefix}, {$p->name}!";
+class.outer      14:0-30:1  enum Classification: string
+class.outer      32:0-35:1  interface Greeter
+class.outer      37:0-40:1  trait Prefixed
+class.outer      42:0-49:1  final readonly class Person
+class.outer      51:0-59:1  final class PersonGreeter implements Greeter
+class.inner      16:4-29:5  case Negative = 'negative';
+class.inner      34:4-34:45  public function greet(Person $p): string;
+class.inner      39:4-39:36  public string $prefix = 'Hello';
+class.inner      44:4-48:8  public function __construct(
+class.inner      53:4-58:5  use Prefixed;
+parameter.outer  45:8-45:28  public string $name,
+parameter.outer  45:27-46:23  public string $name,
+parameter.outer  46:23-47:31  public int $age,
+parameter.outer  62:15-62:29  new Person(name: 'Alice', age: 30, tags: ['admin']),
+parameter.outer  62:28-62:37  new Person(name: 'Alice', age: 30, tags: ['admin']),
+parameter.outer  62:37-62:54  new Person(name: 'Alice', age: 30, tags: ['admin']),
+parameter.outer  63:15-63:27  new Person(name: 'Bob', age: 25),
+parameter.outer  63:26-63:35  new Person(name: 'Bob', age: 25),
+parameter.outer  64:15-64:29  new Person(name: 'Carol', age: 42, tags: ['vip', 'early-bird']),
+parameter.outer  64:28-64:37  new Person(name: 'Carol', age: 42, tags: ['vip', 'early-bird']),
+parameter.outer  64:37-64:66  new Person(name: 'Carol', age: 42, tags: ['vip', 'early-bird']),
+parameter.outer  75:4-75:31  fn (Person $p) => $p->name,
+parameter.outer  75:30-76:58  fn (Person $p) => $p->name,
+parameter.outer  76:17-76:25  array_filter($people, fn (Person $p) => $p->age >= 21),
+parameter.outer  76:24-76:57  array_filter($people, fn (Person $p) => $p->age >= 21),
+parameter.outer  78:25-78:30  echo 'Adults: ', implode(', ', $adultNames), PHP_EOL;
+parameter.outer  78:29-78:42  echo 'Adults: ', implode(', ', $adultNames), PHP_EOL;
+parameter.outer  81:11-81:24  printf("%d is %s%s", $n, Classification::of($n)->value, PHP_EOL);
+parameter.outer  81:23-81:27  printf("%d is %s%s", $n, Classification::of($n)->value, PHP_EOL);
+parameter.outer  81:27-81:58  printf("%d is %s%s", $n, Classification::of($n)->value, PHP_EOL);
+parameter.outer  81:58-81:67  printf("%d is %s%s", $n, Classification::of($n)->value, PHP_EOL);
+parameter.inner  21:30-21:36  public static function of(int $n): self
+parameter.inner  34:26-34:35  public function greet(Person $p): string;
+parameter.inner  45:8-45:27  public string $name,
+parameter.inner  46:8-46:23  public int $age,
+parameter.inner  47:8-47:31  public array $tags = [],
+parameter.inner  55:26-55:35  public function greet(Person $p): string
+parameter.inner  62:15-62:28  new Person(name: 'Alice', age: 30, tags: ['admin']),
+parameter.inner  62:30-62:37  new Person(name: 'Alice', age: 30, tags: ['admin']),
+parameter.inner  62:39-62:54  new Person(name: 'Alice', age: 30, tags: ['admin']),
+parameter.inner  63:15-63:26  new Person(name: 'Bob', age: 25),
+parameter.inner  63:28-63:35  new Person(name: 'Bob', age: 25),
+parameter.inner  64:15-64:28  new Person(name: 'Carol', age: 42, tags: ['vip', 'early-bird']),
+parameter.inner  64:30-64:37  new Person(name: 'Carol', age: 42, tags: ['vip', 'early-bird']),
+parameter.inner  64:39-64:66  new Person(name: 'Carol', age: 42, tags: ['vip', 'early-bird']),
+parameter.inner  71:25-71:27  echo $greeter->greet($p), PHP_EOL;
+parameter.inner  75:4-75:30  fn (Person $p) => $p->name,
+parameter.inner  75:8-75:17  fn (Person $p) => $p->name,
+parameter.inner  76:4-76:58  array_filter($people, fn (Person $p) => $p->age >= 21),
+parameter.inner  76:17-76:24  array_filter($people, fn (Person $p) => $p->age >= 21),
+parameter.inner  76:26-76:57  array_filter($people, fn (Person $p) => $p->age >= 21),
+parameter.inner  76:30-76:39  array_filter($people, fn (Person $p) => $p->age >= 21),
+parameter.inner  78:25-78:29  echo 'Adults: ', implode(', ', $adultNames), PHP_EOL;
+parameter.inner  78:31-78:42  echo 'Adults: ', implode(', ', $adultNames), PHP_EOL;
+parameter.inner  81:11-81:23  printf("%d is %s%s", $n, Classification::of($n)->value, PHP_EOL);
+parameter.inner  81:25-81:27  printf("%d is %s%s", $n, Classification::of($n)->value, PHP_EOL);
+parameter.inner  81:29-81:58  printf("%d is %s%s", $n, Classification::of($n)->value, PHP_EOL);
+parameter.inner  81:48-81:50  printf("%d is %s%s", $n, Classification::of($n)->value, PHP_EOL);
+parameter.inner  81:60-81:67  printf("%d is %s%s", $n, Classification::of($n)->value, PHP_EOL);

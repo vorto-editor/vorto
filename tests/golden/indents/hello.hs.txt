@@ -1,0 +1,3 @@
+13..15  { name :: String
+50..58  main = do
+  51..54  let alice = Person { name = "Alice", age = 30 }

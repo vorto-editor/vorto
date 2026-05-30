@@ -1,0 +1,7 @@
+4..7  variable "greeting" {
+9..16  locals {
+  10..13  people = [
+18..27  resource "demo_person" "alice" {
+  23..26  settings {
+29..31  output "greeting_line" {
+33..39  output "adults" {

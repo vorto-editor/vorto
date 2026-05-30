@@ -1,0 +1,10 @@
+10..14  greet() {
+16..27  classify() {
+  18..26  if ((n < 0)); then
+    20..22  elif ((n == 0)); then
+    22..24  elif ((n % 2 == 0)); then
+    24..26  else
+29..43  main() {
+  30..32  for name in "${PEOPLE[@]}"; do
+  34..36  for n in $(seq -2 5); do
+  38..42  case "$(uname -s)" in

@@ -1,0 +1,34 @@
+<!-- Sample HTML file to exercise syntax highlighting, indents,
+     and folds in vorto. Open with `vorto assets/samples/hello.html`. -->
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hello, vorto</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        margin: 2rem;
+      }
+      .people li {
+        list-style: square;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Hello, <em>world</em>!</h1>
+      <ul class="people">
+        <li data-age="30">Alice</li>
+        <li data-age="17">Bob</li>
+      </ul>
+      <button type="button" id="greet">Greet</button>
+    </main>
+    <script>
+      document.getElementById("greet").addEventListener("click", () => {
+        console.log("Hello from the sample page!");
+      });
+    </script>
+  </body>
+</html>

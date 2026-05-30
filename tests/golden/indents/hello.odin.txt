@@ -1,0 +1,14 @@
+9..14  Classification :: enum {
+16..20  Person :: struct {
+24..26  is_adult :: proc(p: Person) -> bool {
+28..30  greet :: proc(p: Person, prefix := DEFAULT_GREETING) -> string {
+32..44  classify :: proc(n: int) -> Classification {
+  35..37  case n < 0:
+  37..39  case n == 0:
+  39..41  case n % 2 == 0:
+  41..43  case:
+46..67  main :: proc() {
+  47..51  alice := Person {
+  55..57  for n in -2 ..= 5 {
+  61..65  for x in 1 ..= 6 {
+    62..64  if x * x > 4 {
