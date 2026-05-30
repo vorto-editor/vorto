@@ -1,0 +1,6 @@
+19..23  struct Person{T<:Integer}
+30..32  function greet(p::Person, prefix::AbstractString = DEFAULT_GREETING)
+37..45  function classify(n::Integer)
+  38..44  if n < 0
+49..51  function tag_lengths(words)
+63..65  for n in -2:5

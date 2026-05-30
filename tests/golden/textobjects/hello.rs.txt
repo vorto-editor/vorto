@@ -1,0 +1,32 @@
+function.outer   23:4-31:5  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+function.outer   34:0-36:1  fn greet(person: &Person, prefix: &str) -> String {
+function.outer   38:0-45:1  fn classify(n: i64) -> Classification {
+function.outer   47:0-49:1  fn squares(numbers: &[i64]) -> Vec<i64> {
+function.outer   48:23-48:32  numbers.iter().map(|x| x * x).filter(|x| *x > 5).collect()
+function.outer   48:41-48:51  numbers.iter().map(|x| x * x).filter(|x| *x > 5).collect()
+function.outer   51:0-69:1  fn main() {
+function.inner   23:61-31:5  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+function.inner   34:50-36:1  fn greet(person: &Person, prefix: &str) -> String {
+function.inner   38:38-45:1  fn classify(n: i64) -> Classification {
+function.inner   47:40-49:1  fn squares(numbers: &[i64]) -> Vec<i64> {
+function.inner   48:27-48:32  numbers.iter().map(|x| x * x).filter(|x| *x > 5).collect()
+function.inner   48:45-48:51  numbers.iter().map(|x| x * x).filter(|x| *x > 5).collect()
+function.inner   51:10-69:1  fn main() {
+class.outer      9:0-13:1  struct Person {
+class.outer      15:0-20:1  enum Classification {
+class.outer      22:0-32:1  impl fmt::Display for Classification {
+class.inner      9:14-13:1  struct Person {
+class.inner      15:20-20:1  enum Classification {
+class.inner      22:37-32:1  impl fmt::Display for Classification {
+parameter.outer  23:11-23:16  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+parameter.outer  23:18-23:44  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+parameter.outer  34:9-34:24  fn greet(person: &Person, prefix: &str) -> String {
+parameter.outer  34:26-34:38  fn greet(person: &Person, prefix: &str) -> String {
+parameter.outer  38:12-38:18  fn classify(n: i64) -> Classification {
+parameter.outer  47:11-47:26  fn squares(numbers: &[i64]) -> Vec<i64> {
+parameter.inner  23:11-23:16  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+parameter.inner  23:18-23:44  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+parameter.inner  34:9-34:24  fn greet(person: &Person, prefix: &str) -> String {
+parameter.inner  34:26-34:38  fn greet(person: &Person, prefix: &str) -> String {
+parameter.inner  38:12-38:18  fn classify(n: i64) -> Classification {
+parameter.inner  47:11-47:26  fn squares(numbers: &[i64]) -> Vec<i64> {

@@ -1,0 +1,28 @@
+function.outer   20:2-23:5  def greet(%__MODULE__{name: name}, prefix \\ @default_greeting)
+function.outer   25:2-32:5  def classify(n) when is_integer(n) do
+function.outer   34:2-39:5  def squares(range \\ 1..10) do
+function.outer   37:19-37:36  |> Enum.filter(fn n -> n > 5 end)
+function.outer   41:2-45:5  def tag_words do
+function.outer   54:2-54:45  def shout(s), do: String.upcase(s) <> "!!!"
+function.inner   22:4-22:25  "#{prefix}, #{name}!"
+function.inner   26:4-31:7  cond do
+function.inner   35:4-38:24  range
+function.inner   37:27-37:32  |> Enum.filter(fn n -> n > 5 end)
+function.inner   42:4-44:7  for word <- ~w(alpha beta gamma), into: %{} do
+function.inner   54:20-54:45  def shout(s), do: String.upcase(s) <> "!!!"
+class.outer      4:0-46:3  defmodule Greeter do
+class.outer      48:0-51:3  defprotocol Shoutable do
+class.outer      53:0-55:3  defimpl Shoutable, for: BitString do
+class.inner      5:2-45:5  @moduledoc """
+class.inner      49:2-50:18  @doc "Convert a thing to a SHOUTING string."
+class.inner      54:2-54:45  def shout(s), do: String.upcase(s) <> "!!!"
+parameter.outer  20:12-20:36  def greet(%__MODULE__{name: name}, prefix \\ @default_greeting)
+parameter.outer  20:37-20:64  def greet(%__MODULE__{name: name}, prefix \\ @default_greeting)
+parameter.outer  25:15-25:16  def classify(n) when is_integer(n) do
+parameter.outer  34:14-34:28  def squares(range \\ 1..10) do
+parameter.outer  54:12-54:13  def shout(s), do: String.upcase(s) <> "!!!"
+parameter.inner  20:12-20:35  def greet(%__MODULE__{name: name}, prefix \\ @default_greeting)
+parameter.inner  20:37-20:64  def greet(%__MODULE__{name: name}, prefix \\ @default_greeting)
+parameter.inner  25:15-25:16  def classify(n) when is_integer(n) do
+parameter.inner  34:14-34:28  def squares(range \\ 1..10) do
+parameter.inner  54:12-54:13  def shout(s), do: String.upcase(s) <> "!!!"

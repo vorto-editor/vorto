@@ -1,0 +1,10 @@
+4..34  <html lang="en">
+  5..18  <head>
+    9..17  <style>
+      10..13  body {
+      14..16  .people li {
+  19..33  <body>
+    20..27  <main>
+      22..25  <ul class="people">
+    28..32  <script>
+      29..31  document.getElementById("greet").addEventListener("click", () => {

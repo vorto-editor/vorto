@@ -1,0 +1,24 @@
+function.outer   26:4-27:29  def is_adult(self) -> bool:
+function.outer   30:0-31:38  def greet(person: Person, prefix: str = "Hello") -> str:
+function.outer   34:0-39:86  def classify(n: int) -> Classification:
+function.outer   42:0-43:48  def squares(numbers: list[int]) -> list[int]:
+function.outer   46:0-53:47  def main() -> None:
+function.inner   27:8-27:29  return self.age >= 18
+function.inner   31:4-31:38  return f"{prefix}, {person.name}!"
+function.inner   35:4-39:86  if n < 0:
+function.inner   43:4-43:48  return [x * x for x in numbers if x * x > 5]
+function.inner   47:4-53:47  alice = Person(name="Alice", age=30, tags=["admin", "early_bird"])
+class.outer      10:0-14:33  class Classification(Enum):
+class.outer      18:0-27:29  class Person:
+class.inner      11:4-14:33  NEGATIVE = "negative"
+class.inner      19:4-27:29  """A person with a name, age, and free-form tags."""
+parameter.outer  26:17-26:21  def is_adult(self) -> bool:
+parameter.outer  30:10-30:24  def greet(person: Person, prefix: str = "Hello") -> str:
+parameter.outer  30:26-30:47  def greet(person: Person, prefix: str = "Hello") -> str:
+parameter.outer  34:13-34:19  def classify(n: int) -> Classification:
+parameter.outer  42:12-42:30  def squares(numbers: list[int]) -> list[int]:
+parameter.inner  26:17-26:21  def is_adult(self) -> bool:
+parameter.inner  30:10-30:24  def greet(person: Person, prefix: str = "Hello") -> str:
+parameter.inner  30:26-30:47  def greet(person: Person, prefix: str = "Hello") -> str:
+parameter.inner  34:13-34:19  def classify(n: int) -> Classification:
+parameter.inner  42:12-42:30  def squares(numbers: list[int]) -> list[int]:

@@ -1,0 +1,12 @@
+13..68  let
+  19..20  features = lib.optionals withFeatureA [ "feature-a" ]
+  26..30  classify = n:
+    27..30  if n < 0 then "negative"
+      28..30  else if n == 0 then "zero"
+        29..30  else if lib.mod n 2 == 0 then "positive even"
+  32..36  person = {
+  38..42  multiline = ''
+  45..68  stdenv.mkDerivation rec {
+    48..53  src = fetchFromGitHub {
+    58..59  cargoBuildFlags = lib.concatStringsSep " "
+    61..67  meta = with lib; {

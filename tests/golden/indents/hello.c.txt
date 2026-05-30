@@ -1,0 +1,8 @@
+9..14  typedef enum {
+16..21  typedef struct {
+23..30  static const char *classify_name(Classification c) {
+  24..29  switch (c) {
+32..36  static Classification classify(int n) {
+38..53  int main(void) {
+  39..44  Person alice = {
+  48..50  for (int n = -2; n <= 5; n++) {

@@ -1,0 +1,28 @@
+function.outer   18:0-20:1  function greet(person: Person, prefix = "Hello"): string {
+function.outer   22:0-26:1  function classify(n: number): Classification {
+function.outer   28:16-29:48  const squares = (numbers: number[]): number[] =>
+function.outer   29:14-29:26  numbers.map((x) => x * x).filter((x) => x > 5);
+function.outer   29:35-29:47  numbers.map((x) => x * x).filter((x) => x > 5);
+function.outer   31:0-46:1  function main(): void {
+function.inner   18:57-20:1  function greet(person: Person, prefix = "Hello"): string {
+function.inner   22:45-26:1  function classify(n: number): Classification {
+function.inner   29:2-29:48  numbers.map((x) => x * x).filter((x) => x > 5);
+function.inner   29:21-29:26  numbers.map((x) => x * x).filter((x) => x > 5);
+function.inner   29:42-29:47  numbers.map((x) => x * x).filter((x) => x > 5);
+function.inner   31:22-46:1  function main(): void {
+class.outer      4:0-8:1  interface Person {
+class.inner      4:17-8:1  interface Person {
+parameter.outer  18:15-18:29  function greet(person: Person, prefix = "Hello"): string {
+parameter.outer  18:31-18:47  function greet(person: Person, prefix = "Hello"): string {
+parameter.outer  22:18-22:27  function classify(n: number): Classification {
+parameter.outer  28:17-28:34  const squares = (numbers: number[]): number[] =>
+parameter.outer  29:15-29:16  numbers.map((x) => x * x).filter((x) => x > 5);
+parameter.outer  29:36-29:37  numbers.map((x) => x * x).filter((x) => x > 5);
+parameter.inner  18:15-18:29  function greet(person: Person, prefix = "Hello"): string {
+parameter.inner  18:31-18:47  function greet(person: Person, prefix = "Hello"): string {
+parameter.inner  22:18-22:27  function classify(n: number): Classification {
+parameter.inner  28:17-28:34  const squares = (numbers: number[]): number[] =>
+parameter.inner  29:15-29:16  numbers.map((x) => x * x).filter((x) => x > 5);
+parameter.inner  29:36-29:37  numbers.map((x) => x * x).filter((x) => x > 5);
+type.outer       10:0-10:77  type Classification = "negative" | "zero" | "positive even" | "positive odd";
+type.inner       10:22-10:76  type Classification = "negative" | "zero" | "positive even" | "positive odd";

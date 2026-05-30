@@ -1,0 +1,7 @@
+1..33  {
+  4..17  "people": [
+    5..10  {
+    11..16  {
+  18..23  "classifications": {
+  25..32  "metadata": {
+    27..31  "nested": {

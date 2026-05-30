@@ -23,6 +23,8 @@
 mod bracket;
 pub(crate) mod engine;
 mod fold;
+#[cfg(test)]
+mod grammar_golden;
 mod highlight;
 mod indent;
 pub(crate) mod injection;

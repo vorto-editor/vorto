@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Sample XML file to exercise syntax highlighting and indents in vorto.
+  Open with `vorto assets/samples/hello.xml`.
+-->
+<catalog xmlns="https://example.com/demo" xmlns:meta="https://example.com/meta">
+  <people>
+    <person id="1" meta:role="admin">
+      <name>Alice</name>
+      <age>30</age>
+      <tags>
+        <tag>admin</tag>
+        <tag>early_bird</tag>
+      </tags>
+    </person>
+    <person id="2">
+      <name>Bob</name>
+      <age>17</age>
+      <note><![CDATA[Raw <text> & entities are not parsed here.]]></note>
+    </person>
+  </people>
+  <greeting prefix="Hello" />
+</catalog>

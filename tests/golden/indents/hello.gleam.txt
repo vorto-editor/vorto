@@ -1,0 +1,8 @@
+10..12  pub type Person {
+14..19  pub type Classification {
+23..25  pub fn greet(person: Person, prefix: String) -> String {
+27..34  pub fn classify(n: Int) -> Classification {
+  28..33  case n {
+36..40  pub fn squares(numbers: List(Int)) -> List(Int) {
+42..53  pub fn main() {
+  48..50  |> list.each(fn(n) {

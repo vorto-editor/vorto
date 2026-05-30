@@ -1,0 +1,6 @@
+4..9  CREATE TABLE person (
+11..15  CREATE TABLE tag (
+17..20  INSERT INTO person (id, name, age) VALUES
+22..25  INSERT INTO tag (person_id, label) VALUES
+27..34  SELECT
+  30..33  CASE

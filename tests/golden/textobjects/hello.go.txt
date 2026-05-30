@@ -1,0 +1,22 @@
+function.outer   27:0-38:1  func (c Classification) String() string {
+function.outer   40:0-42:1  func greet(p Person, prefix string) string {
+function.outer   44:0-55:1  func classify(n int) Classification {
+function.outer   57:0-66:1  func main() {
+function.inner   27:40-38:1  func (c Classification) String() string {
+function.inner   40:43-42:1  func greet(p Person, prefix string) string {
+function.inner   44:36-55:1  func classify(n int) Classification {
+function.inner   57:12-66:1  func main() {
+class.outer      12:0-16:1  type Person struct {
+class.inner      12:19-16:1  type Person struct {
+parameter.outer  27:6-27:22  func (c Classification) String() string {
+parameter.outer  40:11-40:19  func greet(p Person, prefix string) string {
+parameter.outer  40:21-40:34  func greet(p Person, prefix string) string {
+parameter.outer  44:14-44:19  func classify(n int) Classification {
+parameter.inner  27:6-27:22  func (c Classification) String() string {
+parameter.inner  40:11-40:19  func greet(p Person, prefix string) string {
+parameter.inner  40:21-40:34  func greet(p Person, prefix string) string {
+parameter.inner  44:14-44:19  func classify(n int) Classification {
+type.outer       12:5-16:1  type Person struct {
+type.outer       18:5-18:23  type Classification int
+type.inner       12:12-16:1  type Person struct {
+type.inner       18:20-18:23  type Classification int

@@ -1,0 +1,8 @@
+6..20  const Classification = enum {
+  12..19  fn label(self: Classification) []const u8 {
+    13..18  return switch (self) {
+22..29  const Person = struct {
+  26..28  fn isAdult(self: Person) bool {
+31..35  fn classify(n: i64) Classification {
+37..47  pub fn main() !void {
+  44..46  while (n <= 5) : (n += 1) {

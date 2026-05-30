@@ -1,0 +1,37 @@
+# Sample YAML file to exercise syntax highlighting, indents,
+# and folds in vorto. Open with `vorto assets/samples/hello.yaml`.
+
+greeting: Hello
+version: 1.0.0
+enabled: true
+
+people:
+  - name: Alice
+    age: 30
+    adult: true
+    tags:
+      - admin
+      - early_bird
+  - name: Bob
+    age: 17
+    adult: false
+    tags: []
+
+classifications:
+  negative: negative
+  zero: zero
+  positive_even: positive even
+  positive_odd: positive odd
+
+squares: [1, 4, 9, 16, 25]
+
+metadata:
+  nested:
+    limit: 100
+    ratio: 0.75
+  description: >
+    This is a folded scalar that spans
+    multiple lines but joins into one.
+  literal: |
+    line one
+    line two

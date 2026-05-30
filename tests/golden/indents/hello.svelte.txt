@@ -1,0 +1,11 @@
+3..21  <script lang="ts">
+  4..7  interface Person {
+  9..12  let people: Person[] = [
+  18..20  function increment(): void {
+23..39  <section class="greeting">
+  26..34  {#if adults.length > 0}
+    27..31  <ul>
+      28..30  {#each adults as person (person.name)}
+  36..38  <button type="button" on:click={increment}>
+41..47  <style>
+  42..46  .greeting {

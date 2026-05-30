@@ -1,0 +1,11 @@
+10..14  class Classification(Enum):
+18..27  class Person:
+  26..27  def is_adult(self) -> bool:
+30..31  def greet(person: Person, prefix: str = "Hello") -> str:
+34..39  def classify(n: int) -> Classification:
+  35..36  if n < 0:
+  37..38  if n == 0:
+42..43  def squares(numbers: list[int]) -> list[int]:
+46..53  def main() -> None:
+  50..51  for n in range(-2, 6):
+56..57  if __name__ == "__main__":

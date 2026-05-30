@@ -1,0 +1,8 @@
+14..17  final case class Person(name: String, age: Int, tags: List[Symbol] = Nil):
+17..20  trait Greeter[A]:
+20..40  object Greetings:
+  27..33  n match
+    28..33  case x if x < 0      => Classification.Negative
+  34..40  for
+41..50  val people = List(
+  41..44  val people = List(

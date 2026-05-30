@@ -1,0 +1,52 @@
+/* Sample CSS file to exercise syntax highlighting, indents,
+   and folds in vorto. Open with `vorto assets/samples/hello.css`. */
+
+:root {
+  --bg: #1e1e2e;
+  --fg: #cdd6f4;
+  --accent: #89b4fa;
+  --gap: 0.5rem;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: system-ui, sans-serif;
+}
+
+.greeting {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+  padding: 1rem 2rem;
+}
+
+.greeting h1 {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.greeting button:hover {
+  text-decoration: underline;
+}
+
+@media (max-width: 600px) {
+  .greeting {
+    padding: 0.5rem 1rem;
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}

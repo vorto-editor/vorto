@@ -1,0 +1,82 @@
+name: grammar-golden
+
+# Verifies the per-language indents.scm / textobjects.scm queries against
+# the real tree-sitter grammars (src/syntax/grammar_golden.rs). Those
+# tests are #[ignore]d in the normal `cargo test` (ci.yml) because they
+# need compiled grammar libraries, so they'd otherwise only run at release
+# time. Run them here too — but only when something that can affect the
+# goldens changes — so query drift fails the PR, not the release.
+#
+# The grammars are gitignored, so they have to be built with
+# `vorto grammar bundle`. That's the expensive step (clone + cc-compile of
+# every grammar), so it's cached on the grammar recipe hash: it re-runs
+# only when the recipes change or the cache is evicted, not every PR.
+
+on:
+  pull_request:
+    paths:
+      - "assets/queries/**"
+      - "tests/inputs/**"
+      - "tests/golden/**"
+      - "src/syntax/**"
+      - "src/grammar/**"
+      - ".github/workflows/grammar-golden.yml"
+  push:
+    branches: [main]
+    paths:
+      - "assets/queries/**"
+      - "tests/inputs/**"
+      - "tests/golden/**"
+      - "src/syntax/**"
+      - "src/grammar/**"
+      - ".github/workflows/grammar-golden.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: grammar-golden-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  golden:
+    name: indents + text objects
+    # arm64 runner → host triple aarch64-apple-darwin, which the harness
+    # extracts grammars for. Goldens are arch-independent, so one host is
+    # enough to catch query drift.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      # Restore the compiled grammar libraries keyed on the recipes that
+      # produce them. A hit skips the (slow, network-bound) bundle below;
+      # a miss (recipe change / eviction) rebuilds and re-populates it.
+      - name: Cache prebuilt grammars
+        id: grammar-cache
+        uses: actions/cache@v4
+        with:
+          path: assets/grammars-prebuilt
+          key: grammars-${{ runner.os }}-${{ hashFiles('src/grammar/recipe.rs', 'src/grammar/build.rs') }}
+
+      # Some grammars (e.g. swift) ship no pre-generated src/parser.c, so
+      # `grammar bundle` must run `tree-sitter generate` from grammar.js —
+      # which needs the tree-sitter CLI on PATH (Node is preinstalled on
+      # the runner). Only needed when we actually bundle (cache miss).
+      - name: Install tree-sitter CLI
+        if: steps.grammar-cache.outputs.cache-hit != 'true'
+        run: npm install -g tree-sitter-cli
+
+      - name: Bundle grammars
+        if: steps.grammar-cache.outputs.cache-hit != 'true'
+        run: cargo run --locked -- grammar bundle
+
+      - name: Grammar golden tests
+        run: cargo test --locked grammar_golden -- --include-ignored

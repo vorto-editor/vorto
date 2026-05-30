@@ -1,0 +1,113 @@
+# Sample GraphQL schema + operations to exercise syntax highlighting,
+# indents, and textobjects in vorto. Open with
+# `vorto assets/samples/hello.graphql`.
+
+"""
+A person known to the system.
+"""
+type Person implements Node {
+  id: ID!
+  name: String!
+  age: Int
+  tags: [String!]!
+  greeting(prefix: String = "Hello"): String!
+  friends(first: Int, after: String): PersonConnection!
+}
+
+interface Node {
+  id: ID!
+}
+
+union SearchResult = Person | Organization
+
+enum Classification {
+  NEGATIVE
+  ZERO
+  POSITIVE_EVEN
+  POSITIVE_ODD
+}
+
+scalar DateTime
+
+input PersonInput {
+  name: String!
+  age: Int = 0
+  tags: [String!] = []
+}
+
+type Organization implements Node {
+  id: ID!
+  name: String!
+  members: [Person!]!
+}
+
+type PersonConnection {
+  edges: [PersonEdge!]!
+  pageInfo: PageInfo!
+}
+
+type PersonEdge {
+  cursor: String!
+  node: Person!
+}
+
+type PageInfo {
+  endCursor: String
+  hasNextPage: Boolean!
+}
+
+type Query {
+  person(id: ID!): Person
+  search(term: String!): [SearchResult!]!
+  classify(value: Int!): Classification!
+}
+
+type Mutation {
+  createPerson(input: PersonInput!): Person!
+}
+
+type Subscription {
+  personCreated: Person!
+}
+
+# ----- Operations -----
+
+query GetPersonWithFriends($id: ID!, $first: Int = 5) {
+  person(id: $id) {
+    id
+    name
+    greeting(prefix: "Hi")
+    friends(first: $first) {
+      edges {
+        cursor
+        node {
+          ...PersonSummary
+        }
+      }
+      pageInfo {
+        endCursor
+        hasNextPage
+      }
+    }
+  }
+}
+
+fragment PersonSummary on Person {
+  id
+  name
+  age
+  tags
+}
+
+mutation CreatePerson($input: PersonInput!) {
+  createPerson(input: $input) {
+    id
+    name
+  }
+}
+
+subscription OnPersonCreated {
+  personCreated {
+    ...PersonSummary
+  }
+}

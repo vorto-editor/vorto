@@ -1,0 +1,11 @@
+6..9  interface GreetingProps {
+13..15  function classify(count: number): Status {
+17..32  export function Greeting({ name, initialCount = 0 }: GreetingProps) {
+  21..31  return (
+    22..30  <section className="greeting" data-status={status}>
+      24..26  <p>
+      27..29  <button type="button" onClick={() => setCount((c) => c + 1)}>
+34..43  export default function App() {
+  36..42  return (
+    37..41  <main>
+      38..40  {people.map((name) => (

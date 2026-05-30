@@ -1,0 +1,7 @@
+10..13  function greet --description 'Greet a person, optionally with a custom prefix' --argument-names name prefix
+15..28  function classify --argument-names n
+  16..27  switch $n
+    22..26  if test (math "$n % 2") -eq 0
+31..33  for name in $people
+36..38  for n in $numbers
+42..44  for n in (seq 1 5)

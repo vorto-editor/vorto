@@ -1,0 +1,10 @@
+6..49  module Demo
+  7..12  CLASSIFICATIONS = {
+  14..26  class Person
+    17..21  def initialize(name, age, tags = [])
+    23..25  def adult?
+  30..32  def greet(person, prefix: "Hello")
+  34..44  def classify(n)
+    35..43  if n.negative?
+  46..48  def squares(numbers)
+54..56  (-2..5).each do |n|

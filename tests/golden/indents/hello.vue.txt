@@ -1,0 +1,11 @@
+3..22  <script setup lang="ts">
+  6..9  interface Person {
+  11..14  const people = ref<Person[]>([
+  19..21  function increment(): void {
+24..34  <template>
+  25..33  <section class="greeting">
+    27..31  <ul>
+      28..30  <li v-for="person in adults" :key="person.name">
+36..46  <style scoped>
+  37..41  .greeting {
+  43..45  .greeting h1 {

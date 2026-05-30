@@ -1,0 +1,12 @@
+10..13  protocol Greeter {
+15..20  struct Person: Equatable {
+22..34  enum Classification: CustomStringConvertible {
+  27..33  var description: String {
+    28..32  switch self {
+36..42  struct PersonGreeter: Greeter {
+  39..41  func greet(_ subject: Person) -> String {
+44..48  func classify(_ n: Int) -> Classification {
+50..53  func summarize<T: Sequence>(_ xs: T) -> String where T.Element == Int {
+55..59  let people = [
+62..64  for p in people where p.isAdult {
+66..68  for n in -2...5 {

@@ -1,0 +1,36 @@
+function.outer   5:2-9:3  constructor(name, age, tags = []) {
+function.outer   11:2-13:3  get isAdult() {
+function.outer   23:0-25:1  function greet(person, prefix = "Hello") {
+function.outer   27:0-31:1  function classify(n) {
+function.outer   33:16-33:75  const squares = (numbers) => numbers.map((x) => x * x).filter((x) => x > 5);
+function.outer   33:41-33:53  const squares = (numbers) => numbers.map((x) => x * x).filter((x) => x > 5);
+function.outer   33:62-33:74  const squares = (numbers) => numbers.map((x) => x * x).filter((x) => x > 5);
+function.outer   35:0-44:1  function main() {
+function.inner   5:36-9:3  constructor(name, age, tags = []) {
+function.inner   11:16-13:3  get isAdult() {
+function.inner   23:41-25:1  function greet(person, prefix = "Hello") {
+function.inner   27:21-31:1  function classify(n) {
+function.inner   33:29-33:75  const squares = (numbers) => numbers.map((x) => x * x).filter((x) => x > 5);
+function.inner   33:48-33:53  const squares = (numbers) => numbers.map((x) => x * x).filter((x) => x > 5);
+function.inner   33:69-33:74  const squares = (numbers) => numbers.map((x) => x * x).filter((x) => x > 5);
+function.inner   35:16-44:1  function main() {
+class.outer      4:0-14:1  class Person {
+class.inner      4:13-14:1  class Person {
+parameter.outer  5:14-5:18  constructor(name, age, tags = []) {
+parameter.outer  5:20-5:23  constructor(name, age, tags = []) {
+parameter.outer  5:25-5:34  constructor(name, age, tags = []) {
+parameter.outer  23:15-23:21  function greet(person, prefix = "Hello") {
+parameter.outer  23:23-23:39  function greet(person, prefix = "Hello") {
+parameter.outer  27:18-27:19  function classify(n) {
+parameter.outer  33:17-33:24  const squares = (numbers) => numbers.map((x) => x * x).filter((x) => x > 5);
+parameter.outer  33:42-33:43  const squares = (numbers) => numbers.map((x) => x * x).filter((x) => x > 5);
+parameter.outer  33:63-33:64  const squares = (numbers) => numbers.map((x) => x * x).filter((x) => x > 5);
+parameter.inner  5:14-5:18  constructor(name, age, tags = []) {
+parameter.inner  5:20-5:23  constructor(name, age, tags = []) {
+parameter.inner  5:25-5:34  constructor(name, age, tags = []) {
+parameter.inner  23:15-23:21  function greet(person, prefix = "Hello") {
+parameter.inner  23:23-23:39  function greet(person, prefix = "Hello") {
+parameter.inner  27:18-27:19  function classify(n) {
+parameter.inner  33:17-33:24  const squares = (numbers) => numbers.map((x) => x * x).filter((x) => x > 5);
+parameter.inner  33:42-33:43  const squares = (numbers) => numbers.map((x) => x * x).filter((x) => x > 5);
+parameter.inner  33:63-33:64  const squares = (numbers) => numbers.map((x) => x * x).filter((x) => x > 5);

@@ -31,32 +31,22 @@ impl TextObjectQuery {
         })
     }
 
-    /// Smallest range matching `target` that contains the cursor.
-    /// Returns `(start_row, start_col_chars, end_row, end_col_chars)`
-    /// with `end` exclusive.
-    pub(super) fn find(
+    /// Walk every match and invoke `yield_range` once per range captured
+    /// as `target` — both direct captures (`@function.inner`) and ranges
+    /// synthesized by a `#make-range!` predicate (`@function.outer` built
+    /// from `_start` / `_end` captures). The callback receives the byte
+    /// range plus the `(row, byte_col)` start/end points. Shared by
+    /// [`Self::find`] (cursor filter) and [`Self::all`] (collect all) so
+    /// the predicate parsing lives in one place.
+    fn for_each_range(
         &self,
         source: &str,
         tree: &Tree,
         target: &str,
-        cursor_row: usize,
-        cursor_col_chars: usize,
-    ) -> Option<(usize, usize, usize, usize)> {
-        // Cursor as a tree-sitter Point: row is line index, column is
-        // byte offset within that line.
-        let cursor_pt = (
-            cursor_row,
-            char_to_byte_col(source, cursor_row, cursor_col_chars),
-        );
-
+        mut yield_range: impl FnMut(std::ops::Range<usize>, (usize, usize), (usize, usize)),
+    ) {
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(&self.query, tree.root_node(), source.as_bytes());
-
-        // Best candidate so far, tracked by byte-length so we pick the
-        // innermost. (Multiple matches can contain the cursor when
-        // text objects nest, e.g. inner function inside outer impl.)
-        let mut best: Option<Candidate> = None;
-
         while let Some(m) = matches.next() {
             // 1. Direct captures with the target name.
             for cap in m.captures {
@@ -69,12 +59,10 @@ impl TextObjectQuery {
                     continue;
                 }
                 let node = cap.node;
-                consider(
-                    &mut best,
+                yield_range(
                     node.start_byte()..node.end_byte(),
                     point(node.start_position()),
                     point(node.end_position()),
-                    cursor_pt,
                 );
             }
 
@@ -118,16 +106,41 @@ impl TextObjectQuery {
                     }
                 }
                 if let (Some(s), Some(e)) = (span_start, span_end) {
-                    consider(
-                        &mut best,
+                    yield_range(
                         s.start_byte()..e.end_byte(),
                         point(s.start_position()),
                         point(e.end_position()),
-                        cursor_pt,
                     );
                 }
             }
         }
+    }
+
+    /// Smallest range matching `target` that contains the cursor.
+    /// Returns `(start_row, start_col_chars, end_row, end_col_chars)`
+    /// with `end` exclusive.
+    pub(super) fn find(
+        &self,
+        source: &str,
+        tree: &Tree,
+        target: &str,
+        cursor_row: usize,
+        cursor_col_chars: usize,
+    ) -> Option<(usize, usize, usize, usize)> {
+        // Cursor as a tree-sitter Point: row is line index, column is
+        // byte offset within that line.
+        let cursor_pt = (
+            cursor_row,
+            char_to_byte_col(source, cursor_row, cursor_col_chars),
+        );
+
+        // Best candidate so far, tracked by byte-length so we pick the
+        // innermost. (Multiple matches can contain the cursor when
+        // text objects nest, e.g. inner function inside outer impl.)
+        let mut best: Option<Candidate> = None;
+        self.for_each_range(source, tree, target, |bytes, start, end| {
+            consider(&mut best, bytes, start, end, cursor_pt);
+        });
 
         let c = best?;
         Some((
@@ -136,6 +149,33 @@ impl TextObjectQuery {
             c.end.0,
             byte_to_char_col(source, c.end.0, c.end.1),
         ))
+    }
+
+    /// Every range matching `target` anywhere in the tree, regardless of
+    /// cursor position. Unlike [`Self::find`] (which returns the single
+    /// innermost range under the cursor), this enumerates the whole file
+    /// so a golden test can snapshot all objects of a kind. Ranges are
+    /// `(start_row, start_col_chars, end_row, end_col_chars)`, end
+    /// exclusive, sorted and de-duplicated.
+    #[cfg(test)]
+    pub(super) fn all(
+        &self,
+        source: &str,
+        tree: &Tree,
+        target: &str,
+    ) -> Vec<(usize, usize, usize, usize)> {
+        let mut out: Vec<(usize, usize, usize, usize)> = Vec::new();
+        self.for_each_range(source, tree, target, |_bytes, start, end| {
+            out.push((
+                start.0,
+                byte_to_char_col(source, start.0, start.1),
+                end.0,
+                byte_to_char_col(source, end.0, end.1),
+            ));
+        });
+        out.sort_unstable();
+        out.dedup();
+        out
     }
 }
 
