@@ -119,24 +119,50 @@ impl LspConfig {
 // Formatter schema
 // ────────────────────────────────────────────────────────────────────────
 
-/// Raw `[languages.<name>.formatter]` entry as it appears in TOML.
-/// `command` is required when the user defines a new entry; both fields
-/// land here as `Option` so a missing `formatter` table on the language
-/// can be distinguished from an explicitly-cleared one.
+/// Raw external-command `[languages.<name>.formatter]` table as it
+/// appears in TOML. `command` is required when the user defines a new
+/// entry; both fields land here as `Option` so a missing `formatter`
+/// table on the language can be distinguished from an explicitly-cleared
+/// one.
 #[derive(Debug, Default, Deserialize, Clone)]
-pub struct FormatterToml {
+pub struct FormatterCommandToml {
     pub command: Option<String>,
     pub args: Option<Vec<String>>,
 }
 
+/// Raw `[languages.<name>] formatter` value as it appears in TOML. It is
+/// polymorphic: either an array of LSP server names (use those servers'
+/// `textDocument/formatting` in priority order) or an external-command
+/// table. `Lsp` is listed first so a TOML array matches it; a TOML table
+/// can only match `Command`.
+#[derive(Debug, Deserialize, Clone)]
+#[serde(untagged)]
+pub enum FormatterToml {
+    /// `formatter = ["server", ...]`
+    Lsp(Vec<String>),
+    /// `formatter = { command = "...", args = [...] }`
+    Command(FormatterCommandToml),
+}
+
 /// Fully-resolved external formatter. The buffer's text is piped on
-/// stdin; stdout becomes the new text. A missing `formatter` on the
-/// resolved `Language` means "fall back to `textDocument/formatting`
-/// against the first attached LSP".
+/// stdin; stdout becomes the new text.
 #[derive(Debug, Clone)]
 pub struct FormatterConfig {
     pub command: String,
     pub args: Vec<String>,
+}
+
+/// Fully-resolved formatter for a language. Either an external command
+/// (pipe the buffer on stdin, take stdout) or a priority-ordered list of
+/// LSP servers to try via `textDocument/formatting`. A missing
+/// `formatter` on the resolved `Language` means "fall back to
+/// `textDocument/formatting` against the first attached LSP".
+#[derive(Debug, Clone)]
+pub enum Formatter {
+    /// External command: pipe buffer on stdin, take stdout.
+    Command(FormatterConfig),
+    /// LSP servers to try in order via `textDocument/formatting`.
+    Lsp(Vec<String>),
 }
 
 // ────────────────────────────────────────────────────────────────────────
@@ -182,11 +208,13 @@ pub struct LanguageConfig {
     /// Server names (keys from the `[lsp]` table) to attach to buffers
     /// of this language. Replaced whole on overlay, not merged.
     pub lsp: Option<Vec<String>>,
-    /// External formatter invoked on save. The buffer's text is piped
-    /// on stdin and stdout becomes the new buffer text. Unset means
+    /// Formatter invoked on save. Either a list of LSP server names
+    /// (`formatter = ["biome"]`, formatted via those servers'
+    /// `textDocument/formatting` in priority order) or an external
+    /// command table (`formatter = { command = "rustfmt" }`, whose
+    /// stdin is the buffer and stdout becomes the new text). Unset means
     /// "fall back to `textDocument/formatting` against the attached
-    /// LSP". Replaced whole on overlay, not merged — `command` and
-    /// `args` go together, partial overrides don't pay rent here.
+    /// LSP". Replaced whole on overlay, not merged.
     pub formatter: Option<FormatterToml>,
 }
 
@@ -258,10 +286,12 @@ pub struct Language {
     /// references on `LanguageConfig.lsp`. Empty when the language has
     /// no LSP configured.
     pub lsp: Vec<LspConfig>,
-    /// External formatter, if configured. `None` means save-time
-    /// formatting falls through to `textDocument/formatting` against
-    /// the first attached LSP — or is a no-op when no LSP is attached.
-    pub formatter: Option<FormatterConfig>,
+    /// Formatter, if configured: either an external command or a
+    /// priority-ordered list of LSP servers to format via
+    /// `textDocument/formatting`. `None` means save-time formatting
+    /// falls through to `textDocument/formatting` against the first
+    /// attached LSP — or is a no-op when no LSP is attached.
+    pub formatter: Option<Formatter>,
 }
 
 // ────────────────────────────────────────────────────────────────────────
@@ -524,6 +554,32 @@ mod tests {
         );
         let err = resolve(user_langs, &empty_lsp()).unwrap_err();
         assert!(err.to_string().contains("nonexistent"));
+    }
+
+    #[test]
+    fn formatter_lsp_array_resolves_to_lsp_variant() {
+        let cfg: LanguageConfig =
+            toml::from_str("formatter = [\"biome\"]\n").expect("parse formatter array");
+        let mut user_langs: HashMap<String, LanguageConfig> = HashMap::new();
+        user_langs.insert("typescript".into(), cfg);
+        let langs = resolve(user_langs, &empty_lsp()).unwrap();
+        match &langs["typescript"].formatter {
+            Some(Formatter::Lsp(servers)) => assert_eq!(servers, &vec!["biome".to_string()]),
+            other => panic!("expected Formatter::Lsp, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn formatter_command_table_resolves_to_command_variant() {
+        let cfg: LanguageConfig = toml::from_str("formatter = { command = \"x\" }\n")
+            .expect("parse formatter command table");
+        let mut user_langs: HashMap<String, LanguageConfig> = HashMap::new();
+        user_langs.insert("rust".into(), cfg);
+        let langs = resolve(user_langs, &empty_lsp()).unwrap();
+        match &langs["rust"].formatter {
+            Some(Formatter::Command(c)) => assert_eq!(c.command, "x"),
+            other => panic!("expected Formatter::Command, got {other:?}"),
+        }
     }
 
     #[test]

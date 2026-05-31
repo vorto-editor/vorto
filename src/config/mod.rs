@@ -51,7 +51,7 @@ pub use keymap::{
     WINDOW_BINDINGS, Z_BINDINGS,
 };
 pub use languages::{
-    FormatterConfig, Language, LanguageConfig, LanguageRegistry, LspConfig, LspToml,
+    Formatter, FormatterConfig, Language, LanguageConfig, LanguageRegistry, LspConfig, LspToml,
 };
 
 use cursor::{CursorConfig, resolve_cursor_shapes};

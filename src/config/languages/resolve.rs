@@ -7,7 +7,9 @@ use std::collections::HashMap;
 use anyhow::{Result, anyhow};
 
 use super::builtins::{builtin_languages, builtin_lsp};
-use super::{FormatterConfig, Language, LanguageConfig, LspConfig, LspToml};
+use super::{
+    Formatter, FormatterConfig, FormatterToml, Language, LanguageConfig, LspConfig, LspToml,
+};
 
 /// Merge user `[lsp]` over built-in defaults. Fields the user supplied
 /// replace ours; the rest survive. New entries (user-only) require
@@ -70,12 +72,13 @@ fn build_language(
         }
     }
     let formatter = match c.formatter {
-        Some(f) => Some(FormatterConfig {
+        Some(FormatterToml::Command(f)) => Some(Formatter::Command(FormatterConfig {
             command: f.command.ok_or_else(|| {
                 anyhow!("[languages.{}.formatter] requires a `command` field", name)
             })?,
             args: f.args.unwrap_or_default(),
-        }),
+        })),
+        Some(FormatterToml::Lsp(servers)) => Some(Formatter::Lsp(servers)),
         None => None,
     };
     Ok(Language {

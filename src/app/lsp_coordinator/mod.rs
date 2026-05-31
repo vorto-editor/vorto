@@ -432,6 +432,42 @@ impl LspCoordinator {
         Ok(Some(edits))
     }
 
+    /// Request `textDocument/formatting` from the configured formatter
+    /// servers in priority order. Tries each named server that is
+    /// attached to the current document; returns the first success.
+    /// `Ok(None)` when no named server is attached. On error, tries the
+    /// next server and surfaces the last error only if all fail.
+    pub fn format_with_servers(
+        &mut self,
+        servers: &[String],
+        options: Value,
+        timeout: Duration,
+    ) -> Result<Option<Vec<lsp::TextEdit>>> {
+        let Some(uri) = self.current_uri.clone() else {
+            return Ok(None);
+        };
+        let mut last_err = None;
+        for name in servers {
+            let key = self
+                .current_clients
+                .iter()
+                .find(|k| k.rsplit_once("::").map(|(_, s)| s) == Some(name.as_str()))
+                .cloned();
+            let Some(key) = key else { continue };
+            let Some(client) = self.clients.get_mut(&key) else {
+                continue;
+            };
+            match client.formatting(&uri, options.clone(), timeout) {
+                Ok(edits) => return Ok(Some(edits)),
+                Err(e) => last_err = Some(e),
+            }
+        }
+        match last_err {
+            Some(e) => Err(e),
+            None => Ok(None),
+        }
+    }
+
     pub fn current_uri(&self) -> Option<&str> {
         self.current_uri.as_deref()
     }
