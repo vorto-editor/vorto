@@ -109,7 +109,7 @@
 ] @string.special.symbol
 
 (regex) @string.special.regex
-(escape_sequence) @escape
+(escape_sequence) @string.escape
 
 [
   (integer)
