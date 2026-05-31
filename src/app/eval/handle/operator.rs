@@ -37,22 +37,31 @@ pub(super) fn handle_op(app: &mut App, op: Operator, target: Target, outer_count
                 let rows = comment_target_rows(app, outer_count);
                 apply_comment_op(app, op, &rows, None, &mut cmds);
             } else {
-                for _ in 0..outer_count {
-                    match op {
-                        Operator::Delete => ed_op!(app, delete_line()),
-                        Operator::Yank => {
-                            ed_op!(app, yank_line());
-                            cmds.push(Cmd::SyncYank);
-                            cmds.push(Cmd::ToastInfo("yanked".into()));
-                        }
-                        Operator::Change => {
-                            cmds.push(Cmd::ToastError("change not implemented yet".into()));
-                        }
-                        Operator::Indent
-                        | Operator::Dedent
-                        | Operator::Comment
-                        | Operator::BlockComment => unreachable!(),
+                // `Ndd` / `Nyy` span N whole lines from the cursor.
+                // Apply the range op once so the *whole* run lands in the
+                // yank register — looping the single-line variant would
+                // leave only the last line behind.
+                let start = app.editor.cursor.row;
+                let last = app.active_doc().lines.len().saturating_sub(1);
+                let span = outer_count.max(1) as usize - 1;
+                let end = start.saturating_add(span).min(last);
+                match op {
+                    Operator::Delete => {
+                        ed_op!(app, delete_lines(start, end));
+                        cmds.push(Cmd::SyncYank);
                     }
+                    Operator::Yank => {
+                        app.active_doc_mut().yank_lines(start, end);
+                        cmds.push(Cmd::SyncYank);
+                        cmds.push(Cmd::ToastInfo("yanked".into()));
+                    }
+                    Operator::Change => {
+                        cmds.push(Cmd::ToastError("change not implemented yet".into()));
+                    }
+                    Operator::Indent
+                    | Operator::Dedent
+                    | Operator::Comment
+                    | Operator::BlockComment => unreachable!(),
                 }
             }
         }

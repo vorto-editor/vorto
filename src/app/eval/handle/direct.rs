@@ -55,9 +55,13 @@ pub(super) fn handle_direct(app: &mut App, kind: DirectKind, count: u32, ctx: Ct
         }
         D::DeleteToEol => ed_op!(app, delete_to_eol()),
         D::YankLine => {
-            for _ in 0..count {
-                ed_op!(app, yank_line());
-            }
+            // `NY` yanks N whole lines as one run — capture the span in a
+            // single call so the register holds every line, not just the
+            // last.
+            let start = app.editor.cursor.row;
+            let last = app.active_doc().lines.len().saturating_sub(1);
+            let end = start.saturating_add(count.max(1) as usize - 1).min(last);
+            app.active_doc_mut().yank_lines(start, end);
             cmds.push(Cmd::SyncYank);
             cmds.push(Cmd::ToastInfo("yanked".into()));
         }
@@ -102,9 +106,10 @@ pub(super) fn handle_direct(app: &mut App, kind: DirectKind, count: u32, ctx: Ct
         D::FoldOpenAll => app.fold_open_all(),
         D::FoldCloseAll => app.fold_close_all(),
         D::Paste => {
-            for _ in 0..count {
-                ed_op!(app, paste_after());
-            }
+            // `Np` repeats the register as one contiguous block, so the
+            // count goes *into* the paste rather than re-running it (which
+            // would interleave a multi-line register).
+            ed_op!(app, paste_after(count as usize));
         }
         D::Undo => {
             if !ed_op!(app, undo()) {
