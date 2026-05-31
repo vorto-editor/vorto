@@ -412,49 +412,76 @@ impl App {
         if !eff.format_on_save {
             return;
         }
-        let language = self
+        let formatter = self
             .active_doc()
             .path
             .as_deref()
-            .and_then(|p| self.config.languages.by_path(p));
+            .and_then(|p| self.config.languages.by_path(p))
+            .and_then(|lang| lang.formatter.clone());
 
-        // External formatter wins when configured: it's the user's
+        // A configured formatter wins when present: it's the user's
         // explicit choice, and the LSP would typically just shell out
         // to the same tool anyway (gopls → gofmt, rust-analyzer →
         // rustfmt).
-        if let Some(lang) = language
-            && let Some(formatter) = lang.formatter.clone()
-        {
-            let cwd = self
-                .active_doc()
-                .path
-                .as_ref()
-                .and_then(|p| p.parent())
-                .map(|p| p.to_path_buf())
-                .unwrap_or_else(|| self.lsp.startup_cwd().to_path_buf());
-            let text = self.active_doc().lines.join("\n");
-            match crate::format::run_external(&formatter, &text, &cwd) {
-                Ok(formatted) => self.apply_formatted_text(formatted),
-                Err(e) => {
-                    self.push_toast(Toast::fatal(format!(
-                        "format `{}`: {}",
-                        formatter.command,
-                        root_cause(&e)
-                    )));
+        match formatter {
+            Some(crate::config::Formatter::Command(fmt)) => {
+                let cwd = self
+                    .active_doc()
+                    .path
+                    .as_ref()
+                    .and_then(|p| p.parent())
+                    .map(|p| p.to_path_buf())
+                    .unwrap_or_else(|| self.lsp.startup_cwd().to_path_buf());
+                let text = self.active_doc().lines.join("\n");
+                match crate::format::run_external(&fmt, &text, &cwd) {
+                    Ok(formatted) => self.apply_formatted_text(formatted),
+                    Err(e) => {
+                        self.push_toast(Toast::fatal(format!(
+                            "format `{}`: {}",
+                            fmt.command,
+                            root_cause(&e)
+                        )));
+                    }
                 }
             }
-            return;
-        }
-
-        // Fall through to LSP. `format_first_client` returns Ok(None)
-        // when no client is attached — quietly do nothing in that
-        // case so saves on plain-text buffers don't surface noise.
-        let options = self.formatting_options();
-        match self.lsp.format_first_client(options, LSP_FORMAT_TIMEOUT) {
-            Ok(Some(edits)) if !edits.is_empty() => self.apply_format_edits(edits),
-            Ok(_) => {}
-            Err(e) => {
-                self.push_toast(Toast::fatal(format!("lsp format: {}", root_cause(&e))));
+            // Format via the named LSP servers in priority order. An
+            // `Ok(None)` means none of the configured servers matched an
+            // attached client — a typo in the name, or a server that
+            // isn't in this language's `lsp` list (so it never attaches)
+            // / hasn't finished starting up. Surface a toast rather than
+            // silently skipping the format, since "save does nothing" is
+            // otherwise impossible to diagnose.
+            Some(crate::config::Formatter::Lsp(servers)) => {
+                let options = self.formatting_options();
+                match self
+                    .lsp
+                    .format_with_servers(&servers, options, LSP_FORMAT_TIMEOUT)
+                {
+                    Ok(Some(edits)) if !edits.is_empty() => self.apply_format_edits(edits),
+                    Ok(Some(_)) => {}
+                    Ok(None) => {
+                        self.push_toast(Toast::warn(format!(
+                            "format: no configured formatter LSP attached ({})",
+                            servers.join(", ")
+                        )));
+                    }
+                    Err(e) => {
+                        self.push_toast(Toast::fatal(format!("lsp format: {}", root_cause(&e))));
+                    }
+                }
+            }
+            // Fall through to LSP. `format_first_client` returns Ok(None)
+            // when no client is attached — quietly do nothing in that
+            // case so saves on plain-text buffers don't surface noise.
+            None => {
+                let options = self.formatting_options();
+                match self.lsp.format_first_client(options, LSP_FORMAT_TIMEOUT) {
+                    Ok(Some(edits)) if !edits.is_empty() => self.apply_format_edits(edits),
+                    Ok(_) => {}
+                    Err(e) => {
+                        self.push_toast(Toast::fatal(format!("lsp format: {}", root_cause(&e))));
+                    }
+                }
             }
         }
     }

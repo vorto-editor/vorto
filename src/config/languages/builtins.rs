@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 
-use super::{FormatterToml, LanguageConfig, LspConfig};
+use super::{FormatterCommandToml, FormatterToml, LanguageConfig, LspConfig};
 use crate::config::editor::EditorToml;
 
 /// Built-in `[lsp.<name>]` defaults. Users overlay onto these by
@@ -438,10 +438,10 @@ pub fn builtin_languages() -> HashMap<String, LanguageConfig> {
                 ..Default::default()
             },
             lsp: lsp(&["rust-analyzer"]),
-            formatter: Some(FormatterToml {
+            formatter: Some(FormatterToml::Command(FormatterCommandToml {
                 command: Some("rustfmt".into()),
                 args: None,
-            }),
+            })),
             ..Default::default()
         },
     );
@@ -529,10 +529,10 @@ pub fn builtin_languages() -> HashMap<String, LanguageConfig> {
                 ..Default::default()
             },
             lsp: lsp(&["gopls"]),
-            formatter: Some(FormatterToml {
+            formatter: Some(FormatterToml::Command(FormatterCommandToml {
                 command: Some("gofmt".into()),
                 args: None,
-            }),
+            })),
             ..Default::default()
         },
     );
@@ -675,10 +675,10 @@ pub fn builtin_languages() -> HashMap<String, LanguageConfig> {
             extensions: Some(vec!["zig".into(), "zon".into()]),
             comment_token: Some("//".into()),
             lsp: lsp(&["zls"]),
-            formatter: Some(FormatterToml {
+            formatter: Some(FormatterToml::Command(FormatterCommandToml {
                 command: Some("zig".into()),
                 args: Some(vec!["fmt".into(), "--stdin".into()]),
-            }),
+            })),
             ..Default::default()
         },
     );
@@ -866,10 +866,10 @@ pub fn builtin_languages() -> HashMap<String, LanguageConfig> {
                 ..Default::default()
             },
             lsp: lsp(&["dart"]),
-            formatter: Some(FormatterToml {
+            formatter: Some(FormatterToml::Command(FormatterCommandToml {
                 command: Some("dart".into()),
                 args: Some(vec!["format".into(), "--output=show".into()]),
-            }),
+            })),
             ..Default::default()
         },
     );
@@ -889,7 +889,7 @@ pub fn builtin_languages() -> HashMap<String, LanguageConfig> {
                 ..Default::default()
             },
             lsp: lsp(&["ocamllsp"]),
-            formatter: Some(FormatterToml {
+            formatter: Some(FormatterToml::Command(FormatterCommandToml {
                 command: Some("ocamlformat".into()),
                 args: Some(vec![
                     "--enable-outside-detected-project".into(),
@@ -897,7 +897,7 @@ pub fn builtin_languages() -> HashMap<String, LanguageConfig> {
                     "stdin.ml".into(),
                     "-".into(),
                 ]),
-            }),
+            })),
             ..Default::default()
         },
     );
@@ -925,10 +925,10 @@ pub fn builtin_languages() -> HashMap<String, LanguageConfig> {
             extensions: Some(vec!["fish".into()]),
             comment_token: Some("#".into()),
             lsp: lsp(&["fish-lsp"]),
-            formatter: Some(FormatterToml {
+            formatter: Some(FormatterToml::Command(FormatterCommandToml {
                 command: Some("fish_indent".into()),
                 args: None,
-            }),
+            })),
             ..Default::default()
         },
     );
@@ -962,10 +962,10 @@ pub fn builtin_languages() -> HashMap<String, LanguageConfig> {
                 ..Default::default()
             },
             lsp: lsp(&["gleam"]),
-            formatter: Some(FormatterToml {
+            formatter: Some(FormatterToml::Command(FormatterCommandToml {
                 command: Some("gleam".into()),
                 args: Some(vec!["format".into(), "--stdin".into()]),
-            }),
+            })),
             ..Default::default()
         },
     );
