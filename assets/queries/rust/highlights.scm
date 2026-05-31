@@ -151,7 +151,7 @@
 (integer_literal) @constant.builtin
 (float_literal) @constant.builtin
 
-(escape_sequence) @escape
+(escape_sequence) @string.escape
 
 (attribute_item) @attribute
 (inner_attribute_item) @attribute

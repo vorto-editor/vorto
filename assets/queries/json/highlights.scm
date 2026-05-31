@@ -11,6 +11,6 @@
   (false)
 ] @constant.builtin
 
-(escape_sequence) @escape
+(escape_sequence) @string.escape
 
 (comment) @comment
