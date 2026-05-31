@@ -695,6 +695,14 @@ impl Ed {
     pub fn substitute(&mut self, args: &SubsArgs<'_>) -> substitute::SubsOutcome {
         self.editor.substitute(&mut self.buffer, args)
     }
+
+    // Line-level edits + yank register.
+    pub fn delete_lines(&mut self, from_row: usize, to_row: usize) {
+        self.editor.delete_lines(&mut self.buffer, from_row, to_row)
+    }
+    pub fn paste_after(&mut self, count: usize) {
+        self.editor.paste_after(&mut self.buffer, count)
+    }
 }
 
 #[cfg(test)]

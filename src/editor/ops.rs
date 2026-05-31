@@ -7,31 +7,27 @@
 use super::{Buffer, Cursor, Editor, char_to_byte};
 
 impl Editor {
-    pub fn delete_line(&mut self, buf: &mut Buffer) {
-        if buf.lines.len() == 1 {
-            buf.yank = buf.lines[0].clone();
-            buf.lines[0].clear();
-        } else {
-            buf.yank = buf.lines.remove(self.cursor.row);
-            if self.cursor.row >= buf.lines.len() {
-                self.cursor.row = buf.lines.len() - 1;
-            }
-        }
-        self.clamp_col(buf, false);
-        buf.touch();
-    }
-
-    pub fn yank_line(&mut self, buf: &mut Buffer) {
-        buf.yank = buf.lines[self.cursor.row].clone();
-    }
-
-    pub fn paste_after(&mut self, buf: &mut Buffer) {
+    /// Paste the yank register as whole line(s) below the cursor,
+    /// `count` times. A multi-line register (e.g. from `2dd` / `Vj y`)
+    /// is split on `\n` so each line lands on its own row rather than as
+    /// one row with embedded newlines. With `count > 1` the whole block
+    /// repeats as a contiguous run (`2p` of `"one\ntwo"` →
+    /// `one/two/one/two`), not interleaved per line. Cursor moves to the
+    /// first pasted line, matching vim's `p`.
+    pub fn paste_after(&mut self, buf: &mut Buffer, count: usize) {
         if buf.yank.is_empty() {
             return;
         }
         let yanked = buf.yank.clone();
-        buf.lines.insert(self.cursor.row + 1, yanked);
-        self.cursor.row += 1;
+        let at = self.cursor.row + 1;
+        let mut row = at;
+        for _ in 0..count.max(1) {
+            for line in yanked.split('\n') {
+                buf.lines.insert(row, line.to_string());
+                row += 1;
+            }
+        }
+        self.cursor.row = at;
         self.cursor.col = 0;
         buf.touch();
     }
@@ -689,5 +685,88 @@ fn shift_cursor_for_block_comment(c: &mut Cursor, deltas: &[(usize, i32)], ancho
         } else if c.col > anchor {
             c.col = anchor;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::Ed;
+
+    fn ed(lines: &[&str]) -> Ed {
+        let mut b = Ed::new();
+        b.buffer.lines = lines.iter().map(|s| s.to_string()).collect();
+        b
+    }
+
+    #[test]
+    fn delete_lines_yanks_the_whole_run() {
+        // `2dd` from row 0: both deleted lines land in the register,
+        // joined by `\n` — not just the last one.
+        let mut b = ed(&["one", "two", "three"]);
+        b.delete_lines(0, 1);
+        assert_eq!(b.buffer.lines, vec!["three"]);
+        assert_eq!(b.buffer.yank, "one\ntwo");
+    }
+
+    #[test]
+    fn delete_lines_clamps_count_past_eof() {
+        // `5dd` on a 3-line buffer deletes (and yanks) all of it.
+        let mut b = ed(&["a", "b", "c"]);
+        b.delete_lines(0, 4);
+        assert_eq!(b.buffer.lines, vec![""]);
+        assert_eq!(b.buffer.yank, "a\nb\nc");
+    }
+
+    #[test]
+    fn yank_lines_captures_the_run_without_mutating() {
+        let mut b = ed(&["one", "two", "three"]);
+        b.buffer.yank_lines(1, 2);
+        assert_eq!(b.buffer.lines, vec!["one", "two", "three"]);
+        assert_eq!(b.buffer.yank, "two\nthree");
+    }
+
+    #[test]
+    fn paste_after_splits_a_multiline_register_into_rows() {
+        // The register from a `2dd` pastes back as two separate rows,
+        // not one row with an embedded newline.
+        let mut b = ed(&["head", "tail"]);
+        b.buffer.yank = "one\ntwo".into();
+        b.cursor.row = 0;
+        b.paste_after(1);
+        assert_eq!(b.buffer.lines, vec!["head", "one", "two", "tail"]);
+        assert_eq!(b.cursor.row, 1);
+    }
+
+    #[test]
+    fn paste_after_single_line_register_inserts_one_row() {
+        let mut b = ed(&["head", "tail"]);
+        b.buffer.yank = "solo".into();
+        b.cursor.row = 0;
+        b.paste_after(1);
+        assert_eq!(b.buffer.lines, vec!["head", "solo", "tail"]);
+    }
+
+    #[test]
+    fn paste_after_with_count_repeats_the_block_contiguously() {
+        // `2p` of a two-line register pastes one/two/one/two — the whole
+        // block repeated, not interleaved (one/one/two/two).
+        let mut b = ed(&["head", "tail"]);
+        b.buffer.yank = "one\ntwo".into();
+        b.cursor.row = 0;
+        b.paste_after(2);
+        assert_eq!(
+            b.buffer.lines,
+            vec!["head", "one", "two", "one", "two", "tail"]
+        );
+        assert_eq!(b.cursor.row, 1);
+    }
+
+    #[test]
+    fn paste_after_count_on_single_line_register() {
+        let mut b = ed(&["head", "tail"]);
+        b.buffer.yank = "solo".into();
+        b.cursor.row = 0;
+        b.paste_after(3);
+        assert_eq!(b.buffer.lines, vec!["head", "solo", "solo", "solo", "tail"]);
     }
 }
