@@ -7,7 +7,7 @@ use crate::app::App;
 use crate::text_width::visual_col_of;
 
 use super::SCROLL_OFF;
-use super::diagnostics::RowDiag;
+use super::diagnostics::DiagLine;
 
 /// Update and return the viewport scroll position. Sticky: the scroll
 /// only moves when the cursor would otherwise fall outside the
@@ -17,16 +17,17 @@ use super::diagnostics::RowDiag;
 /// scroll is preserved — which is what fixes "cursor stuck at the
 /// bottom" on upward movement.
 ///
-/// `row_diag` is the per-row diagnostic summary; rows with diagnostics
-/// each consume one extra visual row, so the "does the cursor fit"
-/// check uses visual heights rather than raw source-row counts.
+/// `row_diag` is the per-row diagnostic summary; each surfaced
+/// diagnostic line consumes one extra visual row (the cursor's row can
+/// surface several), so the "does the cursor fit" check uses visual
+/// heights rather than raw source-row counts.
 ///
 /// `hidden` are rows inside collapsed folds; they consume zero visual
 /// rows so the scroll-off math counts only what's actually drawn.
 pub(super) fn compute_scroll(
     app: &App,
     height: usize,
-    row_diag: &HashMap<usize, RowDiag>,
+    row_diag: &HashMap<usize, Vec<DiagLine>>,
     hidden: &HashSet<usize>,
 ) -> usize {
     let cur = app.editor.cursor.row;
@@ -70,7 +71,7 @@ pub(super) fn compute_scroll(
                 if hidden.contains(&row) {
                     continue;
                 }
-                consumed += 1 + row_diag.get(&row).map_or(0, |_| 1);
+                consumed += 1 + row_diag.get(&row).map_or(0, Vec::len);
                 if consumed >= effective_height {
                     break;
                 }

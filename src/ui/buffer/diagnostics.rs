@@ -40,46 +40,58 @@ pub(super) fn build_row_severity(
     map
 }
 
-/// Per-source-row diagnostic summary used for inline rendering. We
-/// fold every diagnostic that *starts* on a row into a single virtual
-/// line: the worst-severity message, with `(+N)` appended when more
-/// than one diagnostic shares the row. Capping at one virtual row per
-/// source row keeps the visual layout — and the cursor-y math — simple.
-pub(super) struct RowDiag {
+/// One diagnostic reduced to a single rendered virtual line. `extra`
+/// is the count of further diagnostics folded into this one — only set
+/// when collapsing a non-cursor row; the cursor's row expands to one
+/// `DiagLine` per diagnostic instead, so its entries always carry
+/// `extra == 0`.
+pub(super) struct DiagLine {
     pub severity: Severity,
     pub message: String,
     pub extra: usize,
 }
 
-/// Build the row → summary lookup, applying the cursor-vs-other-row
-/// filter: the cursor's row shows any severity, every other row only
-/// surfaces `Error` diagnostics inline. Keeps the buffer quiet when
-/// the cursor is elsewhere — warnings/info/hints stay accessible via
-/// the gutter sign and the status-bar toast.
-pub(super) fn build_row_diag_summary(app: &App, cursor_row: usize) -> HashMap<usize, RowDiag> {
-    let mut out: HashMap<usize, RowDiag> = HashMap::new();
+/// Build the row → diagnostic-lines lookup, applying the
+/// cursor-vs-other-row filter. The cursor's row expands to one virtual
+/// line per diagnostic (worst severity first) so the user sees *every*
+/// diagnostic on the line they're editing. Every other row collapses to
+/// a single worst-severity `Error` line with `(+N)` when more errors
+/// share it — keeping the buffer quiet when the cursor is elsewhere,
+/// with warnings/info/hints still accessible via the gutter sign and
+/// the status-bar toast.
+pub(super) fn build_row_diag_summary(
+    app: &App,
+    cursor_row: usize,
+) -> HashMap<usize, Vec<DiagLine>> {
+    let mut out: HashMap<usize, Vec<DiagLine>> = HashMap::new();
     let Some(diags) = app.current_diagnostics() else {
         return out;
     };
     for d in diags {
         let row = d.range.start.line as usize;
-        if row != cursor_row && d.severity != Severity::Error {
+        // First line only — multi-line messages would blow past a
+        // single virtual row.
+        let msg = d.message.lines().next().unwrap_or("").to_string();
+        if row == cursor_row {
+            // Expand: one virtual line per diagnostic on the cursor row.
+            out.entry(row).or_default().push(DiagLine {
+                severity: d.severity,
+                message: msg,
+                extra: 0,
+            });
             continue;
         }
-        // First line only — multi-line messages would blow past our
-        // single-virtual-row budget.
-        let msg = d.message.lines().next().unwrap_or("").to_string();
-        match out.get_mut(&row) {
-            None => {
-                out.insert(
-                    row,
-                    RowDiag {
-                        severity: d.severity,
-                        message: msg,
-                        extra: 0,
-                    },
-                );
-            }
+        // Other rows: errors only, collapsed into a single line.
+        if d.severity != Severity::Error {
+            continue;
+        }
+        let entries = out.entry(row).or_default();
+        match entries.first_mut() {
+            None => entries.push(DiagLine {
+                severity: d.severity,
+                message: msg,
+                extra: 0,
+            }),
             Some(existing) => {
                 if (d.severity as u8) < (existing.severity as u8) {
                     existing.severity = d.severity;
@@ -89,13 +101,19 @@ pub(super) fn build_row_diag_summary(app: &App, cursor_row: usize) -> HashMap<us
             }
         }
     }
+    // Cursor row: surface the worst severities first so the most
+    // important message sits closest to the source line. Stable sort
+    // keeps diagnostics of equal severity in their original order.
+    if let Some(entries) = out.get_mut(&cursor_row) {
+        entries.sort_by_key(|e| e.severity as u8);
+    }
     out
 }
 
 /// Render one virtual diagnostic row. Layout mirrors a real source
 /// row's gutter (sign + line-number column + vcs bar) but with blanks
 /// so the message column-aligns with the source text above it.
-pub(super) fn diagnostic_line(diag: &RowDiag, inner_text_width: usize) -> Line<'static> {
+pub(super) fn diagnostic_line(diag: &DiagLine, inner_text_width: usize) -> Line<'static> {
     let color = severity_color(diag.severity);
     // Blank gutter: 1 (sign) + 5 (line number column) + 1 (vcs bar).
     let gutter = " ".repeat((GUTTER_SIGN_WIDTH + 5 + GUTTER_VCS_WIDTH) as usize);

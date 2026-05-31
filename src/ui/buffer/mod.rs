@@ -362,9 +362,14 @@ pub(super) fn draw_buffer(f: &mut Frame, app: &App, area: Rect) {
                 break;
             }
         }
-        if let Some(summary) = row_diag.get(&i) {
-            visible.push(diagnostic_line(summary, inner_text_width));
-            visual_y += 1;
+        if let Some(entries) = row_diag.get(&i) {
+            for entry in entries {
+                if visual_y as usize >= height {
+                    break;
+                }
+                visible.push(diagnostic_line(entry, inner_text_width));
+                visual_y += 1;
+            }
         }
     }
 
