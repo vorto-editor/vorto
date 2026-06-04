@@ -4,7 +4,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::app::App;
-use crate::text_width::visual_col_of;
+use crate::text_width::{char_cell_width, visual_col_of};
 
 use super::SCROLL_OFF;
 use super::diagnostics::DiagLine;
@@ -104,12 +104,116 @@ pub(super) fn compute_col_scroll(app: &App, width: usize, tab_width: usize) -> u
     }
     let line = &app.active_doc().lines[app.editor.cursor.row];
     let visual_col = visual_col_of(line, app.editor.cursor.col, tab_width);
-    let mut col_scroll = app.active_doc().col_scroll.get();
-    if visual_col < col_scroll {
-        col_scroll = visual_col;
-    } else if visual_col >= col_scroll + width {
-        col_scroll = visual_col + 1 - width;
-    }
+    // Cell width of the char the cursor sits on. A wide CJK glyph or
+    // emoji occupies two cells; the scroll math must keep *both* visible
+    // or the terminal can't draw the glyph in the single remaining cell
+    // at the right edge and the character vanishes. Past EOL the cursor
+    // sits on a one-cell blank.
+    let cursor_width = cursor_cell_width(line, app.editor.cursor.col, visual_col, tab_width);
+    let prev = app.active_doc().col_scroll.get();
+    let col_scroll = horizontal_scroll(visual_col, cursor_width, width, prev);
     app.active_doc().col_scroll.set(col_scroll);
     col_scroll
+}
+
+/// Sticky horizontal scroll: shift the visible window only when the
+/// cursor glyph (`cursor_width` cells starting at `visual_col`) would
+/// fall outside `[prev, prev + width)`. A wide CJK char or emoji
+/// (`cursor_width == 2`) at the right edge is scrolled so *both* its
+/// cells stay visible — otherwise the terminal can't draw the glyph in
+/// the single remaining cell and the character disappears.
+pub(super) fn horizontal_scroll(
+    visual_col: usize,
+    cursor_width: usize,
+    width: usize,
+    prev: usize,
+) -> usize {
+    if width == 0 {
+        return 0;
+    }
+    // Clamp the glyph width to the viewport: a 2-cell glyph in a 1-cell
+    // window can't fit either way, but without the clamp the scroll start
+    // would advance *past* `visual_col`, pushing even the cursor's left
+    // cell off-screen and breaking the `col_scroll <= visual_col`
+    // invariant that `place_cursor` relies on. Clamping keeps at least the
+    // left edge anchored.
+    let cursor_width = cursor_width.min(width);
+    if visual_col < prev {
+        visual_col
+    } else if visual_col + cursor_width > prev + width {
+        visual_col + cursor_width - width
+    } else {
+        prev
+    }
+}
+
+/// Cell width of the character at `char_col` in `line`, where
+/// `visual_col` is that character's starting visual column (tabs already
+/// accounted for). Tabs expand to the next `tab_width`-aligned stop;
+/// a cursor past the last char counts as one blank cell.
+pub(super) fn cursor_cell_width(
+    line: &str,
+    char_col: usize,
+    visual_col: usize,
+    tab_width: usize,
+) -> usize {
+    match line.chars().nth(char_col) {
+        Some('\t') => tab_width - (visual_col % tab_width),
+        Some(ch) => char_cell_width(ch),
+        None => 1,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ascii_cursor_at_right_edge_scrolls_one_column() {
+        // Column 80 just past an 80-wide window → shift by one so the
+        // cursor sits on the last visible column.
+        assert_eq!(horizontal_scroll(80, 1, 80, 0), 1);
+    }
+
+    #[test]
+    fn wide_cursor_at_right_edge_keeps_both_cells_visible() {
+        // A 2-cell glyph starting on the last column (79) of an 80-wide
+        // window: without width-awareness this stayed at scroll 0 and the
+        // glyph's second cell (80) fell off-screen, so the terminal drew
+        // nothing. Now we scroll by one so the glyph occupies cols 78–79.
+        assert_eq!(horizontal_scroll(79, 2, 80, 0), 1);
+        // The fix is a no-op for a glyph that already fits at the edge.
+        assert_eq!(horizontal_scroll(78, 2, 80, 0), 0);
+    }
+
+    #[test]
+    fn wide_glyph_in_one_cell_viewport_keeps_left_edge() {
+        // Degenerate: a 2-cell glyph can't fit a 1-cell window. The scroll
+        // start must not advance past `visual_col` (which would hide even
+        // the left cell and misplace the cursor) — it clamps to the glyph
+        // start so `col_scroll <= visual_col` holds.
+        assert_eq!(horizontal_scroll(40, 2, 1, 0), 40);
+        assert_eq!(horizontal_scroll(40, 2, 1, 50), 40);
+    }
+
+    #[test]
+    fn scroll_left_when_cursor_precedes_window() {
+        assert_eq!(horizontal_scroll(3, 1, 80, 10), 3);
+    }
+
+    #[test]
+    fn sticky_when_cursor_already_visible() {
+        assert_eq!(horizontal_scroll(40, 1, 80, 10), 10);
+        assert_eq!(horizontal_scroll(40, 2, 80, 10), 10);
+    }
+
+    #[test]
+    fn cursor_cell_width_handles_tabs_and_wide_chars() {
+        assert_eq!(cursor_cell_width("\t", 0, 0, 4), 4);
+        assert_eq!(cursor_cell_width("ab\t", 2, 2, 4), 2);
+        assert_eq!(cursor_cell_width("あ", 0, 0, 4), 2);
+        assert_eq!(cursor_cell_width("a", 0, 0, 4), 1);
+        // Past EOL: one blank cell.
+        assert_eq!(cursor_cell_width("a", 1, 1, 4), 1);
+    }
 }

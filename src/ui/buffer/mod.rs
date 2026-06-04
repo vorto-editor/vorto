@@ -489,16 +489,15 @@ pub(super) fn draw_buffer_inactive(
     // jumps still work when the user re-focuses it.
     let line = buf.lines.get(cur).map(String::as_str).unwrap_or("");
     let visual_col = visual_col_of(line, ed.cursor.col, tab_width);
-    let mut col_scroll = buf.col_scroll.get();
-    if inner_text_width > 0 {
-        if visual_col < col_scroll {
-            col_scroll = visual_col;
-        } else if visual_col >= col_scroll + inner_text_width {
-            col_scroll = visual_col + 1 - inner_text_width;
-        }
-    } else {
-        col_scroll = 0;
-    }
+    // Keep the full cursor glyph visible at the right edge — a wide CJK
+    // char or emoji needs both its cells, or the terminal drops it.
+    let cursor_width = scroll::cursor_cell_width(line, ed.cursor.col, visual_col, tab_width);
+    let col_scroll = scroll::horizontal_scroll(
+        visual_col,
+        cursor_width,
+        inner_text_width,
+        buf.col_scroll.get(),
+    );
     buf.col_scroll.set(col_scroll);
 
     let mut visible: Vec<Line> = Vec::with_capacity(height);
