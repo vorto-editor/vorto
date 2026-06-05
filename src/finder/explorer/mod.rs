@@ -158,6 +158,10 @@ pub struct ExplorerState {
     /// Last error message produced by a file op. Cleared on the next
     /// successful op or mode change.
     pub error: Option<String>,
+    /// Fold single-child-directory chains into one row (VS Code "compact
+    /// folders"). Captured at open time from `editor.compact_folders` and
+    /// mirrored on every `refresh`/rebuild so file ops keep the same view.
+    pub compact: bool,
 }
 
 impl ExplorerState {
@@ -166,11 +170,11 @@ impl ExplorerState {
         ignore: IgnoreOpts,
         hidden_patterns: Vec<String>,
         max_items: usize,
-        _compact: bool,
+        compact: bool,
     ) -> Self {
         let files = workspace_files(root, ignore, &hidden_patterns, max_items);
         let dirs = workspace_dirs(root, ignore, &hidden_patterns, max_items);
-        let nodes = build_nodes(&files, &dirs);
+        let nodes = build_nodes(&files, &dirs, compact);
         let mut s = Self {
             nodes,
             expanded: HashSet::new(),
@@ -186,6 +190,7 @@ impl ExplorerState {
             hidden_patterns,
             max_items,
             error: None,
+            compact,
         };
         s.refilter();
         s
@@ -209,7 +214,7 @@ impl ExplorerState {
             &self.hidden_patterns,
             self.max_items,
         );
-        self.nodes = build_nodes(&files, &dirs);
+        self.nodes = build_nodes(&files, &dirs, self.compact);
         // Drop any expanded entry that no longer maps to a dir.
         let alive: HashSet<String> = self
             .nodes
@@ -381,12 +386,13 @@ pub(super) mod tests {
             hidden_patterns: default_patterns(),
             max_items: 5000,
             error: None,
+            compact: false,
         }
     }
 
     #[test]
     fn empty_query_collapses_to_top_level() {
-        let nodes = build_nodes(&paths(), &[]);
+        let nodes = build_nodes(&paths(), &[], false);
         let mut s = make_state(nodes, "");
         s.refilter();
         let visible_paths: Vec<&str> = s
@@ -399,7 +405,7 @@ pub(super) mod tests {
 
     #[test]
     fn query_filters_and_expands_ancestors() {
-        let nodes = build_nodes(&paths(), &[]);
+        let nodes = build_nodes(&paths(), &[], false);
         let mut s = make_state(nodes, "list");
         s.refilter();
         let visible_paths: Vec<&str> = s
