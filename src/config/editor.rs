@@ -142,12 +142,11 @@ pub struct EditorToml {
     /// milliseconds. Ignored unless `indent_animation = true`.
     /// Falls back to `150`.
     pub indent_animation_ms: Option<u64>,
-    /// `<space>e` explorer: when `true`, the picker groups matches by
-    /// parent directory with a header line per group and the file
-    /// basename indented underneath. When `false`, the explorer
-    /// degenerates to a flat path list (same shape as the fuzzy-files
-    /// picker), which is what users who'd rather keep one row per
-    /// match want. Falls back to `true`.
+    /// `<space>e` explorer: when `true`, a chain of directories where
+    /// each link is the sole child of its parent is folded into one row
+    /// (`src/finder/explorer` instead of three nested rows) — the VS Code
+    /// "compact folders" behavior. When `false`, every directory gets its
+    /// own row. Falls back to `true`.
     pub compact_folders: Option<bool>,
 }
 

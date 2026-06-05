@@ -147,7 +147,14 @@ impl ExplorerState {
 /// is how empty directories show up — `workspace_files` only sees
 /// files). Within each level dirs come before files, matching the
 /// fuzzy picker's sort.
-pub(super) fn build_nodes(files: &[String], dirs: &[String]) -> Vec<ExplorerNode> {
+///
+/// When `compact` is set, a chain of directories where each link is the
+/// sole child of its parent (and that child is itself a directory) is
+/// folded into a single row whose name is the joined path
+/// (`"ui/fuzzy"`) and whose `rel_path` is the deepest dir in the chain —
+/// the VS Code "compact folders" behavior. The deepest dir owns the
+/// expand key and its children become the merged row's children.
+pub(super) fn build_nodes(files: &[String], dirs: &[String], compact: bool) -> Vec<ExplorerNode> {
     // Map every (parent_dir, basename, is_dir) the input implies.
     // BTreeMap keeps siblings sorted alphabetically.
     // Value semantics: `true` = file, `false` = dir.
@@ -197,8 +204,7 @@ pub(super) fn build_nodes(files: &[String], dirs: &[String]) -> Vec<ExplorerNode
     // happen with a real file list (a name can't be both), but the
     // defensive flip is cheap.
     let mut out = Vec::new();
-    let mut stack: Vec<(String, usize)> = Vec::new();
-    push_children(&mut out, &children_by_parent, "", 0, &mut stack);
+    push_children(&mut out, &children_by_parent, "", 0, compact);
     out
 }
 
@@ -207,7 +213,7 @@ fn push_children(
     map: &BTreeMap<String, BTreeMap<String, bool>>,
     parent: &str,
     depth: usize,
-    _stack: &mut Vec<(String, usize)>,
+    compact: bool,
 ) {
     let Some(children) = map.get(parent) else {
         return;
@@ -228,16 +234,53 @@ fn push_children(
         } else {
             format!("{}/{}", parent, name)
         };
-        out.push(ExplorerNode {
-            name: name.clone(),
-            is_dir,
-            depth,
-            rel_path: rel_path.clone(),
-        });
-        if is_dir {
-            push_children(out, map, &rel_path, depth + 1, _stack);
+        if is_dir && compact {
+            // Fold a single-child-directory chain into this one row.
+            let (display, deepest) = compact_chain(map, name.clone(), rel_path);
+            out.push(ExplorerNode {
+                name: display,
+                is_dir: true,
+                depth,
+                rel_path: deepest.clone(),
+            });
+            push_children(out, map, &deepest, depth + 1, compact);
+        } else {
+            out.push(ExplorerNode {
+                name: name.clone(),
+                is_dir,
+                depth,
+                rel_path: rel_path.clone(),
+            });
+            if is_dir {
+                push_children(out, map, &rel_path, depth + 1, compact);
+            }
         }
     }
+}
+
+/// Walk down the single-directory chain starting at `rel_path`,
+/// accumulating the display name. We descend while the current dir has
+/// exactly one child *and* that child is itself a directory — a lone
+/// file (or any second sibling) stops the fold so the file still gets
+/// its own row. Returns the joined display name (`"ui/fuzzy"`) and the
+/// deepest dir's rel_path, whose children the caller then recurses into.
+fn compact_chain(
+    map: &BTreeMap<String, BTreeMap<String, bool>>,
+    mut name: String,
+    mut rel_path: String,
+) -> (String, String) {
+    while let Some(children) = map.get(&rel_path) {
+        if children.len() != 1 {
+            break;
+        }
+        let (child_name, is_file) = children.iter().next().expect("len == 1");
+        if *is_file {
+            break;
+        }
+        name = format!("{name}/{child_name}");
+        rel_path = format!("{rel_path}/{child_name}");
+    }
+    (name, rel_path)
 }
 
 #[cfg(test)]
@@ -247,7 +290,7 @@ mod tests {
 
     #[test]
     fn build_nodes_dirs_before_files() {
-        let n = build_nodes(&paths(), &[]);
+        let n = build_nodes(&paths(), &[], false);
         let rels: Vec<&str> = n.iter().map(|x| x.rel_path.as_str()).collect();
         assert_eq!(
             rels,
@@ -265,5 +308,58 @@ mod tests {
         // Depths follow the slashes.
         let depths: Vec<usize> = n.iter().map(|x| x.depth).collect();
         assert_eq!(depths, vec![0, 1, 2, 2, 1, 2, 3, 0]);
+    }
+
+    #[test]
+    fn compact_folds_single_dir_chains() {
+        // `src/ui` has the lone dir child `fuzzy`, so the two collapse
+        // into one row named "ui/fuzzy" sitting at `src`'s child depth;
+        // its rel_path is the deepest dir (the expand key). `src/finder`
+        // has two file children so it stays its own row, and `src` itself
+        // has two dir children so it isn't folded.
+        let n = build_nodes(&paths(), &[], true);
+        let rows: Vec<(&str, &str, usize)> = n
+            .iter()
+            .map(|x| (x.name.as_str(), x.rel_path.as_str(), x.depth))
+            .collect();
+        assert_eq!(
+            rows,
+            vec![
+                ("src", "src", 0),
+                ("finder", "src/finder", 1),
+                ("fuzzy.rs", "src/finder/fuzzy.rs", 2),
+                ("mod.rs", "src/finder/mod.rs", 2),
+                ("ui/fuzzy", "src/ui/fuzzy", 1),
+                ("list.rs", "src/ui/fuzzy/list.rs", 2),
+                ("Cargo.toml", "Cargo.toml", 0),
+            ]
+        );
+    }
+
+    #[test]
+    fn compact_folds_chain_at_top_level() {
+        // A single top-level dir whose only descendant path is a chain of
+        // sole-child dirs folds all the way down to the dir holding the
+        // file.
+        let files = vec!["a/b/c/leaf.rs".to_string()];
+        let n = build_nodes(&files, &[], true);
+        let rows: Vec<(&str, &str, usize)> = n
+            .iter()
+            .map(|x| (x.name.as_str(), x.rel_path.as_str(), x.depth))
+            .collect();
+        assert_eq!(
+            rows,
+            vec![("a/b/c", "a/b/c", 0), ("leaf.rs", "a/b/c/leaf.rs", 1),]
+        );
+    }
+
+    #[test]
+    fn compact_stops_at_dir_with_a_file_sibling() {
+        // `a` holds dir `b` *and* file `f.rs`, so `a` is not folded; `b`
+        // holds only `c`, so `b/c` folds.
+        let files = vec!["a/f.rs".to_string(), "a/b/c/leaf.rs".to_string()];
+        let n = build_nodes(&files, &[], true);
+        let rels: Vec<&str> = n.iter().map(|x| x.rel_path.as_str()).collect();
+        assert_eq!(rels, vec!["a", "a/b/c", "a/b/c/leaf.rs", "a/f.rs",]);
     }
 }

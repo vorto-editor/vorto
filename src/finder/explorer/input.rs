@@ -166,7 +166,7 @@ mod tests {
         // Confirms `j` / `a` / random text in Selection mode never
         // leaks into the query input — the failure mode the user hit
         // when this initially shipped.
-        let nodes = build_nodes(&paths(), &[]);
+        let nodes = build_nodes(&paths(), &[], false);
         let mut s = make_state(nodes, "");
         assert_eq!(s.mode, ExplorerMode::Selection);
         s.apply_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
@@ -177,7 +177,7 @@ mod tests {
 
     #[test]
     fn slash_enters_filter_mode() {
-        let nodes = build_nodes(&paths(), &[]);
+        let nodes = build_nodes(&paths(), &[], false);
         let mut s = make_state(nodes, "");
         s.apply_key(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
         assert_eq!(s.mode, ExplorerMode::Filter);
