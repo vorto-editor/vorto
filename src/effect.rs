@@ -91,6 +91,12 @@ pub enum Cmd {
     /// sleeping entries with unsaved edits are left alone since
     /// dropping them would lose data unrecoverably.
     ReloadAll,
+    /// `:config-reload` — re-read the user config file and re-apply the
+    /// settings that can change at runtime. A load/parse error leaves the
+    /// current config untouched and surfaces a toast; already running
+    /// subsystems (LSP, syntax/preview workers) keep their startup
+    /// snapshot until the next restart.
+    ConfigReload,
     /// `gd` / `gD` / `gi` — send a definition-shaped request.
     LspJump {
         method: &'static str,

@@ -167,6 +167,7 @@ pub(super) fn handle_direct(app: &mut App, kind: DirectKind, count: u32, ctx: Ct
         },
         D::Reload => cmds.push(Cmd::Reload),
         D::ReloadAll => cmds.push(Cmd::ReloadAll),
+        D::ConfigReload => cmds.push(Cmd::ConfigReload),
         D::GotoLine => match ctx.rest.parse::<usize>() {
             Ok(n) if n >= 1 => app.goto_line_n_pure(n),
             _ => cmds.push(Cmd::ToastError("usage: :goto <line>".into())),

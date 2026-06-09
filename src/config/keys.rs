@@ -125,6 +125,7 @@ pub fn action_to_token(name: &str) -> Option<Token> {
         "fuzzy-git-changed" => Direct(D::OpenPrompt(PromptKind::Fuzzy(FuzzyKind::GitChangedFiles))),
         "explorer" => Direct(D::OpenPrompt(PromptKind::Explorer)),
         "select-whole-buffer" => Direct(D::SelectWholeBuffer),
+        "config-reload" => Direct(D::ConfigReload),
 
         // ── operators (when bound at top level) ────────────────────────
         "delete-operator" => Op(Operator::Delete),
