@@ -113,7 +113,7 @@ pub fn workspace_files(
         paths
             .into_iter()
             .filter(|p| !ignore.hidden || !rel_path_has_hidden_segment(p, hidden_patterns))
-            .filter(|p| !is_symlink(&root.join(p)))
+            .filter(|p| is_live_nonsymlink(&root.join(p)))
             .take(max_items)
             .collect()
     } else {
@@ -125,13 +125,21 @@ pub fn workspace_files(
     items
 }
 
-/// True if `path` is a symlink (without following it). Symlinks are
-/// filtered out of the picker because opening one whose target is a
-/// directory or broken propagates an `io::Error` from `Buffer::load`
-/// up to the main loop and terminates the editor.
-fn is_symlink(path: &Path) -> bool {
+/// True if `symlink_metadata` succeeds for `path` and it is not a
+/// symlink (without following it). In practice this means the path is a
+/// readable, live non-symlink: a missing path — or one we can't stat
+/// (e.g. permission denied) — yields false, which is what we want since
+/// the picker can't usefully open either. `git ls-files --cached` keeps
+/// listing files that were deleted from the work tree but whose deletion
+/// hasn't been staged, so without this check the explorer would surface
+/// ghost entries that survive a `refresh()` forever; dropping them keeps
+/// the tree in sync with the actual filesystem. Symlinks are filtered
+/// out of the picker because opening one whose target is a directory or
+/// broken propagates an `io::Error` from `Buffer::load` up to the main
+/// loop and terminates the editor.
+fn is_live_nonsymlink(path: &Path) -> bool {
     fs::symlink_metadata(path)
-        .map(|m| m.file_type().is_symlink())
+        .map(|m| !m.file_type().is_symlink())
         .unwrap_or(false)
 }
 
@@ -280,5 +288,41 @@ mod tests {
         assert!(rel_path_has_hidden_segment("a/node_modules/b/c", &pats));
         assert!(!rel_path_has_hidden_segment("src/main.rs", &pats));
         assert!(!rel_path_has_hidden_segment("Cargo.toml", &pats));
+    }
+
+    fn fresh_tmp(label: &str) -> std::path::PathBuf {
+        let p = std::env::temp_dir().join(format!(
+            "vorto-walk-{}-{}-{}",
+            label,
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&p).unwrap();
+        p
+    }
+
+    #[test]
+    fn live_nonsymlink_drops_missing_and_symlinks() {
+        let root = fresh_tmp("live");
+
+        // A real file is live.
+        let file = root.join("real.txt");
+        std::fs::write(&file, b"x").unwrap();
+        assert!(is_live_nonsymlink(&file));
+
+        // A path the git index still lists but no longer on disk: the
+        // ghost case this guards against.
+        assert!(!is_live_nonsymlink(&root.join("deleted.txt")));
+
+        // A symlink is dropped even when its target exists.
+        #[cfg(unix)]
+        {
+            let link = root.join("link.txt");
+            std::os::unix::fs::symlink(&file, &link).unwrap();
+            assert!(!is_live_nonsymlink(&link));
+        }
     }
 }
