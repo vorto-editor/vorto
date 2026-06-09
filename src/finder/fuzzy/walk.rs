@@ -113,7 +113,7 @@ pub fn workspace_files(
         paths
             .into_iter()
             .filter(|p| !ignore.hidden || !rel_path_has_hidden_segment(p, hidden_patterns))
-            .filter(|p| !is_symlink(&root.join(p)))
+            .filter(|p| is_live_nonsymlink(&root.join(p)))
             .take(max_items)
             .collect()
     } else {
@@ -125,13 +125,18 @@ pub fn workspace_files(
     items
 }
 
-/// True if `path` is a symlink (without following it). Symlinks are
-/// filtered out of the picker because opening one whose target is a
-/// directory or broken propagates an `io::Error` from `Buffer::load`
-/// up to the main loop and terminates the editor.
-fn is_symlink(path: &Path) -> bool {
+/// True if `path` exists on disk and is not a symlink (without
+/// following it). `git ls-files --cached` keeps listing files that were
+/// deleted from the work tree but whose deletion hasn't been staged, so
+/// without the existence check the explorer would surface ghost entries
+/// that survive a `refresh()` forever; dropping non-existent paths keeps
+/// the tree in sync with the actual filesystem. Symlinks are filtered
+/// out of the picker because opening one whose target is a directory or
+/// broken propagates an `io::Error` from `Buffer::load` up to the main
+/// loop and terminates the editor.
+fn is_live_nonsymlink(path: &Path) -> bool {
     fs::symlink_metadata(path)
-        .map(|m| m.file_type().is_symlink())
+        .map(|m| !m.file_type().is_symlink())
         .unwrap_or(false)
 }
 
