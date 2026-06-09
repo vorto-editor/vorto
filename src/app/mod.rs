@@ -242,6 +242,15 @@ pub struct App {
     /// uses its token stream for this; Visual mode bypasses the token
     /// pipeline so it tracks the one prefix it cares about here.
     pub visual_g_pending: bool,
+    /// Pending numeric count typed in Visual mode (e.g. the `5` in
+    /// `5j` or `10G`). Normal mode parses counts in its token stream;
+    /// Visual bypasses that pipeline so it accumulates digits here and
+    /// consumes the value when a motion is applied.
+    pub visual_count: Option<u32>,
+    /// Pending `f`/`F`/`t`/`T` in Visual mode, waiting for the target
+    /// char on the next key. `(forward, till)` mirrors the
+    /// [`MotionKind::FindChar`] fields.
+    pub visual_find_pending: Option<(bool, bool)>,
     /// Active `gw` jump-label overlay, if any. `Some` between the user
     /// pressing `gw` and either picking a label or cancelling. While
     /// it's `Some`, the input dispatcher routes every key to
@@ -439,6 +448,8 @@ impl App {
             last_change: None,
             recording: None,
             visual_g_pending: false,
+            visual_count: None,
+            visual_find_pending: None,
             jump_state: None,
             navigating_jumplist: false,
             completion: None,

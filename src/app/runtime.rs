@@ -221,7 +221,7 @@ impl App {
         )));
     }
 
-    fn run_jump_search(&mut self, forward: bool) {
+    pub(super) fn run_jump_search(&mut self, forward: bool) {
         if let Some(c) = self
             .search
             .find_next(&self.editor, self.active_doc(), forward)
