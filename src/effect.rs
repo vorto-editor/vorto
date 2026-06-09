@@ -80,6 +80,14 @@ pub enum Cmd {
         then_quit: bool,
         force: bool,
     },
+    /// `:wa` / `:wqa` — write every dirty file-backed buffer across the
+    /// document pool and the sleeping set. `force` overwrites buffers
+    /// that drifted on disk since load; `then_quit` quits afterward, but
+    /// only when every buffer wrote cleanly.
+    SaveAll {
+        then_quit: bool,
+        force: bool,
+    },
     /// `:e <path>` — switch the active buffer to a file.
     OpenPath(PathBuf),
     /// `:reload` — re-read the active buffer's backing file. The

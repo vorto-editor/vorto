@@ -154,6 +154,22 @@ pub(super) fn handle_direct(app: &mut App, kind: DirectKind, count: u32, ctx: Ct
             then_quit: false,
             force: true,
         }),
+        D::SaveAll => cmds.push(Cmd::SaveAll {
+            then_quit: false,
+            force: false,
+        }),
+        D::SaveAllForce => cmds.push(Cmd::SaveAll {
+            then_quit: false,
+            force: true,
+        }),
+        D::SaveAllAndQuit => cmds.push(Cmd::SaveAll {
+            then_quit: true,
+            force: false,
+        }),
+        D::SaveAllAndQuitForce => cmds.push(Cmd::SaveAll {
+            then_quit: true,
+            force: true,
+        }),
         D::Open => {
             if ctx.rest.is_empty() {
                 cmds.push(Cmd::ToastError("missing path".into()));
@@ -266,16 +282,22 @@ fn plan_quit(app: &App) -> Cmd {
     if app.active_doc().dirty {
         return Cmd::ToastError("unsaved changes (use :q!)".into());
     }
-    let sleeping_dirty: Vec<&BufferRef> = app
-        .sleeping
+    // Non-active buffers live either frozen in `sleeping` (shown in no
+    // pane) or still pooled in `documents` (shown in an inactive split
+    // pane). Check both so a dirty buffer in another pane still blocks
+    // the quit instead of being dropped on the floor.
+    let active = &app.editor.doc;
+    let mut dirty: Vec<&BufferRef> = app
+        .documents
         .iter()
-        .filter(|(_, b)| b.dirty)
+        .filter(|(r, b)| *r != active && b.dirty)
         .map(|(r, _)| r)
         .collect();
-    if !sleeping_dirty.is_empty() {
+    dirty.extend(app.sleeping.iter().filter(|(_, b)| b.dirty).map(|(r, _)| r));
+    if !dirty.is_empty() {
         return Cmd::ToastError(format!(
             "unsaved changes in {} (use :q!)",
-            format_dirty_list(&sleeping_dirty)
+            format_dirty_list(&dirty)
         ));
     }
     Cmd::Quit
