@@ -426,26 +426,32 @@ impl App {
                         (rel, is_current)
                     }
                 };
-                // Dirty is tracked on whichever copy is live: the
-                // active buffer for `is_current`, the sleeping map
-                // entry for everything else.
+                // Dirty is tracked on whichever copy is live. A
+                // non-active buffer shown in another split pane stays in
+                // the `documents` pool (it never sleeps), so check there
+                // before the `sleeping` map — otherwise its `+` marker
+                // silently vanishes from the picker.
                 let entry_dirty = if is_current {
                     active_dirty
+                } else if let Some(doc) = self.documents.get(r) {
+                    doc.dirty
                 } else {
                     self.sleeping.get(r).is_some_and(|b| b.dirty)
                 };
-                // VCS marker. Scratch never has a VCS state. For the
-                // active File we trust the live in-memory diff (catches
-                // unsaved edits that `git status` can't see); for every
-                // other File we fall back to the porcelain set, then
-                // OR in the unsaved-dirty bit so an inactive edited
-                // buffer still shows as changed even if its on-disk
-                // copy matches HEAD.
+                // VCS marker. Scratch never has a VCS state. For any
+                // live `documents` entry (active or parked in a pane) we
+                // trust the in-memory diff (catches unsaved edits that
+                // `git status` can't see); for sleeping entries we fall
+                // back to the porcelain set, then OR in the unsaved-dirty
+                // bit so an inactive edited buffer still shows as changed
+                // even if its on-disk copy matches HEAD.
                 let entry_vcs = match r {
                     BufferRef::Scratch(_) => false,
                     BufferRef::File(p) => {
                         if is_current {
                             active_vcs_changed
+                        } else if let Some(doc) = self.documents.get(r) {
+                            doc.has_vcs_changes()
                         } else {
                             vcs_set.contains(p) || entry_dirty
                         }

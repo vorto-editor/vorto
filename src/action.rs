@@ -291,6 +291,19 @@ pub enum DirectKind {
     /// when the buffer's path points into a directory that doesn't
     /// exist yet (a plain `:w` errors out in that case).
     SaveForce,
+    /// `:wa` — write every dirty file-backed buffer (active, parked in
+    /// a pane, or sleeping). Unnamed (scratch) buffers are skipped; a
+    /// buffer that drifted on disk since load is left alone and
+    /// reported, mirroring `:w`'s external-edit guard.
+    SaveAll,
+    /// `:wa!` — like `:wa` but overwrites buffers that drifted on disk.
+    SaveAllForce,
+    /// `:wqa` / `:xa` — write all dirty buffers, then quit. Only quits
+    /// when every buffer wrote cleanly (no drift, no error, no unnamed
+    /// buffer left); otherwise the editor stays open with a report.
+    SaveAllAndQuit,
+    /// `:wqa!` — write all (overwriting drift), then quit.
+    SaveAllAndQuitForce,
     Open,
     /// `:log` — open the debug log file (resolved the same way the
     /// logger writes it: `$VORTO_LOG`, else `$XDG_STATE_HOME/vorto/…`).

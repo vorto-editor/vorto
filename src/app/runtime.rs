@@ -53,6 +53,7 @@ impl App {
                 then_quit,
                 force,
             } => self.run_save(path.as_deref(), then_quit, force),
+            Cmd::SaveAll { then_quit, force } => self.run_save_all(then_quit, force),
             Cmd::OpenPath(path) => self.open_path(&path)?,
             Cmd::Reload => self.run_reload(),
             Cmd::ReloadAll => self.run_reload_all(),
@@ -399,6 +400,180 @@ impl App {
             if then_quit {
                 self.should_quit = true;
             }
+        }
+    }
+
+    /// `:wa` / `:wqa` — write every dirty file-backed buffer.
+    ///
+    /// Three populations get written:
+    ///   - The active buffer — formatted on save, exactly like `:w`.
+    ///   - Buffers parked in other panes — live in the `documents` pool.
+    ///   - Sleeping buffers shown in no pane — thawed, written, re-frozen.
+    ///
+    /// Unnamed (scratch) buffers can't be written and are counted as
+    /// skipped. Without `force` each write is gated by the same pre-write
+    /// guards as `:w` — a file that drifted on disk, vanished, or whose
+    /// parent directory is missing is left untouched and reported, and
+    /// `:wa!` lifts all three. With `then_quit` the editor only exits
+    /// when every dirty buffer wrote cleanly — no block, no error, no
+    /// unnamed buffer left behind.
+    fn run_save_all(&mut self, then_quit: bool, force: bool) {
+        use crate::buffer_ref::BufferRef;
+
+        // The pre-write guards `:w` applies, mirrored so `:wa` doesn't
+        // silently do what `:w` refuses. A `None` baseline means the
+        // buffer was never read from disk (a brand-new file), so only
+        // the missing-parent case can block it.
+        enum Block {
+            /// External tool rewrote the file since we loaded it.
+            Drift,
+            /// The backing file is gone (or its metadata is unreadable).
+            Vanished,
+            /// Target's parent directory doesn't exist yet.
+            NoDir,
+        }
+        fn save_block(path: &Path, expected: Option<crate::editor::FileMeta>) -> Option<Block> {
+            if let Some(exp) = expected {
+                return match crate::editor::FileMeta::of(path) {
+                    Some(actual) if actual != exp => Some(Block::Drift),
+                    Some(_) => None,
+                    None => Some(Block::Vanished),
+                };
+            }
+            let parent_missing = path
+                .parent()
+                .map(|p| !p.as_os_str().is_empty() && !p.exists())
+                .unwrap_or(false);
+            parent_missing.then_some(Block::NoDir)
+        }
+        fn label_of(r: &BufferRef) -> String {
+            match r {
+                BufferRef::File(p) => p
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| p.display().to_string()),
+                BufferRef::Scratch(id) => BufferRef::scratch_label(*id),
+            }
+        }
+
+        // The focused buffer gets format-on-save for parity with `:w`;
+        // the rest are written verbatim — reformatting buffers the user
+        // isn't looking at would be surprising.
+        if self.active_doc().path.is_some() && self.active_doc().dirty {
+            self.run_format_on_save();
+        }
+
+        let active_ref = self.editor.doc.clone();
+        let mut saved = 0usize;
+        let mut active_saved = false;
+        let mut unnamed = 0usize;
+        let mut drifted = 0usize;
+        let mut vanished = 0usize;
+        let mut no_dir = 0usize;
+        let mut errors: Vec<String> = Vec::new();
+        let mut tally_block = |b: Block| match b {
+            Block::Drift => drifted += 1,
+            Block::Vanished => vanished += 1,
+            Block::NoDir => no_dir += 1,
+        };
+
+        // Live documents: the active buffer plus any parked in panes.
+        // One entry per ref, so two panes sharing a document write once.
+        let doc_refs: Vec<BufferRef> = self.documents.keys().cloned().collect();
+        for r in doc_refs {
+            let doc = self.documents.get(&r).expect("ref from keys");
+            if !doc.dirty {
+                continue;
+            }
+            let Some(path) = doc.path.clone() else {
+                unnamed += 1;
+                continue;
+            };
+            if !force && let Some(b) = save_block(&path, doc.disk_meta) {
+                tally_block(b);
+                continue;
+            }
+            match self.documents.get_mut(&r).expect("ref from keys").save() {
+                Ok(()) => {
+                    saved += 1;
+                    active_saved |= r == active_ref;
+                }
+                Err(e) => errors.push(format!("{}: {}", label_of(&r), root_cause(&e))),
+            }
+        }
+
+        // Sleeping documents: thaw, write, re-freeze. Thawing
+        // decompresses, but `:wa` is rare enough that correctness beats
+        // the saved cycles.
+        let sleeping_refs: Vec<BufferRef> = self
+            .sleeping
+            .iter()
+            .filter(|(_, s)| s.dirty)
+            .map(|(r, _)| r.clone())
+            .collect();
+        for r in sleeping_refs {
+            let sb = self.sleeping.remove(&r).expect("ref from keys");
+            if sb.path().is_none() {
+                unnamed += 1;
+                self.sleeping.insert(r, sb);
+                continue;
+            }
+            let mut buf = sb.thaw();
+            let path = buf.path.clone().expect("path present, checked above");
+            match (force, save_block(&path, buf.disk_meta)) {
+                (false, Some(b)) => tally_block(b),
+                _ => match buf.save() {
+                    Ok(()) => saved += 1,
+                    Err(e) => errors.push(format!("{}: {}", label_of(&r), root_cause(&e))),
+                },
+            }
+            self.sleeping.insert(r, super::SleepingBuffer::freeze(buf));
+        }
+
+        // `did_save` only has a live client for the active buffer (the
+        // LSP is detached on switch-away), so notify only when the active
+        // doc actually wrote — otherwise we'd emit a spurious save for a
+        // file that didn't change.
+        if active_saved {
+            self.run_notify_lsp_save();
+        }
+
+        // One summary toast rather than one per buffer.
+        let mut parts = Vec::new();
+        if saved > 0 {
+            parts.push(format!("wrote {saved}"));
+        }
+        if unnamed > 0 {
+            parts.push(format!("{unnamed} unnamed skipped"));
+        }
+        if drifted > 0 {
+            parts.push(format!("{drifted} changed on disk"));
+        }
+        if vanished > 0 {
+            parts.push(format!("{vanished} missing on disk"));
+        }
+        if no_dir > 0 {
+            parts.push(format!("{no_dir} missing parent dir"));
+        }
+        // Drift / vanished / missing-dir are all liftable with `:wa!`;
+        // append the hint once so the message stays readable.
+        let forceable = drifted + vanished + no_dir > 0;
+        if forceable {
+            parts.push("use :wa!".to_string());
+        }
+        let blocked = forceable || !errors.is_empty() || unnamed > 0;
+        if !errors.is_empty() {
+            self.push_toast(Toast::error(format!("save all: {}", errors.join("; "))));
+        } else if parts.is_empty() {
+            self.push_toast(Toast::info("nothing to write"));
+        } else if blocked {
+            self.push_toast(Toast::error(parts.join(", ")));
+        } else {
+            self.push_toast(Toast::info(parts.join(", ")));
+        }
+
+        if then_quit && !blocked {
+            self.should_quit = true;
         }
     }
 
@@ -780,5 +955,137 @@ impl App {
         if let Err(e) = self.lsp.did_save(&text) {
             self.push_toast(Toast::error(format!("lsp didSave: {}", root_cause(&e))));
         }
+    }
+}
+
+#[cfg(test)]
+mod save_all_tests {
+    use super::*;
+    use crate::buffer_ref::BufferRef;
+    use crate::editor::{Buffer, FileMeta};
+    use std::fs;
+
+    fn test_app() -> App {
+        let config = crate::config::Config::load(None).expect("default config loads");
+        let loader =
+            crate::syntax::Loader::new(std::path::PathBuf::new(), std::path::PathBuf::new());
+        let (tx, _rx) = std::sync::mpsc::channel();
+        let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+        App::new(config, loader, tx, cwd)
+    }
+
+    /// Unique scratch dir under the system temp, namespaced by pid + tag
+    /// so parallel test runs don't collide.
+    fn temp_dir(tag: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("vorto-wa-{}-{tag}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// A file-backed buffer holding `text` with the dirty bit raised over
+    /// an up-to-date `disk_meta` baseline — i.e. unsaved edits that the
+    /// external-edit guard will consider drift-free.
+    fn dirty_doc(path: &std::path::Path, text: &str) -> Buffer {
+        let mut b = Buffer::new();
+        b.lines = text.split('\n').map(|s| s.to_string()).collect();
+        b.path = Some(path.to_path_buf());
+        b.dirty = true;
+        b.disk_meta = FileMeta::of(path);
+        b
+    }
+
+    #[test]
+    fn save_all_writes_active_and_sleeping_buffers() {
+        let dir = temp_dir("multi");
+        let active = dir.join("active.txt");
+        let sleeping = dir.join("sleeping.txt");
+        fs::write(&active, "old active\n").unwrap();
+        fs::write(&sleeping, "old sleeping\n").unwrap();
+
+        let mut app = test_app();
+
+        // Active buffer: edited in memory, stale on disk.
+        let active_ref = BufferRef::File(active.clone());
+        app.documents
+            .insert(active_ref.clone(), dirty_doc(&active, "new active"));
+        app.editor.doc = active_ref.clone();
+
+        // A buffer the user switched away from: frozen in `sleeping`.
+        let sleeping_ref = BufferRef::File(sleeping.clone());
+        app.sleeping.insert(
+            sleeping_ref.clone(),
+            crate::app::SleepingBuffer::freeze(dirty_doc(&sleeping, "new sleeping")),
+        );
+
+        app.run_save_all(false, false);
+
+        // Both the focused buffer and the one shown in no pane hit disk.
+        assert_eq!(fs::read_to_string(&active).unwrap(), "new active");
+        assert_eq!(fs::read_to_string(&sleeping).unwrap(), "new sleeping");
+        assert!(!app.documents.get(&active_ref).unwrap().dirty);
+        assert!(!app.sleeping.get(&sleeping_ref).unwrap().dirty);
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn save_all_refuses_disk_drift_until_forced() {
+        let dir = temp_dir("drift");
+        let file = dir.join("drift.txt");
+        fs::write(&file, "orig").unwrap();
+
+        let mut app = test_app();
+        let r = BufferRef::File(file.clone());
+        app.documents
+            .insert(r.clone(), dirty_doc(&file, "edited in editor"));
+
+        // Another tool rewrites the file out from under us; the differing
+        // length is enough for the FileMeta baseline to register drift.
+        fs::write(&file, "EXTERNALLY CHANGED ON DISK").unwrap();
+
+        // Plain `:wa` leaves the drifted file alone and keeps the buffer
+        // dirty so the edits aren't lost.
+        app.run_save_all(false, false);
+        assert_eq!(
+            fs::read_to_string(&file).unwrap(),
+            "EXTERNALLY CHANGED ON DISK"
+        );
+        assert!(app.documents.get(&r).unwrap().dirty);
+
+        // `:wa!` overwrites.
+        app.run_save_all(false, true);
+        assert_eq!(fs::read_to_string(&file).unwrap(), "edited in editor");
+        assert!(!app.documents.get(&r).unwrap().dirty);
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn save_all_refuses_missing_parent_dir_until_forced() {
+        let dir = temp_dir("nodir");
+        // `newsub` does not exist; a brand-new buffer (no disk baseline)
+        // points into it, mirroring `:e a/newsub/new.txt`.
+        let target = dir.join("newsub").join("new.txt");
+
+        let mut app = test_app();
+        let r = BufferRef::File(target.clone());
+        let mut buf = Buffer::new();
+        buf.lines = vec!["fresh".to_string()];
+        buf.path = Some(target.clone());
+        buf.dirty = true;
+        app.documents.insert(r.clone(), buf);
+
+        // Plain `:wa` refuses rather than silently creating the dir —
+        // matching `:w`'s "no such directory" guard.
+        app.run_save_all(false, false);
+        assert!(!target.exists());
+        assert!(app.documents.get(&r).unwrap().dirty);
+
+        // `:wa!` creates the missing parent and writes.
+        app.run_save_all(false, true);
+        assert_eq!(fs::read_to_string(&target).unwrap(), "fresh");
+        assert!(!app.documents.get(&r).unwrap().dirty);
+
+        fs::remove_dir_all(&dir).ok();
     }
 }
