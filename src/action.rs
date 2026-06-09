@@ -304,6 +304,12 @@ pub enum DirectKind {
     /// entries with unsaved edits are left alone (those edits aren't
     /// backed by disk and would be unrecoverable if dropped).
     ReloadAll,
+    /// `:config-reload` — re-read the user config file and re-apply the
+    /// settings that can change at runtime (keymap, cursor shapes, editor
+    /// and finder options, agent catalog, grammar recipes, theme). Already
+    /// running subsystems (LSP servers, the syntax/preview workers) keep
+    /// their startup snapshot and need a restart to pick up changes.
+    ConfigReload,
     GotoLine,
     /// `gd` — `textDocument/definition` for the symbol under the cursor.
     GotoDefinition,

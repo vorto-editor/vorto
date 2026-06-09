@@ -355,6 +355,13 @@ pub const COMMANDS: &[Command] = &[
         kind: Kind::Direct(DirectKind::ReloadAll),
     },
     Command {
+        name: "config-reload",
+        aliases: &["reload-config"],
+        description: "re-read user config (keymap, cursor, editor, theme)",
+        args: Args::None,
+        kind: Kind::Direct(DirectKind::ConfigReload),
+    },
+    Command {
         name: "noh",
         aliases: &["nohl", "nohlsearch"],
         description: "clear search highlight",

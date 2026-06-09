@@ -56,6 +56,7 @@ impl App {
             Cmd::OpenPath(path) => self.open_path(&path)?,
             Cmd::Reload => self.run_reload(),
             Cmd::ReloadAll => self.run_reload_all(),
+            Cmd::ConfigReload => self.run_config_reload(),
             Cmd::LspJump { method, label } => self.lsp_jump(method, label),
             Cmd::LspFindReferences => self.lsp_find_references(),
             Cmd::LspCodeAction => self.lsp_code_action(),
@@ -710,6 +711,67 @@ impl App {
                 "{summary}; errors: {}",
                 errors.join("; ")
             )));
+        }
+    }
+
+    /// `:config-reload` — re-read the user config file and re-apply the
+    /// settings that can change at runtime.
+    ///
+    /// Resolves the path exactly as startup does ([`crate::config::default_path`]),
+    /// so a workspace-local `.vorto` still wins. On a load/parse error the
+    /// current config is left untouched and the error surfaces as a toast,
+    /// matching the "bad config never breaks a running editor" stance.
+    ///
+    /// What takes effect immediately: keymap, cursor shapes, `[editor]` /
+    /// `[finder]` options, the agent catalog, the grammar recipe catalog,
+    /// and the active theme. What does *not*: already running LSP servers
+    /// and the syntax/preview workers, which captured their slice of the
+    /// config at startup and need a restart to pick up changes — the
+    /// success toast says as much so a "why didn't it change" is answered
+    /// up front. A theme that fails to load is a partial success: the rest
+    /// of the config is applied and the toast drops to warn, not error
+    /// (a real load/parse failure already errors out above without
+    /// touching the running config).
+    fn run_config_reload(&mut self) {
+        let path = crate::config::default_path();
+        let new_config = match crate::config::Config::load(path.as_deref()) {
+            Ok(c) => c,
+            Err(e) => {
+                self.push_toast(Toast::error(format!("config: {}", root_cause(&e))));
+                return;
+            }
+        };
+
+        // Rebuild the merged grammar recipe catalog from the new sources,
+        // mirroring `App::new`.
+        self.grammar_recipes = crate::grammar::cli::merged_recipes(&new_config.grammars);
+
+        // Re-apply the theme. A bad name is non-fatal — keep whatever's
+        // active and note it, so a typo doesn't blank the screen.
+        let theme_warning = match crate::theme::load_by_name(&new_config.theme) {
+            Ok(t) => {
+                crate::theme::set_active(t);
+                None
+            }
+            Err(e) => Some(format!("theme `{}`: {}", new_config.theme, root_cause(&e))),
+        };
+
+        self.config = new_config;
+
+        let where_from = path
+            .as_deref()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| "<defaults>".into());
+        // Hint that the live-reloadable settings are in effect but the
+        // process-bound subsystems aren't — see the doc comment.
+        const RESTART_HINT: &str = "restart for lsp/grammar/syntax";
+        match theme_warning {
+            Some(w) => self.push_toast(Toast::warn(format!(
+                "config reloaded ({where_from}); {w}; {RESTART_HINT}"
+            ))),
+            None => self.push_toast(Toast::info(format!(
+                "config reloaded ({where_from}); {RESTART_HINT}"
+            ))),
         }
     }
 
