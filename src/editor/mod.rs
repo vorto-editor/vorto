@@ -62,6 +62,20 @@ use crate::mode::Mode;
 use crate::syntax::Engine;
 use crate::vcs::{self, LineStatus};
 
+/// Create any missing parent directories for `path` before a write.
+/// New buffers from the explorer (and `:e a/b/new.ts`) defer both the
+/// file and its directories to save time, so the first write may target
+/// a path whose parents don't exist yet. A bare filename has an empty
+/// parent — nothing to create — so we skip it.
+fn ensure_parent_dirs(path: &Path) -> Result<()> {
+    if let Some(parent) = path.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        fs::create_dir_all(parent)?;
+    }
+    Ok(())
+}
+
 #[derive(Default)]
 pub struct Buffer {
     pub lines: Vec<String>,
@@ -512,6 +526,7 @@ impl Buffer {
 
     pub fn save(&mut self) -> Result<()> {
         if let Some(p) = &self.path {
+            ensure_parent_dirs(p)?;
             fs::write(p, self.lines.join("\n"))?;
             self.dirty = false;
             self.disk_meta = FileMeta::of(p);
@@ -521,6 +536,7 @@ impl Buffer {
     }
 
     pub fn save_as(&mut self, path: &Path) -> Result<()> {
+        ensure_parent_dirs(path)?;
         fs::write(path, self.lines.join("\n"))?;
         self.path = Some(path.to_path_buf());
         self.dirty = false;
@@ -830,5 +846,28 @@ mod merge_tests {
         let outcome = ed.merge_from_disk(&mut buf).unwrap();
         assert_eq!(outcome, MergeOutcome::Unchanged);
         assert!(!buf.dirty);
+    }
+
+    #[test]
+    fn save_creates_missing_parent_dirs() {
+        // A new buffer from the explorer (or `:e a/b/new.ts`) defers
+        // both the file and its directories to save time, so the first
+        // write may target a path whose parents don't exist yet.
+        let tmp = std::env::temp_dir().join(format!(
+            "vorto-save-mkdir-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0),
+        ));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let target = tmp.join("a/b/new.ts");
+        let mut b = Buffer::new();
+        b.path = Some(target.clone());
+        b.lines = vec!["const x = 1".into()];
+        b.save().unwrap();
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "const x = 1");
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 }

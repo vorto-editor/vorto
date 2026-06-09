@@ -6,8 +6,25 @@
 //! modes (`a/d/r/m`, `/`).
 
 use std::fs;
+use std::path::{Path, PathBuf};
 
 use super::{ActionInput, ExplorerMode, ExplorerState};
+
+/// Outcome of [`ExplorerState::perform_create`]. Directories are
+/// materialised on disk immediately (there's no buffer to defer them
+/// to), but files are *not*: creating an empty 0-byte stub used to
+/// crash language servers like tsserver — its filesystem watcher picks
+/// up the stub and then trips a `Bad line number` assertion on the
+/// first `didChange`. Instead we hand the caller the target path and
+/// let it open a fresh buffer; the file (and any missing parent dirs)
+/// materialises on the first save.
+pub enum CreateResult {
+    /// A directory was created on disk and the tree refreshed.
+    Directory,
+    /// Open a new, unsaved buffer at this absolute path. Nothing has
+    /// touched disk yet.
+    NewFile(PathBuf),
+}
 
 impl ExplorerState {
     // ── mode transitions ─────────────────────────────────────────
@@ -100,21 +117,25 @@ impl ExplorerState {
     // All ops resolve paths against [`Self::root`], then call
     // [`Self::refresh`] on success so the tree mirrors disk state.
 
-    /// Create a file or directory at `rel` (relative to the workspace
-    /// root). A trailing `/` selects the directory variant; anything
-    /// else creates an empty file. Missing parent directories are
-    /// created either way.
-    ///
-    /// Returns the rel path of the created entry on success (for the
-    /// caller to surface as the next selection / open intent).
-    pub fn perform_create(&mut self, rel: &str) -> Result<String, String> {
+    /// Create an entry at `rel` (relative to the workspace root). A
+    /// trailing `/` makes a directory — materialised on disk now, since
+    /// there's no buffer to defer it to. Anything else is a file:
+    /// [`CreateResult::NewFile`] is returned *without* touching disk
+    /// (see [`CreateResult`] for why), and the caller opens a buffer
+    /// that writes the file — and any missing parent dirs — on save.
+    pub fn perform_create(&mut self, rel: &str) -> Result<CreateResult, String> {
         let trimmed = rel.trim();
         if trimmed.is_empty() {
             return Err("empty path".into());
         }
         let is_dir = trimmed.ends_with('/');
         let clean = trimmed.trim_end_matches('/').to_string();
-        if clean.is_empty() || clean.starts_with('/') || clean.contains("..") {
+        // Reject anything that would let `root.join(clean)` escape the
+        // workspace: `..` traversal, and absolute inputs — `Path::is_
+        // absolute` catches Unix `/foo`, Windows `C:\foo`, and UNC
+        // `\\server\share` (a bare `starts_with('/')` would miss the
+        // latter two, since `join` ignores `root` for an absolute RHS).
+        if clean.is_empty() || Path::new(&clean).is_absolute() || clean.contains("..") {
             return Err(format!("invalid path: {trimmed}"));
         }
         let target = self.root.join(&clean);
@@ -123,15 +144,16 @@ impl ExplorerState {
         }
         if is_dir {
             fs::create_dir_all(&target).map_err(|e| format!("mkdir: {e}"))?;
+            self.refresh();
+            self.select_by_path(&clean);
+            Ok(CreateResult::Directory)
         } else {
-            if let Some(parent) = target.parent() {
-                fs::create_dir_all(parent).map_err(|e| format!("mkdir: {e}"))?;
-            }
-            fs::File::create(&target).map_err(|e| format!("create: {e}"))?;
+            // Don't touch disk — the file and any missing parent dirs
+            // materialise on the first save (see [`CreateResult`]). The
+            // caller opens a fresh buffer; the tree picks the file up on
+            // its next refresh after that save.
+            Ok(CreateResult::NewFile(target))
         }
-        self.refresh();
-        self.select_by_path(&clean);
-        Ok(clean)
     }
 
     /// Delete the entry at `rel`. Directories are removed recursively
@@ -206,6 +228,66 @@ mod tests {
     use super::*;
     use crate::finder::IgnoreOpts;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    fn scratch_root(tag: &str) -> std::path::PathBuf {
+        let tmp = std::env::temp_dir().join(format!(
+            "vorto-{tag}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0),
+        ));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        tmp
+    }
+
+    #[test]
+    fn perform_create_file_defers_to_disk() {
+        // Creating a file must NOT touch disk — neither the file nor any
+        // implied parent dir. A 0-byte stub here used to crash tsserver
+        // (its watcher picks it up, then asserts on the first didChange).
+        let tmp = scratch_root("create-file");
+        let mut s = ExplorerState::new(&tmp, IgnoreOpts::DEFAULT, default_patterns(), 5000, false);
+        let out = s.perform_create("sub/new.ts").unwrap();
+        match out {
+            CreateResult::NewFile(p) => assert_eq!(p, tmp.join("sub/new.ts")),
+            CreateResult::Directory => panic!("expected NewFile, got Directory"),
+        }
+        assert!(!tmp.join("sub/new.ts").exists(), "file must not be on disk");
+        assert!(!tmp.join("sub").exists(), "parent dir must not be on disk");
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn perform_create_dir_materializes() {
+        // Directories have no buffer to defer to, so they're created now.
+        let tmp = scratch_root("create-dir");
+        let mut s = ExplorerState::new(&tmp, IgnoreOpts::DEFAULT, default_patterns(), 5000, false);
+        let out = s.perform_create("newdir/").unwrap();
+        assert!(matches!(out, CreateResult::Directory));
+        assert!(tmp.join("newdir").is_dir());
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn perform_create_rejects_escaping_paths() {
+        // Inputs that would let `root.join` escape the workspace must be
+        // refused — `..` traversal and absolute paths. `is_absolute`
+        // covers the Unix `/abs` form here; on Windows it also catches
+        // `C:\abs` and `\\server\share` that a `starts_with('/')` check
+        // would have let through.
+        let tmp = scratch_root("create-escape");
+        let mut s = ExplorerState::new(&tmp, IgnoreOpts::DEFAULT, default_patterns(), 5000, false);
+        for bad in ["/etc/passwd", "../outside.ts", "a/../../b.ts"] {
+            assert!(
+                s.perform_create(bad).is_err(),
+                "should reject escaping path: {bad}"
+            );
+        }
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
 
     #[test]
     fn toggle_hidden_surfaces_dotfile_at_root() {

@@ -59,6 +59,16 @@ impl App {
                 }
                 Ok(())
             }
+            PromptOutcome::OpenNewFile(path) => {
+                // Explorer create — `path` is already absolute and does
+                // not exist on disk yet. `open_path` makes a fresh
+                // unsaved buffer (the file materialises on `:w`).
+                match self.open_path(&path) {
+                    Ok(()) => self.run_scroll(crate::effect::ScrollAnchor::Center),
+                    Err(e) => self.push_toast(Toast::error(format!("open: {}", root_cause(&e)))),
+                }
+                Ok(())
+            }
             PromptOutcome::GotoLine(row) => {
                 self.record_jump();
                 self.editor.cursor.row = row;

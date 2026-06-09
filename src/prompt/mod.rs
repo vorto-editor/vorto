@@ -8,7 +8,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use crate::bookmark::Bookmark;
 use crate::buffer_ref::BufferRef;
-use crate::finder::{ExplorerMode, ExplorerState, Finder, FuzzyKind, IgnoreOpts};
+use crate::finder::{CreateResult, ExplorerMode, ExplorerState, Finder, FuzzyKind, IgnoreOpts};
 use crate::lsp::{CodeAction, Location};
 
 mod completion;
@@ -262,6 +262,10 @@ pub enum PromptOutcome {
     /// Fuzzy file picker submission. The path is relative to
     /// `startup_cwd` — re-anchored by the caller.
     OpenRelativeFile(String),
+    /// Explorer "create file" — open a fresh, unsaved buffer at this
+    /// absolute path. Nothing has touched disk yet; the file
+    /// materialises on the first save. The explorer prompt closes.
+    OpenNewFile(PathBuf),
     /// Fuzzy line picker submission. 0-based row in the active buffer.
     GotoLine(usize),
     /// Fuzzy references picker submission.
@@ -1203,9 +1207,16 @@ impl PromptController {
         };
         let raw = input.text.clone();
         match state.perform_create(&raw) {
-            Ok(_) => {
+            Ok(CreateResult::Directory) => {
                 state.cancel_pending();
                 PromptOutcome::Nothing
+            }
+            Ok(CreateResult::NewFile(path)) => {
+                // Close the explorer and hand the path up so the app
+                // opens a buffer for it — same shape as opening an
+                // existing file (see `handle_explorer_enter`).
+                self.close();
+                PromptOutcome::OpenNewFile(path)
             }
             Err(msg) => {
                 state.error = Some(msg);

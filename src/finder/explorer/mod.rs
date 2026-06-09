@@ -11,6 +11,7 @@ mod fs_ops;
 mod input;
 mod tree;
 
+pub use fs_ops::CreateResult;
 pub use tree::ExplorerNode;
 
 use std::cell::Cell;
