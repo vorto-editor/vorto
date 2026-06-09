@@ -41,6 +41,7 @@ use ratatui::backend::CrosstermBackend;
 
 use crate::action::PromptKind;
 use crate::app::App;
+use crate::app::root_cause;
 use crate::config::CursorShape;
 use crate::finder::{FuzzyKind, IgnoreOpts};
 
@@ -158,6 +159,11 @@ fn main() -> Result<()> {
     terminal.clear()?;
 
     let cfg_path = config::default_path();
+    // A broken user config (typo, parse error) is non-fatal: log it and
+    // fall back to the built-in defaults so the editor still starts. The
+    // user can fix the file and `:config-reload` without losing the session.
+    // The error is surfaced as a toast once the app is up (see below).
+    let mut cfg_warning: Option<String> = None;
     let cfg = match config::Config::load(cfg_path.as_deref()) {
         Ok(c) => {
             vlog!(
@@ -170,8 +176,9 @@ fn main() -> Result<()> {
             c
         }
         Err(e) => {
-            vlog!("config load failed: {e:#}");
-            return Err(e);
+            vlog!("config load failed, using defaults: {e:#}");
+            cfg_warning = Some(format!("config: {}; using defaults", root_cause(&e)));
+            config::Config::load(None).expect("default config loads")
         }
     };
     // Apply the configured theme. A bad name (typo, deleted file) is
@@ -213,6 +220,12 @@ fn main() -> Result<()> {
     });
 
     let mut app = App::new(cfg, loader, event_tx, startup_cwd);
+    // Surface a config-load failure now that the UI exists. The editor is
+    // running on built-in defaults; the toast tells the user why so a
+    // silently-ignored config doesn't read as "my settings don't work."
+    if let Some(w) = cfg_warning {
+        app.push_toast(app::Toast::warn(w));
+    }
     // Best-effort: spawn Copilot eagerly so ghost-text completions are
     // ready by the time the user starts typing. Silent no-op when the
     // server binary isn't installed.
