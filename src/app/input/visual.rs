@@ -5,7 +5,8 @@
 use anyhow::Result;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-use crate::action::{MotionKind, Operator};
+use crate::action::{LastFind, MotionKind, Operator};
+use crate::app::eval::handle::resolve_motion_pure;
 use crate::app::{App, Selection, Toast};
 use crate::editor::Cursor;
 use crate::mode::Mode;
@@ -14,20 +15,45 @@ impl App {
     pub(super) fn handle_visual_key(&mut self, key: KeyEvent) -> Result<()> {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
 
+        // `f`/`F`/`t`/`T` left us waiting for the literal target char.
+        // The very next key is that char (any other key — Esc included —
+        // just cancels). A pending count multiplies the find.
+        if let Some((forward, till)) = self.visual_find_pending.take() {
+            let count = self.take_visual_count();
+            if let KeyCode::Char(ch) = key.code {
+                self.last_find = Some(LastFind { ch, forward, till });
+                self.apply_visual_motion(MotionKind::FindChar { ch, forward, till }, count);
+            }
+            return Ok(());
+        }
+
         // `g` is a two-key prefix in visual just like in normal — but
         // visual bypasses the token pipeline, so the one bit of state
-        // we need lives on App as `visual_g_pending`.
+        // we need lives on App as `visual_g_pending`. A pending count
+        // (e.g. the `5` in `5gg`) survives until the follower lands.
         if std::mem::take(&mut self.visual_g_pending) {
+            let had_count = self.visual_count.is_some();
+            let count = self.take_visual_count();
             match key.code {
-                KeyCode::Char('g') => self.editor.move_file_start(),
-                KeyCode::Char('e') => self.apply_visual_motion(MotionKind::WordEndBack),
-                KeyCode::Char('E') => self.apply_visual_motion(MotionKind::BigWordEndBack),
-                KeyCode::Char('_') => self.apply_visual_motion(MotionKind::LineLastNonBlank),
+                // bare `gg` → file start; any typed count is a line jump
+                // (`5gg` → line 5, `1gg` → line 1), matching vim.
+                KeyCode::Char('g') => {
+                    if had_count {
+                        self.goto_line_n_pure(count as usize);
+                    } else {
+                        self.editor.move_file_start();
+                    }
+                }
+                KeyCode::Char('e') => self.apply_visual_motion(MotionKind::WordEndBack, count),
+                KeyCode::Char('E') => self.apply_visual_motion(MotionKind::BigWordEndBack, count),
+                KeyCode::Char('_') => self.apply_visual_motion(MotionKind::LineLastNonBlank, count),
                 // gs/gl/gc/gb — same aliases as Normal mode.
-                KeyCode::Char('s') => self.apply_visual_motion(MotionKind::LineFirstNonBlank),
-                KeyCode::Char('l') => self.apply_visual_motion(MotionKind::LineEnd),
-                KeyCode::Char('c') => self.apply_visual_motion(MotionKind::ViewportMiddle),
-                KeyCode::Char('b') => self.apply_visual_motion(MotionKind::ViewportBottom),
+                KeyCode::Char('s') => {
+                    self.apply_visual_motion(MotionKind::LineFirstNonBlank, count)
+                }
+                KeyCode::Char('l') => self.apply_visual_motion(MotionKind::LineEnd, count),
+                KeyCode::Char('c') => self.apply_visual_motion(MotionKind::ViewportMiddle, count),
+                KeyCode::Char('b') => self.apply_visual_motion(MotionKind::ViewportBottom, count),
                 // `gn` / `gN` — extend the selection to cover the next
                 // (or previous) search match. Anchor stays put; the
                 // shared helper just walks the active end out to the
@@ -39,32 +65,108 @@ impl App {
             return Ok(());
         }
 
+        // Digits build up a count (`5j`, `10G`, `3fx`). A bare `0` with
+        // no count pending is the line-start motion, not a digit — so it
+        // falls through to the match below.
+        if let KeyCode::Char(c @ '0'..='9') = key.code
+            && !ctrl
+            && !(c == '0' && self.visual_count.is_none())
+        {
+            let digit = c as u32 - '0' as u32;
+            let next = self
+                .visual_count
+                .unwrap_or(0)
+                .saturating_mul(10)
+                .saturating_add(digit);
+            self.visual_count = Some(next);
+            return Ok(());
+        }
+
+        // Prefix keys that need the next keystroke. They must return
+        // *before* the count is consumed so `5gg` / `3fx` see it.
+        match key.code {
+            KeyCode::Char('g') => {
+                self.visual_g_pending = true;
+                return Ok(());
+            }
+            KeyCode::Char('f') if !ctrl => {
+                self.visual_find_pending = Some((true, false));
+                return Ok(());
+            }
+            KeyCode::Char('F') => {
+                self.visual_find_pending = Some((false, false));
+                return Ok(());
+            }
+            KeyCode::Char('t') => {
+                self.visual_find_pending = Some((true, true));
+                return Ok(());
+            }
+            KeyCode::Char('T') => {
+                self.visual_find_pending = Some((false, true));
+                return Ok(());
+            }
+            _ => {}
+        }
+
         // Pure-motion keys that map straight onto `MotionKind` and
         // can use the shared `motion_target` path. Selection follows
         // automatically because the anchor stays fixed.
         if let Some(motion) = visual_motion_for(key) {
-            self.apply_visual_motion(motion);
+            let count = self.take_visual_count();
+            self.apply_visual_motion(motion, count);
             return Ok(());
         }
 
+        // Everything below consumes (and thus clears) any pending count.
+        let had_count = self.visual_count.is_some();
+        let count = self.take_visual_count();
         match key.code {
             KeyCode::Esc => self.enter_mode(Mode::Normal),
-            KeyCode::Char('h') | KeyCode::Left => self.editor.move_left(),
+            KeyCode::Char('h') | KeyCode::Left => {
+                for _ in 0..count {
+                    self.editor.move_left();
+                }
+            }
             KeyCode::Char('l') | KeyCode::Right => {
-                ed_op_ref!(self, move_right(false));
+                for _ in 0..count {
+                    ed_op_ref!(self, move_right(false));
+                }
             }
             KeyCode::Char('j') | KeyCode::Down => {
-                ed_op_ref!(self, move_down());
+                for _ in 0..count {
+                    ed_op_ref!(self, move_down());
+                }
             }
             KeyCode::Char('k') | KeyCode::Up => {
-                ed_op_ref!(self, move_up());
+                for _ in 0..count {
+                    ed_op_ref!(self, move_up());
+                }
             }
             KeyCode::Char('0') | KeyCode::Home => self.editor.move_line_start(),
+            // bare `G` → file end; any typed count is a line jump
+            // (`20G` → line 20, `1G` → line 1), matching vim.
             KeyCode::Char('G') => {
-                ed_op_ref!(self, move_file_end());
+                if had_count {
+                    self.goto_line_n_pure(count as usize);
+                } else {
+                    ed_op_ref!(self, move_file_end());
+                }
             }
-            // `g` prefix — defer to the next key (see top of fn).
-            KeyCode::Char('g') => self.visual_g_pending = true,
+            // `;` / `,` — repeat the last find-char, count times.
+            KeyCode::Char(';') => self.repeat_visual_find(false, count),
+            KeyCode::Char(',') => self.repeat_visual_find(true, count),
+            // `n` / `N` — move the active end to the next / previous
+            // search match (the anchor stays put, extending selection).
+            KeyCode::Char('n') => {
+                for _ in 0..count {
+                    self.run_jump_search(self.search.last_forward);
+                }
+            }
+            KeyCode::Char('N') => {
+                for _ in 0..count {
+                    self.run_jump_search(!self.search.last_forward);
+                }
+            }
             // `*` / `#` reuse the Normal-mode helper to seed search state.
             KeyCode::Char('*') => self.search_word_under_cursor(true),
             KeyCode::Char('#') => self.search_word_under_cursor(false),
@@ -122,13 +224,30 @@ impl App {
         Ok(())
     }
 
-    /// Resolve a motion against the current cursor and assign — the
-    /// selection follows because the anchor is fixed.
-    fn apply_visual_motion(&mut self, motion: MotionKind) {
+    /// Resolve a motion `count` times against the current cursor and
+    /// assign — the selection follows because the anchor is fixed.
+    fn apply_visual_motion(&mut self, motion: MotionKind, count: u32) {
         let target = self
             .active_doc()
-            .motion_target(self.editor.cursor, motion, 1);
+            .motion_target(self.editor.cursor, motion, count.max(1));
         self.editor.cursor = target;
+    }
+
+    /// Consume the pending Visual-mode count, defaulting to 1. Clears
+    /// the accumulator so the next motion starts fresh.
+    fn take_visual_count(&mut self) -> u32 {
+        self.visual_count.take().unwrap_or(1).max(1)
+    }
+
+    /// `;` / `,` in visual — repeat the last find-char motion (`,`
+    /// reverses direction), `count` times. No-op with a toast when
+    /// there's no prior find, mirroring Normal mode.
+    fn repeat_visual_find(&mut self, reverse: bool, count: u32) {
+        let (resolved, _) = resolve_motion_pure(MotionKind::RepeatFind { reverse }, self.last_find);
+        match resolved {
+            Some(motion) => self.apply_visual_motion(motion, count),
+            None => self.push_toast(Toast::error("no previous find")),
+        }
     }
 
     fn swap_visual_endpoints(&mut self) {
@@ -584,4 +703,127 @@ fn visual_motion_for(key: KeyEvent) -> Option<MotionKind> {
         KeyCode::Char('}') => M::ParagraphForward,
         _ => return None,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::app::App;
+    use crate::editor::Cursor;
+    use crate::mode::Mode;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    /// Minimal `App` over a scratch buffer holding `src`. Mirrors the
+    /// helper in `app::fold`'s tests — no grammar dirs, so nothing
+    /// heavyweight attaches.
+    fn app_with_lines(src: &[&str]) -> App {
+        let config = crate::config::Config::load(None).expect("default config loads");
+        let loader =
+            crate::syntax::Loader::new(std::path::PathBuf::new(), std::path::PathBuf::new());
+        let (tx, _rx) = std::sync::mpsc::channel();
+        let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+        let mut app = App::new(config, loader, tx, cwd);
+        app.active_doc_mut().lines = src.iter().map(|s| s.to_string()).collect();
+        app
+    }
+
+    /// Drop the cursor at `(row, col)` and enter charwise Visual, which
+    /// pins the anchor there.
+    fn enter_visual_at(app: &mut App, row: usize, col: usize) {
+        app.editor.cursor = Cursor { row, col };
+        app.enter_mode(Mode::Visual);
+    }
+
+    fn press(app: &mut App, ch: char) {
+        app.handle_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE))
+            .expect("key handled");
+    }
+
+    fn type_keys(app: &mut App, keys: &str) {
+        for ch in keys.chars() {
+            press(app, ch);
+        }
+    }
+
+    #[test]
+    fn count_repeats_vertical_motion() {
+        let mut app = app_with_lines(&["a", "b", "c", "d", "e"]);
+        enter_visual_at(&mut app, 0, 0);
+        type_keys(&mut app, "3j");
+        assert_eq!(app.editor.cursor.row, 3);
+        // Anchor stays pinned so the selection spans the moved range.
+        assert_eq!(app.visual_anchor, Some(Cursor { row: 0, col: 0 }));
+    }
+
+    #[test]
+    fn count_with_g_prefix_jumps_to_line() {
+        let mut app = app_with_lines(&["1", "2", "3", "4", "5", "6", "7"]);
+        enter_visual_at(&mut app, 6, 0);
+        type_keys(&mut app, "3gg");
+        assert_eq!(app.editor.cursor.row, 2);
+        // An explicit `1gg` is a line jump to line 1, not bare file-start.
+        enter_visual_at(&mut app, 6, 0);
+        type_keys(&mut app, "1gg");
+        assert_eq!(app.editor.cursor.row, 0);
+    }
+
+    #[test]
+    fn capital_g_with_count_jumps_else_file_end() {
+        let mut app = app_with_lines(&["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"]);
+        enter_visual_at(&mut app, 0, 0);
+        type_keys(&mut app, "10G");
+        assert_eq!(app.editor.cursor.row, 9);
+        // Bare `G` (no count) still lands on the last line.
+        press(&mut app, 'G');
+        assert_eq!(app.editor.cursor.row, 10);
+        // An explicit `1G` is a line jump to line 1 (vim), not file-end.
+        type_keys(&mut app, "1G");
+        assert_eq!(app.editor.cursor.row, 0);
+    }
+
+    #[test]
+    fn find_char_and_repeat_with_count() {
+        let mut app = app_with_lines(&["a.b.c.d"]);
+        enter_visual_at(&mut app, 0, 0);
+        press(&mut app, 'f');
+        press(&mut app, '.');
+        assert_eq!(app.editor.cursor.col, 1);
+        // `;` repeats the last find.
+        press(&mut app, ';');
+        assert_eq!(app.editor.cursor.col, 3);
+        // `,` repeats in reverse.
+        press(&mut app, ',');
+        assert_eq!(app.editor.cursor.col, 1);
+    }
+
+    #[test]
+    fn count_applies_to_find_char() {
+        let mut app = app_with_lines(&["a.b.c.d"]);
+        enter_visual_at(&mut app, 0, 0);
+        // dots sit at columns 1, 3, 5; `3f.` lands on the third.
+        type_keys(&mut app, "3f.");
+        assert_eq!(app.editor.cursor.col, 5);
+    }
+
+    #[test]
+    fn bare_zero_is_line_start_not_a_count() {
+        let mut app = app_with_lines(&["hello world"]);
+        enter_visual_at(&mut app, 0, 6);
+        press(&mut app, '0');
+        assert_eq!(app.editor.cursor.col, 0);
+    }
+
+    #[test]
+    fn n_and_capital_n_walk_search_matches() {
+        let mut app = app_with_lines(&["foo", "bar", "foo", "baz", "foo"]);
+        app.search.set("foo".into(), true);
+        enter_visual_at(&mut app, 0, 0);
+        press(&mut app, 'n');
+        assert_eq!(app.editor.cursor.row, 2);
+        press(&mut app, 'n');
+        assert_eq!(app.editor.cursor.row, 4);
+        // `N` reverses, anchor stays pinned at the origin.
+        press(&mut app, 'N');
+        assert_eq!(app.editor.cursor.row, 2);
+        assert_eq!(app.visual_anchor, Some(Cursor { row: 0, col: 0 }));
+    }
 }

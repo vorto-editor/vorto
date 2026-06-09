@@ -11,7 +11,7 @@
 //! the input layer calls per finished command, and `App::execute_command`
 //! is the `:`-prompt counterpart.
 
-mod handle;
+pub(in crate::app) mod handle;
 mod parse;
 
 use handle::expr_modifies_buffer;

@@ -409,6 +409,18 @@ fn take_count(tokens: &[Token]) -> (u32, &[Token]) {
     }
 }
 
+/// Encode the count for a standalone motion, special-casing `gg`/`G`.
+/// For [`MotionKind::FileStart`]/[`MotionKind::FileEnd`] a *missing*
+/// count becomes the sentinel `0` (handled as file-edge), while any
+/// typed count — including `1` — passes through as the target line.
+/// Every other motion keeps the regular `>= 1` count.
+fn goto_aware_count(motion: MotionKind, outer_count: u32, count_present: bool) -> u32 {
+    match motion {
+        MotionKind::FileStart | MotionKind::FileEnd if !count_present => 0,
+        _ => outer_count,
+    }
+}
+
 // ────────────────────────────────────────────────────────────────────────
 // classify + build_expr
 // ────────────────────────────────────────────────────────────────────────
@@ -428,6 +440,10 @@ pub(in crate::app) fn classify(tokens: &[Token]) -> Parse {
 
 fn build_expr(tokens: &[Token]) -> Option<Expr> {
     use Token::*;
+    // Whether the user actually typed a count. `gg`/`G` need this to
+    // tell bare (`gg` → file start, `G` → file end) from an explicit
+    // `1gg`/`1G`, which vim treats as a line-number jump to line 1.
+    let count_present = matches!(tokens.first(), Some(Token::Count(_)));
     let (outer_count, rest) = take_count(tokens);
 
     match rest {
@@ -437,10 +453,12 @@ fn build_expr(tokens: &[Token]) -> Option<Expr> {
             count: outer_count,
         }),
 
-        // Motion alone or with leading count (already captured).
+        // Motion alone or with leading count (already captured). `gg`/`G`
+        // (FileStart/FileEnd) carry a sentinel `0` when no count was
+        // typed so `handle_motion` can pick file-edge vs line-jump.
         [Motion(m)] => Some(Expr::Motion(MotionExpr {
             motion: *m,
-            count: outer_count,
+            count: goto_aware_count(*m, outer_count, count_present),
         })),
 
         // `f<c>` / `t<c>` / etc — the prefix is purely a parser
@@ -492,10 +510,11 @@ fn build_expr(tokens: &[Token]) -> Option<Expr> {
             count: outer_count,
         }),
 
-        // gg → file start (with optional count: 5gg = goto line 5)
+        // gg → file start; with a count it's a line jump (5gg = line 5,
+        // 1gg = line 1). The sentinel `0` means "no count → file start".
         [GotoPrefix, GotoPrefix] => Some(Expr::Motion(MotionExpr {
             motion: MotionKind::FileStart,
-            count: outer_count,
+            count: if count_present { outer_count } else { 0 },
         })),
 
         // gd / gr — goto-prefix followed by an LSP action
@@ -776,6 +795,53 @@ mod tests {
         );
         // `<space>m` alone is a valid in-progress prefix, not an abort.
         assert!(incomplete(&[Token::LeaderPrefix, Token::BookmarkPrefix]));
+    }
+
+    #[test]
+    fn goto_motions_distinguish_bare_from_explicit_count() {
+        // Bare `gg` / `G` carry the `0` sentinel (file-edge); any typed
+        // count — including `1` — is a line-number jump.
+        let motion = |toks: &[Token]| match complete(toks) {
+            Some(Expr::Motion(m)) => Some(m),
+            _ => None,
+        };
+
+        assert_eq!(
+            motion(&[Token::GotoPrefix, Token::GotoPrefix]),
+            Some(MotionExpr {
+                motion: MotionKind::FileStart,
+                count: 0,
+            })
+        );
+        assert_eq!(
+            motion(&[Token::Count(1), Token::GotoPrefix, Token::GotoPrefix]),
+            Some(MotionExpr {
+                motion: MotionKind::FileStart,
+                count: 1,
+            })
+        );
+        assert_eq!(
+            motion(&[Token::Motion(MotionKind::FileEnd)]),
+            Some(MotionExpr {
+                motion: MotionKind::FileEnd,
+                count: 0,
+            })
+        );
+        assert_eq!(
+            motion(&[Token::Count(1), Token::Motion(MotionKind::FileEnd)]),
+            Some(MotionExpr {
+                motion: MotionKind::FileEnd,
+                count: 1,
+            })
+        );
+        // A regular motion still defaults to count 1, never the sentinel.
+        assert_eq!(
+            motion(&[Token::Motion(MotionKind::Down)]),
+            Some(MotionExpr {
+                motion: MotionKind::Down,
+                count: 1,
+            })
+        );
     }
 
     #[test]

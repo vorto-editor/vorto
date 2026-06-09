@@ -71,8 +71,9 @@ impl App {
 
     /// Buffer-only goto-line implementation. Pulled up to `App` so
     /// both `motion::handle_motion` (`gg`/`G` with a count) and
-    /// `direct::handle_direct` (`:goto N`) can share it.
-    fn goto_line_n_pure(&mut self, n: usize) {
+    /// `direct::handle_direct` (`:goto N`) can share it. Visual mode's
+    /// `NG`/`Ngg` reach it too.
+    pub(in crate::app) fn goto_line_n_pure(&mut self, n: usize) {
         let last = self.active_doc().lines.len().saturating_sub(1);
         self.editor.cursor.row = n.saturating_sub(1).min(last);
         self.editor.cursor.col = 0;
@@ -88,7 +89,7 @@ impl App {
 /// motion to actually evaluate (`None` when `;`/`,` was pressed with
 /// no prior find) plus any update to `last_find` that the caller
 /// should apply via `Cmd::SetLastFind`.
-fn resolve_motion_pure(
+pub(in crate::app) fn resolve_motion_pure(
     motion: MotionKind,
     last_find: Option<LastFind>,
 ) -> (Option<MotionKind>, Option<LastFind>) {

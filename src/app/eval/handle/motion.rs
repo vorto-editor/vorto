@@ -105,20 +105,21 @@ pub(super) fn handle_motion(app: &mut App, m: MotionExpr) -> Vec<Cmd> {
         // Resolved away by `resolve_motion_pure` — should never
         // reach the match arm.
         M::RepeatFind { .. } => {}
-        // `gg` with no count goes to line 1; `5gg` to line 5.
+        // Count `0` is the parser's "no count" sentinel for `gg`/`G`:
+        // bare `gg` → file start, bare `G` → file end. Any typed count
+        // (including `1`) is a line-number jump, matching vim.
         M::FileStart => {
-            if n > 1 {
-                app.goto_line_n_pure(n as usize);
-            } else {
+            if n == 0 {
                 app.editor.move_file_start();
+            } else {
+                app.goto_line_n_pure(n as usize);
             }
         }
-        // `G` with no count goes to file end; `20G` to line 20.
         M::FileEnd => {
-            if n > 1 {
-                app.goto_line_n_pure(n as usize);
-            } else {
+            if n == 0 {
                 ed_op_ref!(app, move_file_end());
+            } else {
+                app.goto_line_n_pure(n as usize);
             }
         }
         M::SearchNext => {
