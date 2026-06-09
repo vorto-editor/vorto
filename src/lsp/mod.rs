@@ -27,7 +27,7 @@
 //! - [`edits`] — applying [`TextEdit`]s to an in-memory line buffer.
 
 use std::collections::HashMap;
-use std::io::BufReader;
+use std::io::{BufRead, BufReader};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
@@ -133,7 +133,11 @@ impl LspClient {
             .args(&spec.args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
+            // Capture stderr so server-side crashes (e.g. an uncaught
+            // tsserver `Debug Failure`) land in the vorto log instead of
+            // vanishing — otherwise all we'd see is an unexplained
+            // "EOF from LSP server" when the process dies.
+            .stderr(Stdio::piped())
             .spawn()
             .with_context(|| format!("spawning LSP server `{}`", spec.command))?;
 
@@ -141,6 +145,24 @@ impl LspClient {
         let stdout = child.stdout.take().ok_or_else(|| anyhow!("no stdout"))?;
         let mut reader = BufReader::new(stdout);
         let stdin = Arc::new(Mutex::new(stdin_raw));
+
+        // Drain stderr on its own thread, mirroring each line into the
+        // log tagged with the client key. The thread ends on EOF when
+        // the server exits and closes the pipe.
+        if let Some(stderr) = child.stderr.take() {
+            let key_for_stderr = client_key.to_string();
+            thread::spawn(move || {
+                for line in BufReader::new(stderr).lines() {
+                    match line {
+                        Ok(line) if !line.trim().is_empty() => {
+                            vlog!("lsp stderr client={} {}", key_for_stderr, line);
+                        }
+                        Ok(_) => {}
+                        Err(_) => break,
+                    }
+                }
+            });
+        }
 
         let workspace_name = root_uri
             .rsplit('/')

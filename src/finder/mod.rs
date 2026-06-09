@@ -8,6 +8,6 @@ mod explorer;
 mod fuzzy;
 mod preview;
 
-pub use explorer::{ExplorerMode, ExplorerState};
+pub use explorer::{CreateResult, ExplorerMode, ExplorerState};
 pub use fuzzy::{Finder, FuzzyKind, IgnoreOpts, workspace_files};
 pub use preview::{PreviewEntry, PreviewLru, spawn_preview_worker};
