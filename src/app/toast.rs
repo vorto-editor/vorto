@@ -10,17 +10,30 @@
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
-/// Severity of a toast. Drives foreground color and lifetime: `Info`,
-/// `Warn`, and `Error` all auto-expire after the standard TTL; `Fatal`
-/// is sticky and only goes away when the user dismisses with `Esc`.
-/// `Warn` is exposed for callers but not used in-tree yet.
+/// Severity of a toast. Drives foreground color and lifetime: `Info`
+/// and `Warn` auto-expire after the standard TTL, `Error` after the
+/// shorter `ERROR_TTL`, and `Fatal` is sticky and only goes away when
+/// the user dismisses with `Esc`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Level {
     Info,
-    #[allow(dead_code)]
     Warn,
     Error,
     Fatal,
+}
+
+impl Level {
+    /// How long a toast of this level stays visible, or `None` if it's
+    /// sticky (`Fatal`). Errors clear faster than info/warn: they're
+    /// visually loud (red) and the user has usually already registered
+    /// them, so a long dwell is just noise.
+    fn ttl(self) -> Option<Duration> {
+        match self {
+            Level::Fatal => None,
+            Level::Error => Some(ERROR_TTL),
+            Level::Info | Level::Warn => Some(TTL),
+        }
+    }
 }
 
 pub struct Toast {
@@ -33,7 +46,6 @@ impl Toast {
     pub fn info(s: impl Into<String>) -> Self {
         Self::new(s, Level::Info)
     }
-    #[allow(dead_code)]
     pub fn warn(s: impl Into<String>) -> Self {
         Self::new(s, Level::Warn)
     }
@@ -75,9 +87,12 @@ const MAX_ACTIVE: usize = 3;
 /// a misbehaving LSP shouldn't grow this without bound; drop the
 /// oldest pending entries past this.
 const MAX_PENDING: usize = 32;
-/// Lifetime for non-fatal toasts. Fatal toasts ignore this and stay
+/// Lifetime for info/warn toasts. Fatal toasts ignore this and stay
 /// until the user hits `Esc`.
 pub(crate) const TTL: Duration = Duration::from_secs(3);
+/// Lifetime for error toasts — shorter than `TTL` so a transient
+/// failure flashes by without lingering.
+const ERROR_TTL: Duration = Duration::from_millis(1500);
 /// Placeholder lifetime reported for fatal toasts. Long enough that
 /// the main loop's `recv_timeout` effectively waits forever, short
 /// enough to fit in `Duration` arithmetic without surprises.
@@ -132,8 +147,10 @@ impl ToastQueue {
     /// before draw + `remaining`, so the renderer and timeout logic
     /// both see a fresh view.
     pub fn tick(&mut self) {
-        self.active
-            .retain(|t| t.level() == Level::Fatal || t.shown_at().elapsed() < TTL);
+        self.active.retain(|t| match t.level().ttl() {
+            Some(ttl) => t.shown_at().elapsed() < ttl,
+            None => true,
+        });
         while self.active.len() < MAX_ACTIVE {
             match self.pending.pop_front() {
                 Some(mut next) => {
@@ -163,16 +180,11 @@ impl ToastQueue {
         let mut min: Option<Duration> = None;
         let mut has_fatal = false;
         for t in &self.active {
-            if t.level() == Level::Fatal {
+            let Some(ttl) = t.level().ttl() else {
                 has_fatal = true;
                 continue;
-            }
-            let elapsed = t.shown_at().elapsed();
-            let rem = if elapsed >= TTL {
-                Duration::ZERO
-            } else {
-                TTL - elapsed
             };
+            let rem = ttl.saturating_sub(t.shown_at().elapsed());
             min = Some(match min {
                 Some(m) => m.min(rem),
                 None => rem,

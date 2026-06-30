@@ -578,11 +578,11 @@ impl App {
     }
 
     /// External formatter > LSP `textDocument/formatting` > no-op.
-    /// Errors surface as toasts but never abort the save: the user
-    /// asked to save and we'd rather write the un-formatted bytes
-    /// than refuse the action. Format failures during save (e.g.
-    /// rustfmt rejecting a syntax error) are common enough that
-    /// blocking the save would be hostile.
+    /// Format failures never abort the save: the user asked to save and
+    /// we'd rather write the un-formatted bytes than refuse the action.
+    /// Such failures (e.g. rustfmt rejecting a syntax error mid-edit)
+    /// are common enough that they're logged rather than toasted —
+    /// interrupting every save with a sticky error would be hostile.
     fn run_format_on_save(&mut self) {
         let eff = self.effective_editor();
         if !eff.format_on_save {
@@ -611,13 +611,10 @@ impl App {
                 let text = self.active_doc().lines.join("\n");
                 match crate::format::run_external(&fmt, &text, &cwd) {
                     Ok(formatted) => self.apply_formatted_text(formatted),
-                    Err(e) => {
-                        self.push_toast(Toast::fatal(format!(
-                            "format `{}`: {}",
-                            fmt.command,
-                            root_cause(&e)
-                        )));
-                    }
+                    // Format failures are common (e.g. rustfmt rejecting a
+                    // syntax error mid-edit) and not worth interrupting the
+                    // user over — log it and write the un-formatted bytes.
+                    Err(e) => crate::vlog!("format `{}`: {}", fmt.command, root_cause(&e)),
                 }
             }
             // Format via the named LSP servers in priority order. An
@@ -642,7 +639,7 @@ impl App {
                         )));
                     }
                     Err(e) => {
-                        self.push_toast(Toast::fatal(format!("lsp format: {}", root_cause(&e))));
+                        crate::vlog!("lsp format ({}): {}", servers.join(", "), root_cause(&e))
                     }
                 }
             }
@@ -654,9 +651,7 @@ impl App {
                 match self.lsp.format_first_client(options, LSP_FORMAT_TIMEOUT) {
                     Ok(Some(edits)) if !edits.is_empty() => self.apply_format_edits(edits),
                     Ok(_) => {}
-                    Err(e) => {
-                        self.push_toast(Toast::fatal(format!("lsp format: {}", root_cause(&e))));
-                    }
+                    Err(e) => crate::vlog!("lsp format: {}", root_cause(&e)),
                 }
             }
         }
