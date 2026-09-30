@@ -4,6 +4,8 @@
 ;; Modification: `#lua-match?` predicates rewritten as `#match?` (the
 ;; native engine does not evaluate the Neovim-specific `#lua-match?`); the
 ;; patterns are already valid Rust regexes, so only the predicate name changed.
+;; The anonymous `"end"` keyword is replaced by `(end_marker)` for
+;; tree-sitter-scala >= 0.26.1, which no longer exposes that node.
 
 ; CREDITS @stumash (stuart.mashaal@gmail.com)
 (class_definition
@@ -190,11 +192,14 @@
   "with"
   "given"
   "using"
-  "end"
   "implicit"
   "extension"
   "with"
 ] @keyword
+
+; tree-sitter-scala >= 0.26.1 lexes `end` in the external scanner, so the
+; whole `end <name>` marker node is the only thing left to match.
+(end_marker) @keyword
 
 [
   "enum"
