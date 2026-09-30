@@ -62,10 +62,7 @@ impl Theme {
             if let Some(style) = self.scopes.get(candidate) {
                 return Some(*style);
             }
-            match candidate.rfind('.') {
-                Some(i) => candidate = &candidate[..i],
-                None => return None,
-            }
+            candidate = &candidate[..candidate.rfind('.')?];
         }
     }
 

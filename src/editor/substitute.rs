@@ -38,10 +38,8 @@ pub struct SubsArgs<'a> {
 pub fn parse_substitute(line: &str) -> Option<Result<SubsArgs<'_>, &'static str>> {
     let (range, rest) = if let Some(r) = line.strip_prefix("%s/") {
         (SubsRange::All, r)
-    } else if let Some(r) = line.strip_prefix("s/") {
-        (SubsRange::Current, r)
     } else {
-        return None;
+        (SubsRange::Current, line.strip_prefix("s/")?)
     };
 
     // Split into [pattern, replacement, flags?]. Vim allows unescaped

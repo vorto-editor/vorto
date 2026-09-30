@@ -267,12 +267,11 @@ fn parse_parameter_info(v: &Value) -> Option<ParameterInformation> {
     let label_v = v.get("label")?;
     let label = if let Some(s) = label_v.as_str() {
         ParameterLabel::Text(s.to_string())
-    } else if let Some(arr) = label_v.as_array() {
+    } else {
+        let arr = label_v.as_array()?;
         let start = arr.first()?.as_u64()? as u32;
         let end = arr.get(1)?.as_u64()? as u32;
         ParameterLabel::Offsets(start, end)
-    } else {
-        return None;
     };
     Some(ParameterInformation { label })
 }
