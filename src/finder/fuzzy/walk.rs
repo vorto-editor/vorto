@@ -1,20 +1,23 @@
-use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+use ignore::types::{Types, TypesBuilder};
+use ignore::{DirEntry, WalkBuilder};
 
 /// Filter toggles for the fuzzy file picker / tree explorer. Both axes
-/// are independent: `vcs` decides whether to honor `.gitignore`, and
+/// are independent: `vcs` decides whether to honor ignore files, and
 /// `hidden` decides whether to apply the configured
-/// [`hidden_patterns`](crate::config::FilePickerConfig::hidden_patterns)
+/// [`hidden_patterns`](crate::config::FinderConfig::hidden_patterns)
 /// (defaults to dotfiles + heavy build dirs). The two filters compose,
 /// so an entry that matches both rules requires both flags off to
 /// surface — eg. `.cache/` (dotfile + gitignored) needs `.` and `h`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct IgnoreOpts {
-    /// Honor VCS ignore rules. When true and we're inside a git repo
-    /// the source is `git ls-files --cached --others
-    /// --exclude-standard`; when false (and outside a repo) the walker
-    /// falls back to a manual directory walk that only applies the
-    /// `hidden_patterns` filter.
+    /// Honor ignore files the way Helix's file picker does:
+    /// `.gitignore` (inside a git repo), `.git/info/exclude`, the
+    /// global git excludesfile, `.ignore`, and the same rules found in
+    /// parent directories of the root. When false only the
+    /// `hidden_patterns` filter applies.
     pub vcs: bool,
     /// Apply `hidden_patterns` glob matching to entry basenames.
     /// Default `true`; flipped to `false` via the explorer's `.` key.
@@ -35,13 +38,24 @@ impl IgnoreOpts {
     };
 }
 
+/// VCS metadata directories that are always pruned, even with both
+/// filters off — the same list as Helix's `filter_picker_entry`.
+/// Without this, `.git/objects/**` floods the picker the moment the
+/// hidden filter is flipped off.
+const VCS_DIRS: &[&str] = &[".git", ".pijul", ".jj", ".hg", ".svn"];
+
+/// Archives the file picker skips, mirroring Helix's
+/// `get_excluded_types`: the editor can't do anything useful with
+/// them. The explorer still lists them so they can be moved/deleted.
+const ARCHIVE_GLOB: &str = "*.{zip,gz,bz2,zst,lzo,sz,tgz,tbz2,lz,lz4,lzma,z,Z,xz,7z,rar,cab}";
+
 /// Match a path basename against a glob pattern containing optional
 /// `*` wildcards (each `*` matches zero or more characters). Anchored
 /// on both ends — pattern `node_modules` matches only that exact name,
 /// not `my_node_modules_old`. Pattern `.*` matches every dotfile.
 ///
 /// Tiny ad-hoc matcher rather than a glob crate because the patterns
-/// list is short and the call shape (one basename per `read_dir` entry)
+/// list is short and the call shape (one basename per walked entry)
 /// doesn't benefit from a compiled matcher.
 fn matches_glob(pattern: &str, name: &str) -> bool {
     fn rec(p: &[u8], n: &[u8]) -> bool {
@@ -70,36 +84,91 @@ fn matches_any_hidden(name: &str, patterns: &[String]) -> bool {
     patterns.iter().any(|p| matches_glob(p, name))
 }
 
-/// True if any segment of `rel` (a `/`-separated relative path) matches
-/// `patterns`. Used to post-filter `git ls-files` output, where we get
-/// full paths rather than walked entries — a tracked file inside a
-/// hidden-pattern directory still counts as hidden.
-fn rel_path_has_hidden_segment(rel: &str, patterns: &[String]) -> bool {
-    rel.split('/').any(|seg| matches_any_hidden(seg, patterns))
+/// Per-entry prune rule shared by every walk. Returning false skips
+/// the entry and, for a directory, everything under it.
+///
+/// - `hidden_patterns`: `Some` when the hidden filter is on.
+/// - `dedup_root`: `Some(canonical root)` when symlinks are followed;
+///   a link resolving back inside the root is dropped so its target
+///   isn't listed twice (Helix's `deduplicate_links`).
+fn keep_entry(
+    entry: &DirEntry,
+    hidden_patterns: Option<&[String]>,
+    dedup_root: Option<&Path>,
+) -> bool {
+    // Never judge the root itself: a workspace opened at e.g.
+    // `~/.dotfiles` would otherwise be pruned wholesale by `.*`.
+    if entry.depth() == 0 {
+        return true;
+    }
+    let Some(name) = entry.file_name().to_str() else {
+        return false;
+    };
+    if VCS_DIRS.contains(&name) {
+        return false;
+    }
+    if hidden_patterns.is_some_and(|p| matches_any_hidden(name, p)) {
+        return false;
+    }
+    if let Some(root) = dedup_root
+        && entry.path_is_symlink()
+    {
+        return entry
+            .path()
+            .canonicalize()
+            .is_ok_and(|p| !p.starts_with(root));
+    }
+    true
 }
 
-/// Enumerate every directory under `root` (excluding `root` itself),
-/// respecting the same hidden filter [`workspace_files`] applies.
-/// Always walks the filesystem — `git ls-files` doesn't surface empty
-/// directories, so even in a repo we need a manual pass for the
-/// explorer to expose them as targets for new files.
-pub fn workspace_dirs(
+/// Base walker configured like Helix's file picker: ignore files per
+/// `vcs`, siblings sorted by file name (so the unfiltered list reads in
+/// depth-first tree order), no depth limit. Dotfiles are left to
+/// `hidden_patterns` (whose default includes `.*`) rather than the
+/// walker's own hidden flag, so users can opt dotfiles back in via
+/// config.
+fn walker(
     root: &Path,
-    ignore: IgnoreOpts,
-    hidden_patterns: &[String],
-    max_items: usize,
-) -> Vec<String> {
-    let mut out = Vec::new();
-    collect_dirs(root, root, &mut out, 0, ignore, hidden_patterns, max_items);
-    out.sort();
-    out
+    vcs: bool,
+    hidden_patterns: Option<&[String]>,
+    dedup_root: Option<PathBuf>,
+) -> WalkBuilder {
+    let hidden_patterns: Option<Arc<[String]>> = hidden_patterns.map(Arc::from);
+    let mut b = WalkBuilder::new(root);
+    b.hidden(false)
+        .parents(vcs)
+        .ignore(vcs)
+        .git_ignore(vcs)
+        .git_global(vcs)
+        .git_exclude(vcs)
+        .sort_by_file_name(|a, b| a.cmp(b))
+        .filter_entry(move |e| keep_entry(e, hidden_patterns.as_deref(), dedup_root.as_deref()));
+    b
+}
+
+fn archive_types() -> Types {
+    let mut t = TypesBuilder::new();
+    t.add("archive", ARCHIVE_GLOB).expect("valid archive glob");
+    t.negate("all");
+    t.build().expect("valid archive types")
+}
+
+fn rel_string(root: &Path, path: &Path) -> Option<String> {
+    path.strip_prefix(root)
+        .ok()
+        .and_then(|p| p.to_str())
+        .map(str::to_owned)
 }
 
 /// Enumerate every file the file/workspace pickers should see, anchored
-/// at `root` and respecting `ignore` plus `hidden_patterns`. Prefers
-/// `git ls-files` when in a repo and `ignore.vcs` is on; otherwise
-/// walks the directory tree manually. In both paths `hidden_patterns`
-/// is applied when `ignore.hidden` is true, and the total result is
+/// at `root`, in walk order (depth-first, siblings sorted by name —
+/// the order Helix's picker shows before any query is typed).
+///
+/// Mirrors Helix's `file_picker` walk: ignore files per `ignore.vcs`,
+/// symlinks followed (links back into the root deduplicated), archives
+/// skipped, and only entries that resolve to a regular file kept — a
+/// broken link or a link to a directory never reaches `Buffer::load`.
+/// `hidden_patterns` applies when `ignore.hidden` is on; the result is
 /// capped at `max_items`.
 pub fn workspace_files(
     root: &Path,
@@ -107,149 +176,65 @@ pub fn workspace_files(
     hidden_patterns: &[String],
     max_items: usize,
 ) -> Vec<String> {
-    let mut items = if ignore.vcs
-        && let Some(paths) = crate::vcs::tracked_files(root)
-    {
-        paths
-            .into_iter()
-            .filter(|p| !ignore.hidden || !rel_path_has_hidden_segment(p, hidden_patterns))
-            .filter(|p| is_live_nonsymlink(&root.join(p)))
-            .take(max_items)
-            .collect()
-    } else {
-        let mut v = Vec::new();
-        collect_files(root, root, &mut v, 0, ignore, hidden_patterns, max_items);
-        v
-    };
-    items.sort();
-    items
+    let canonical_root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+    walker(
+        root,
+        ignore.vcs,
+        ignore.hidden.then_some(hidden_patterns),
+        Some(canonical_root),
+    )
+    .follow_links(true)
+    .types(archive_types())
+    .build()
+    .filter_map(Result::ok)
+    .filter(|e| e.path().is_file())
+    .filter_map(|e| rel_string(root, e.path()))
+    .take(max_items)
+    .collect()
 }
 
-/// True if `symlink_metadata` succeeds for `path` and it is not a
-/// symlink (without following it). In practice this means the path is a
-/// readable, live non-symlink: a missing path — or one we can't stat
-/// (e.g. permission denied) — yields false, which is what we want since
-/// the picker can't usefully open either. `git ls-files --cached` keeps
-/// listing files that were deleted from the work tree but whose deletion
-/// hasn't been staged, so without this check the explorer would surface
-/// ghost entries that survive a `refresh()` forever; dropping them keeps
-/// the tree in sync with the actual filesystem. Symlinks are filtered
-/// out of the picker because opening one whose target is a directory or
-/// broken propagates an `io::Error` from `Buffer::load` up to the main
-/// loop and terminates the editor.
-fn is_live_nonsymlink(path: &Path) -> bool {
-    fs::symlink_metadata(path)
-        .map(|m| !m.file_type().is_symlink())
-        .unwrap_or(false)
-}
-
-/// Walk variant that records directory paths instead of files.
-/// Used by the explorer so empty directories show up as creatable
-/// targets — the file walker would skip them entirely.
-fn collect_dirs(
+/// Explorer variant of [`workspace_files`]: same ignore rules, but
+/// symlinks are neither followed nor listed (file ops on a link would
+/// act on the link, not what the tree appears to show) and archives
+/// stay visible.
+pub fn explorer_files(
     root: &Path,
-    dir: &Path,
-    out: &mut Vec<String>,
-    depth: usize,
     ignore: IgnoreOpts,
     hidden_patterns: &[String],
     max_items: usize,
-) {
-    if depth > 12 || out.len() >= max_items {
-        return;
-    }
-    let entries = match fs::read_dir(dir) {
-        Ok(e) => e,
-        Err(_) => return,
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        let name = match path.file_name().and_then(|s| s.to_str()) {
-            Some(n) => n.to_string(),
-            None => continue,
-        };
-        if ignore.hidden && matches_any_hidden(&name, hidden_patterns) {
-            continue;
-        }
-        let file_type = match entry.file_type() {
-            Ok(t) => t,
-            Err(_) => continue,
-        };
-        if file_type.is_symlink() || !file_type.is_dir() {
-            continue;
-        }
-        if let Some(s) = path.strip_prefix(root).ok().and_then(|p| p.to_str()) {
-            out.push(s.to_string());
-        }
-        collect_dirs(
-            root,
-            &path,
-            out,
-            depth + 1,
-            ignore,
-            hidden_patterns,
-            max_items,
-        );
-    }
+) -> Vec<String> {
+    walker(
+        root,
+        ignore.vcs,
+        ignore.hidden.then_some(hidden_patterns),
+        None,
+    )
+    .build()
+    .filter_map(Result::ok)
+    .filter(|e| e.file_type().is_some_and(|t| t.is_file()))
+    .filter_map(|e| rel_string(root, e.path()))
+    .take(max_items)
+    .collect()
 }
 
-fn collect_files(
+/// Enumerate every directory under `root` (excluding `root` itself) so
+/// the explorer can expose empty directories as targets for new files.
+/// Only the hidden filter applies — ignore files are deliberately not
+/// consulted, so a gitignored dir stays visible (and expandable once
+/// `h` flips the VCS filter). Symlinked directories are skipped.
+pub fn workspace_dirs(
     root: &Path,
-    dir: &Path,
-    out: &mut Vec<String>,
-    depth: usize,
     ignore: IgnoreOpts,
     hidden_patterns: &[String],
     max_items: usize,
-) {
-    if depth > 12 || out.len() >= max_items {
-        return;
-    }
-    let entries = match fs::read_dir(dir) {
-        Ok(e) => e,
-        Err(_) => return,
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        let name = match path.file_name().and_then(|s| s.to_str()) {
-            Some(n) => n.to_string(),
-            None => continue,
-        };
-        if ignore.hidden && matches_any_hidden(&name, hidden_patterns) {
-            continue;
-        }
-        // Use `file_type` (not `is_dir`/`is_file`) so symlinks are
-        // detected without being followed: traversing through a
-        // directory symlink risks cycles, and listing a file symlink
-        // can crash the editor on open (broken target / target is a
-        // directory bubbles an io::Error out of the prompt path).
-        let file_type = match entry.file_type() {
-            Ok(t) => t,
-            Err(_) => continue,
-        };
-        if file_type.is_symlink() {
-            continue;
-        }
-        if file_type.is_dir() {
-            collect_files(
-                root,
-                &path,
-                out,
-                depth + 1,
-                ignore,
-                hidden_patterns,
-                max_items,
-            );
-            continue;
-        }
-        if !file_type.is_file() {
-            continue;
-        }
-        let rel = path.strip_prefix(root).ok().and_then(|p| p.to_str());
-        if let Some(s) = rel {
-            out.push(s.to_string());
-        }
-    }
+) -> Vec<String> {
+    walker(root, false, ignore.hidden.then_some(hidden_patterns), None)
+        .build()
+        .filter_map(Result::ok)
+        .filter(|e| e.depth() > 0 && e.file_type().is_some_and(|t| t.is_dir()))
+        .filter_map(|e| rel_string(root, e.path()))
+        .take(max_items)
+        .collect()
 }
 
 #[cfg(test)]
@@ -278,19 +263,7 @@ mod tests {
         assert!(matches_glob("*", "anything"));
     }
 
-    #[test]
-    fn rel_path_hidden_segment_walks_segments() {
-        let pats = vec![".*".to_string(), "node_modules".to_string()];
-        assert!(rel_path_has_hidden_segment(
-            ".github/workflows/ci.yml",
-            &pats
-        ));
-        assert!(rel_path_has_hidden_segment("a/node_modules/b/c", &pats));
-        assert!(!rel_path_has_hidden_segment("src/main.rs", &pats));
-        assert!(!rel_path_has_hidden_segment("Cargo.toml", &pats));
-    }
-
-    fn fresh_tmp(label: &str) -> std::path::PathBuf {
+    fn fresh_tmp(label: &str) -> PathBuf {
         let p = std::env::temp_dir().join(format!(
             "vorto-walk-{}-{}-{}",
             label,
@@ -304,25 +277,124 @@ mod tests {
         p
     }
 
+    fn touch(root: &Path, rel: &str) {
+        let p = root.join(rel);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(p, b"x").unwrap();
+    }
+
+    fn patterns() -> Vec<String> {
+        vec![".*".into(), "target".into()]
+    }
+
     #[test]
-    fn live_nonsymlink_drops_missing_and_symlinks() {
-        let root = fresh_tmp("live");
-
-        // A real file is live.
-        let file = root.join("real.txt");
-        std::fs::write(&file, b"x").unwrap();
-        assert!(is_live_nonsymlink(&file));
-
-        // A path the git index still lists but no longer on disk: the
-        // ghost case this guards against.
-        assert!(!is_live_nonsymlink(&root.join("deleted.txt")));
-
-        // A symlink is dropped even when its target exists.
-        #[cfg(unix)]
-        {
-            let link = root.join("link.txt");
-            std::os::unix::fs::symlink(&file, &link).unwrap();
-            assert!(!is_live_nonsymlink(&link));
+    fn files_come_in_depth_first_name_order() {
+        let root = fresh_tmp("order");
+        for rel in ["b.txt", "a/z.rs", "a/b/c.rs", "a.txt", "src/main.rs"] {
+            touch(&root, rel);
         }
+        let files = workspace_files(&root, IgnoreOpts::DEFAULT, &patterns(), 100);
+        let _ = std::fs::remove_dir_all(&root);
+        // Siblings sorted by name, files and dirs interleaved — the
+        // walk order, not a flat string sort.
+        assert_eq!(
+            files,
+            vec!["a/b/c.rs", "a/z.rs", "a.txt", "b.txt", "src/main.rs"]
+        );
+    }
+
+    #[test]
+    fn hidden_patterns_and_vcs_dirs() {
+        let root = fresh_tmp("hidden");
+        for rel in [".env", "target/out", "src/lib.rs", ".git/HEAD", ".jj/repo"] {
+            touch(&root, rel);
+        }
+        let on = workspace_files(&root, IgnoreOpts::DEFAULT, &patterns(), 100);
+        assert_eq!(on, vec!["src/lib.rs"]);
+        // Hidden filter off: dotfiles and `target` surface, VCS
+        // metadata never does.
+        let off = workspace_files(&root, IgnoreOpts::SHOW_HIDDEN, &patterns(), 100);
+        let _ = std::fs::remove_dir_all(&root);
+        assert_eq!(off, vec![".env", "src/lib.rs", "target/out"]);
+    }
+
+    #[test]
+    fn hidden_root_is_not_pruned() {
+        let parent = fresh_tmp("dotroot");
+        let root = parent.join(".dotfiles");
+        touch(&root, "init.lua");
+        let files = workspace_files(&root, IgnoreOpts::DEFAULT, &patterns(), 100);
+        let _ = std::fs::remove_dir_all(&parent);
+        assert_eq!(files, vec!["init.lua"]);
+    }
+
+    #[test]
+    fn ignore_file_and_archives() {
+        let root = fresh_tmp("ignore");
+        // `.ignore` applies without a git repo, unlike `.gitignore`.
+        std::fs::write(root.join(".ignore"), "scratch/\n").unwrap();
+        for rel in ["scratch/a.txt", "keep.rs", "dist.tar.gz", "pkg.zip"] {
+            touch(&root, rel);
+        }
+        let picker = workspace_files(&root, IgnoreOpts::DEFAULT, &patterns(), 100);
+        assert_eq!(picker, vec!["keep.rs"]);
+        let no_vcs = IgnoreOpts {
+            vcs: false,
+            hidden: true,
+        };
+        let picker_all = workspace_files(&root, no_vcs, &patterns(), 100);
+        assert_eq!(picker_all, vec!["keep.rs", "scratch/a.txt"]);
+        // The explorer keeps archives.
+        let explorer = explorer_files(&root, IgnoreOpts::DEFAULT, &patterns(), 100);
+        let _ = std::fs::remove_dir_all(&root);
+        assert_eq!(explorer, vec!["dist.tar.gz", "keep.rs", "pkg.zip"]);
+    }
+
+    #[test]
+    fn max_items_caps_result() {
+        let root = fresh_tmp("cap");
+        for rel in ["a", "b", "c", "d"] {
+            touch(&root, rel);
+        }
+        let files = workspace_files(&root, IgnoreOpts::DEFAULT, &patterns(), 2);
+        let _ = std::fs::remove_dir_all(&root);
+        assert_eq!(files, vec!["a", "b"]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinks_followed_in_picker_only() {
+        use std::os::unix::fs::symlink;
+        let root = fresh_tmp("links");
+        let outside = fresh_tmp("links-outside");
+        touch(&root, "real.txt");
+        touch(&outside, "ext.txt");
+        // Link out of the root: followed, its files listed.
+        symlink(&outside, root.join("ext")).unwrap();
+        // Link back into the root: deduplicated.
+        symlink(root.join("real.txt"), root.join("alias.txt")).unwrap();
+        // Broken link and link to a directory: never listed as files.
+        symlink(root.join("missing"), root.join("broken")).unwrap();
+
+        let picker = workspace_files(&root, IgnoreOpts::DEFAULT, &patterns(), 100);
+        let explorer = explorer_files(&root, IgnoreOpts::DEFAULT, &patterns(), 100);
+        let dirs = workspace_dirs(&root, IgnoreOpts::DEFAULT, &patterns(), 100);
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&outside);
+        assert_eq!(picker, vec!["ext/ext.txt", "real.txt"]);
+        assert_eq!(explorer, vec!["real.txt"]);
+        assert!(dirs.is_empty(), "symlinked dirs skipped, got {dirs:?}");
+    }
+
+    #[test]
+    fn dirs_ignore_vcs_but_honor_hidden() {
+        let root = fresh_tmp("dirs");
+        std::fs::write(root.join(".ignore"), "scratch/\n").unwrap();
+        for d in ["scratch", "empty", ".cache", "a/b"] {
+            std::fs::create_dir_all(root.join(d)).unwrap();
+        }
+        let dirs = workspace_dirs(&root, IgnoreOpts::DEFAULT, &patterns(), 100);
+        let _ = std::fs::remove_dir_all(&root);
+        assert_eq!(dirs, vec!["a", "a/b", "empty", "scratch"]);
     }
 }

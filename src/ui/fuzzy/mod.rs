@@ -14,6 +14,10 @@ use ratatui::widgets::{Block, Borders, Clear, Padding, Paragraph};
 use crate::app::{App, Prompt};
 use crate::finder::FuzzyKind;
 
+/// Popup width at or below which the preview pane is hidden — Helix's
+/// `MIN_AREA_WIDTH_FOR_PREVIEW`.
+const MIN_WIDTH_FOR_PREVIEW: u16 = 72;
+
 pub(super) fn draw_fuzzy(f: &mut Frame, app: &App, area: Rect) {
     let Prompt::Fuzzy(finder) = &app.prompt.state else {
         return;
@@ -34,8 +38,6 @@ pub(super) fn draw_fuzzy(f: &mut Frame, app: &App, area: Rect) {
         FuzzyKind::Bookmarks => " bookmarks ",
         FuzzyKind::GitChangedFiles => " git: changed files ",
     };
-    let total = finder.matches.len();
-    let footer = format!(" {}/{} ", finder.selected + 1, total.max(1));
     // Panel bg + text fg from the active theme, so the picker matches the
     // editor background and its text stays legible (esp. on light themes).
     let panel = Style::default().bg(super::panel_bg()).fg(super::panel_fg());
@@ -43,7 +45,6 @@ pub(super) fn draw_fuzzy(f: &mut Frame, app: &App, area: Rect) {
         .borders(Borders::ALL)
         .border_style(Style::default().fg(super::panel_border_fg()))
         .title(title)
-        .title_bottom(Line::from(footer).right_aligned())
         .style(panel)
         .padding(Padding::horizontal(1));
     // The bookmark picker is an explorer-style modal: its key operations
@@ -53,6 +54,12 @@ pub(super) fn draw_fuzzy(f: &mut Frame, app: &App, area: Rect) {
     let bookmark_filtering = matches!(finder.kind, FuzzyKind::Bookmarks)
         && app.prompt.bookmark_mode() == crate::prompt::BookmarkPickMode::Filter;
     if matches!(finder.kind, FuzzyKind::Bookmarks) {
+        // No query line in Selection mode, so the count moves to the
+        // bottom border.
+        if !bookmark_filtering {
+            block = block
+                .title_bottom(Line::from(format!(" {} ", finder.count_label())).right_aligned());
+        }
         let hint = if bookmark_filtering {
             " type to filter · ↵ jump · esc back "
         } else {
@@ -63,21 +70,30 @@ pub(super) fn draw_fuzzy(f: &mut Frame, app: &App, area: Rect) {
     let inner = block.inner(popup);
     f.render_widget(block, popup);
 
+    // Hide the query line in the bookmark picker's Selection mode — it
+    // only makes sense while actually filtering. Every other picker types
+    // to filter, so the query line is always shown.
+    let show_query = !matches!(finder.kind, FuzzyKind::Bookmarks) || bookmark_filtering;
+
+    // Narrow terminal: drop the preview and give the whole popup to the
+    // list, same cut-off as Helix's picker.
+    if popup.width <= MIN_WIDTH_FOR_PREVIEW {
+        list::draw_fuzzy_list(f, finder, inner, show_query);
+        return;
+    }
+
     // Left: query + matches list. Right: source preview for the current
-    // selection. A vertical separator visually divides the two panes.
+    // selection, split evenly like Helix. A vertical separator visually
+    // divides the two panes.
     let panes = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
-            Constraint::Percentage(40),
+            Constraint::Percentage(50),
             Constraint::Length(1),
             Constraint::Min(1),
         ])
         .split(inner);
 
-    // Hide the query line in the bookmark picker's Selection mode — it
-    // only makes sense while actually filtering. Every other picker types
-    // to filter, so the query line is always shown.
-    let show_query = !matches!(finder.kind, FuzzyKind::Bookmarks) || bookmark_filtering;
     list::draw_fuzzy_list(f, finder, panes[0], show_query);
 
     let sep_v: Vec<Line> = (0..panes[1].height)

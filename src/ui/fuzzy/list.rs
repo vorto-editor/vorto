@@ -60,17 +60,34 @@ pub(super) fn draw_fuzzy_list(f: &mut Frame, finder: &Finder, area: Rect, show_q
             ])
             .split(area);
 
+        // Helix-style `matched/total` count, right-aligned on the query
+        // row; the query gets whatever is left.
+        let count = finder.count_label();
+        let count_w = (count.len() as u16 + 1).min(chunks[0].width);
+        let query_rect = Rect {
+            width: chunks[0].width - count_w,
+            ..chunks[0]
+        };
+        let count_rect = Rect {
+            x: query_rect.x + query_rect.width,
+            width: count_w,
+            ..chunks[0]
+        };
         let query_line = Line::from(vec![
             Span::styled("› ", Style::default().fg(Color::Yellow)),
             Span::raw(finder.query.clone()),
         ]);
-        f.render_widget(Paragraph::new(query_line), chunks[0]);
+        f.render_widget(Paragraph::new(query_line), query_rect);
+        f.render_widget(
+            Paragraph::new(Line::from(count).right_aligned()),
+            count_rect,
+        );
 
         // Park the terminal cursor at the finder's insertion point so the
         // user can see where typing/backspace will land. `› ` is two
         // single-cell glyphs.
         let col = (2 + finder.cursor) as u16;
-        let x = chunks[0].x + col.min(chunks[0].width.saturating_sub(1));
+        let x = query_rect.x + col.min(query_rect.width.saturating_sub(1));
         f.set_cursor_position((x, chunks[0].y));
 
         let sep = "─".repeat(chunks[1].width as usize);
@@ -348,4 +365,34 @@ fn render_match<'a>(
         spans.push(Span::styled(buf, buf_style));
     }
     Line::from(spans)
+}
+
+#[cfg(test)]
+mod count_tests {
+    use super::*;
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+
+    #[test]
+    fn query_row_shows_matched_over_total() {
+        let items: Vec<String> = ["src/main.rs", "src/lib.rs", "README.md"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        let mut finder = Finder::buffers(items);
+        for c in "src".chars() {
+            finder.apply_line_key(crossterm::event::KeyEvent::new(
+                crossterm::event::KeyCode::Char(c),
+                crossterm::event::KeyModifiers::NONE,
+            ));
+        }
+        let mut term = Terminal::new(TestBackend::new(40, 6)).unwrap();
+        term.draw(|f| draw_fuzzy_list(f, &finder, f.area(), true))
+            .unwrap();
+        let row: String = (0..40)
+            .map(|x| term.backend().buffer()[(x, 0)].symbol().to_string())
+            .collect();
+        assert!(row.starts_with("› src"), "{row:?}");
+        assert!(row.trim_end().ends_with("2/3"), "{row:?}");
+    }
 }

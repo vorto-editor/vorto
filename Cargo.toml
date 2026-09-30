@@ -37,3 +37,5 @@ unicode-width = "0.2"
 portable-pty = "0.9"
 alacritty_terminal = "0.26.0"
 similar = { version = "3", default-features = false, features = ["std"] }
+ignore = "0.4"
+nucleo-matcher = "0.3"

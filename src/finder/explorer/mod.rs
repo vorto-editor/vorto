@@ -1,7 +1,7 @@
 //! Tree-style file explorer state.
 //!
 //! Powers `<space>e`. The structure is built once at open time from
-//! `workspace_files` (which honors `.gitignore` and the dotfile skip),
+//! `explorer_files` (which honors `.gitignore` and the dotfile skip),
 //! then the user navigates by toggling expand/collapse on directory
 //! rows. A live fuzzy query box at the top filters the tree to files
 //! whose path matches — and auto-expands every ancestor directory of a
@@ -21,7 +21,7 @@ use std::path::Path;
 use std::path::PathBuf;
 
 use super::IgnoreOpts;
-use super::fuzzy::{fuzzy_match, workspace_dirs, workspace_files};
+use super::fuzzy::{FuzzyMatcher, explorer_files, workspace_dirs};
 
 use tree::build_nodes;
 
@@ -149,10 +149,10 @@ pub struct ExplorerState {
     /// rebuilt after a create/delete/rename/move.
     pub ignore: IgnoreOpts,
     /// Glob patterns marking entries as hidden. Captured at open time;
-    /// `refresh` forwards them to `workspace_files` / `workspace_dirs`
+    /// `refresh` forwards them to `explorer_files` / `workspace_dirs`
     /// so toggling `ignore.hidden` produces a consistent view.
     pub hidden_patterns: Vec<String>,
-    /// Walker / `git ls-files` cap. Surfaced here so `refresh` after a
+    /// Walker cap. Surfaced here so `refresh` after a
     /// file op rebuilds the tree with the same limit the explorer was
     /// opened under.
     pub max_items: usize,
@@ -173,7 +173,7 @@ impl ExplorerState {
         max_items: usize,
         compact: bool,
     ) -> Self {
-        let files = workspace_files(root, ignore, &hidden_patterns, max_items);
+        let files = explorer_files(root, ignore, &hidden_patterns, max_items);
         let dirs = workspace_dirs(root, ignore, &hidden_patterns, max_items);
         let nodes = build_nodes(&files, &dirs, compact);
         let mut s = Self {
@@ -203,7 +203,7 @@ impl ExplorerState {
     /// still exists; otherwise clamps to the new last visible row.
     pub fn refresh(&mut self) {
         let prev_path = self.selection().map(|n| n.rel_path.clone());
-        let files = workspace_files(
+        let files = explorer_files(
             &self.root,
             self.ignore,
             &self.hidden_patterns,
@@ -293,18 +293,19 @@ impl ExplorerState {
             let mut keep: HashSet<usize> = HashSet::new();
             // Map rel_path -> node index for ancestor lookup. Building
             // this on every keystroke is fine: the tree is bounded by
-            // the workspace_files cap (5000).
+            // the walker cap (`max_items`).
             let path_to_idx: BTreeMap<&str, usize> = self
                 .nodes
                 .iter()
                 .enumerate()
                 .map(|(i, n)| (n.rel_path.as_str(), i))
                 .collect();
+            let mut matcher = FuzzyMatcher::new(&self.query, true);
             for (i, n) in self.nodes.iter().enumerate() {
                 if n.is_dir {
                     continue;
                 }
-                if fuzzy_match(&n.rel_path, &self.query).is_none() {
+                if matcher.score(&n.rel_path).is_none() {
                     continue;
                 }
                 keep.insert(i);

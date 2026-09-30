@@ -3,10 +3,10 @@ use std::path::Path;
 mod score;
 mod walk;
 
-pub use score::fuzzy_match;
-pub use walk::{IgnoreOpts, workspace_dirs, workspace_files};
+pub use score::FuzzyMatcher;
+pub use walk::{IgnoreOpts, explorer_files, workspace_dirs, workspace_files};
 
-use score::ascii_find_lower;
+use score::{ascii_find_lower, rank_key};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FuzzyKind {
@@ -62,10 +62,19 @@ pub enum FuzzyKind {
     GitChangedFiles,
 }
 
+impl FuzzyKind {
+    /// Whether items are paths (or `path:line` labels). Helix enables
+    /// nucleo's path scoring for every picker with a file preview; the
+    /// in-buffer line picker is the only one matching free text.
+    fn matches_paths(self) -> bool {
+        !matches!(self, FuzzyKind::Lines)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct MatchItem {
     pub idx: usize,
-    pub score: i32,
+    pub score: u32,
     /// Char indices into the item haystack that the fuzzy matcher hit —
     /// used by the picker list to paint hit highlights. Empty for
     /// [`FuzzyKind::WorkspaceSearch`], where matching is against line
@@ -108,10 +117,6 @@ impl Finder {
         hidden_patterns: &[String],
         max_items: usize,
     ) -> Self {
-        // Prefer git when VCS filtering is on AND we're in a repo — it's
-        // both faster and exact (matches `.gitignore`, global excludes,
-        // etc.). The hidden filter is applied as a post-pass since git
-        // doesn't know about our dotfile convention.
         let items = workspace_files(root, ignore, hidden_patterns, max_items);
         let mut f = Self {
             kind: FuzzyKind::Files { ignore },
@@ -355,6 +360,17 @@ impl Finder {
         self.selected = self.selected.saturating_sub(1);
     }
 
+    /// Helix's picker counter: `matched/total`. Workspace search has
+    /// one candidate per hit line rather than per item, so both sides
+    /// are the hit count there (as in Helix's global search).
+    pub fn count_label(&self) -> String {
+        let total = match self.kind {
+            FuzzyKind::WorkspaceSearch => self.matches.len(),
+            _ => self.items.len(),
+        };
+        format!("{}/{}", self.matches.len(), total)
+    }
+
     pub fn selection(&self) -> Option<&MatchItem> {
         self.matches.get(self.selected)
     }
@@ -366,19 +382,22 @@ impl Finder {
             self.selected = 0;
             return;
         }
-        if self.query.is_empty() {
-            for (i, _) in self.items.iter().enumerate().take(500) {
-                self.matches.push(MatchItem {
+        // Same matcher and ordering as Helix's pickers: an empty query
+        // keeps the source order (walk order for files); otherwise
+        // nucleo score, then shorter item, then source order.
+        let mut matcher = FuzzyMatcher::new(&self.query, self.kind.matches_paths());
+        if matcher.is_empty() {
+            self.matches
+                .extend((0..self.items.len()).map(|i| MatchItem {
                     idx: i,
                     score: 0,
                     positions: Vec::new(),
                     line_hits: Vec::new(),
                     match_col: 0,
-                });
-            }
+                }));
         } else {
             for (i, item) in self.items.iter().enumerate() {
-                if let Some((score, positions)) = fuzzy_match(item, &self.query) {
+                if let Some((score, positions)) = matcher.indices(item) {
                     self.matches.push(MatchItem {
                         idx: i,
                         score,
@@ -388,8 +407,9 @@ impl Finder {
                     });
                 }
             }
-            self.matches.sort_by_key(|m| -m.score);
-            self.matches.truncate(500);
+            let items = &self.items;
+            self.matches
+                .sort_by_cached_key(|m| rank_key(m.score, &items[m.idx], m.idx));
         }
         self.selected = 0;
     }
