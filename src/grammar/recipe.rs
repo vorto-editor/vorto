@@ -317,7 +317,7 @@ pub fn builtin_recipes() -> Vec<GrammarRecipe> {
             name: "scala",
             repo: "https://github.com/tree-sitter/tree-sitter-scala",
             subpath: None,
-            rev: Some("c1189954df854977c3a52003ca8a247c5f4729ba"),
+            rev: Some("b931fcc338390925eb893d70ad070033f5856ccf"),
         },
         GrammarRecipe {
             name: "odin",
