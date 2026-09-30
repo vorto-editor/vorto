@@ -13,9 +13,9 @@
 //! only apply when the hidden filter is on (default), so the user can
 //! still flip it off with the explorer's `.` key.
 //!
-//! `max_items` caps how many files the walker / `git ls-files` post-
-//! filter will surface. Default 50_000 — enough to cover everything
-//! short of very large monorepos, while keeping the per-keystroke
+//! `max_items` caps how many files the walker will surface. Default
+//! 50_000 — enough to cover everything short of very large
+//! monorepos, while keeping the per-keystroke
 //! refilter under ~50ms in release builds. Lower it if interactive
 //! filtering feels sluggish, raise it (up to ~100k comfortably) on
 //! a fast machine.
@@ -32,9 +32,9 @@ pub struct FinderConfig {
     /// Basename glob patterns that the file picker / explorer treat as
     /// hidden. See module docs.
     pub hidden_patterns: Vec<String>,
-    /// Upper bound on how many entries the walker / `git ls-files`
-    /// post-filter will surface. Shared between files and dirs so the
-    /// explorer's tree doesn't out-grow the picker's flat list.
+    /// Upper bound on how many entries the walker will surface. Shared
+    /// between files and dirs so the explorer's tree doesn't out-grow
+    /// the picker's flat list.
     pub max_items: usize,
 }
 

@@ -54,10 +54,7 @@ fn find_root_upward_capped(start_dir: &Path, cap: &Path, markers: &[String]) -> 
         if cur == cap {
             return None;
         }
-        match cur.parent() {
-            Some(p) => cur = p,
-            None => return None,
-        }
+        cur = cur.parent()?;
     }
 }
 

@@ -144,7 +144,7 @@ impl ExplorerState {
 /// Build the DFS-ordered node list from the workspace's relative path
 /// list. We synthesize a node for every intermediate directory the
 /// files imply, then merge in `dirs` (explicit directory paths, which
-/// is how empty directories show up — `workspace_files` only sees
+/// is how empty directories show up — `explorer_files` only sees
 /// files). Within each level dirs come before files, matching the
 /// fuzzy picker's sort.
 ///

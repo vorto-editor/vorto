@@ -293,7 +293,7 @@ mod tests {
     fn toggle_hidden_surfaces_dotfile_at_root() {
         // Repro for an explorer bug report: pressing `.` in selection
         // mode should reveal a tracked-but-dotfile entry like
-        // `.gitignore`. Uses a real tmp dir so the workspace_files
+        // `.gitignore`. Uses a real tmp dir so the explorer_files
         // walker actually runs end-to-end.
         let tmp = std::env::temp_dir().join(format!(
             "vorto-explorer-dotfile-{}-{}",
@@ -469,9 +469,8 @@ mod tests {
 
     #[test]
     fn toggle_hidden_surfaces_dotfile_in_git_repo() {
-        // Same repro but inside an actual git repo, which routes
-        // workspace_files through `git ls-files` instead of the manual
-        // walker.
+        // Same repro but inside an actual git repo, where the walker
+        // applies `.gitignore` (it's ignored outside a repo).
         let tmp = std::env::temp_dir().join(format!(
             "vorto-explorer-dotfile-git-{}-{}",
             std::process::id(),
@@ -486,7 +485,7 @@ mod tests {
         std::fs::write(tmp.join("README.md"), "# test\n").unwrap();
         std::fs::create_dir_all(tmp.join("src")).unwrap();
         std::fs::write(tmp.join("src/main.rs"), "fn main() {}\n").unwrap();
-        // init + stage so .gitignore is tracked by `git ls-files --cached`
+        // init + stage so the walker sees a real git repo
         let ok = std::process::Command::new("git")
             .args(["-C"])
             .arg(&tmp)
