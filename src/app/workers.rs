@@ -225,16 +225,13 @@ impl App {
             Ok(c) => c,
             Err(e) => {
                 // Built-in defaults reference servers most users won't
-                // have installed. Stay quiet when the binary isn't on
-                // PATH; surface every other failure.
-                if !is_command_not_found(&e) {
-                    self.push_toast(Toast::fatal(format!(
-                        "lsp ({}): {}",
-                        client_key,
-                        root_cause(&e)
-                    )));
-                } else {
+                // have installed, and a server that fails to start is
+                // not actionable mid-edit — the buffer just runs
+                // without LSP. Log instead of toasting.
+                if is_command_not_found(&e) {
                     vlog!("lsp not on PATH key={} err={:#}", client_key, e);
+                } else {
+                    vlog!("lsp spawn failed key={} err={:#}", client_key, e);
                 }
                 return;
             }
