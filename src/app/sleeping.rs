@@ -163,7 +163,7 @@ impl SleepingBuffer {
             undo,
             redo,
             disk_meta: b.disk_meta,
-            disk_base: b.disk_base.map(&freeze),
+            disk_base: b.disk_base.map(freeze),
         }
     }
 
